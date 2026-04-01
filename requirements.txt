@@ -1,0 +1,22 @@
+# DARKSKY v1.2.0 — Python dependencies
+# Install with: pip install -r requirements.txt
+#
+# Required — DARKSKY will not start without these
+websockets>=11.0          # WebSocket server (browser ↔ DARKSKY bridge)
+
+# Optional — disables certain features if missing but won't crash
+numpy>=1.24               # Spectrum processing, RTL-SDR FFT, decoder support
+                          # Without numpy: RTL-SDR engine disabled, decoders degraded
+
+# Optional — only needed if using RTL-SDR direct engine (not SDRConnect)
+pyrtlsdr>=0.2.92          # RTL-SDR USB hardware driver
+                          # Requires librtlsdr installed separately:
+                          #   macOS:   brew install librtlsdr
+                          #   Ubuntu:  sudo apt install librtlsdr-dev
+                          #   Windows: see zadig.akeo.ie for USB driver
+
+# Python version requirement
+# Minimum: Python 3.9
+# Recommended: Python 3.11+
+# All other imports (asyncio, json, logging, platform, webbrowser, etc.)
+# are Python standard library — no additional installation needed.
