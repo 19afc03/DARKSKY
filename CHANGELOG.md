@@ -1,0 +1,2998 @@
+# DARKSKY NEXUS w033 — Build History
+
+WebSocket bridge and signal intelligence companion for SDRplay RSPdx and
+compatible SDRplay receivers. Interfaces with SDRConnect via WebSocket.
+Also supports RTL-SDR USB dongles via rtl_tcp (direct, no SDRConnect needed).
+
+© 2025 Jon Nicol & Claude / Anthropic — Freeware, personal & educational use.
+
+w030 is forked directly from w026 — **not** from w029. w027/w028 were
+Jon's own dockable-window UI experiments (not wanted for NEXUS going
+forward); w026 is the actually-deployed baseline. w029 turned out to be a
+mis-fork (see below) and is being superseded by this folder. Everything
+below "## w030" is new; everything under "## Inherited history" is
+unchanged from `../w026/CHANGELOG.md` (that file remains the authoritative
+copy for the full w0.0.5→w0.2.6 history) — reproduced here for continuity
+since `w030_NEXUS.py`'s docstring only carries the current version's
+summary.
+
+---
+
+### Added (2026-07-20) — rtl_433 device autodetection (rtlsdr vs SDRplay)
+
+User asked how to point rtl_433 at SDRplay hardware (per the ISM panel's own info text, "set device to a SoapySDR driver name"), then asked whether this could be autodetected instead of hand-set. It turned out the backend already fully supported an explicit override (`rtl433_start`'s `device` field → `state['rtl433_device']` → `-d driver=<name>`), matching HFDL/VDL2's own `hfdl_device`/`vdl2_device` pattern — but there was no frontend control for it at all, and the hardcoded default was always `"rtlsdr"` (a plain dongle), unlike HFDL/VDL2 which both already default to `"sdrplay"`.
+
+**Added:** `_detect_rtl433_device()` (`w033_NEXUS.py`), called by `_launch_rtl433()` whenever `rtl433_device` is left at its new default of `"auto"`. Resolution order: (1) a real RTL-SDR dongle actually plugged in, detected via a quick `rtl_test -t` probe, always wins — this preserves the common "cheap dedicated dongle running rtl_433 while the SDRplay does everything else" setup with zero config; (2) otherwise, if NEXUS itself currently has an SDRplay connected (`state['active_device']`, populated from SDRConnect's own device-info report), fall back to `driver=sdrplay` automatically — covers the single-SDRplay-only setup without ever touching a config field; (3) otherwise fall back to the historical `"rtlsdr"` default. The chosen device and reason are logged (`rtl_433: autodetected device=... (...)`) at launch. Explicitly setting `device` on the `rtl433_start` command still overrides autodetection entirely — this only changes what happens when nothing more specific has been requested.
+
+Updated the ISM Sensors panel's info text to describe the new automatic behavior instead of the old manual-only instructions.
+
+---
+
+### Fixed (2026-07-20) — ISM (rtl_433) quick-tune buttons didn't tune the main VFO
+
+User report: "ism quick tune buttons do not tune vfo." The three ISM frequency chips (433.92 / 315.0 / 915.0 MHz) in the Decoders → ISM Sensors panel called `rtl433SetFreq(mhz)`, which only ever set `_rtl433Freq` — the frequency rtl_433's own independent subprocess/device uses next time it's (re)started — and never touched the main NEXUS VFO/waterfall at all. Every other quick-tune control in NEXUS (band-plan strip, Bands panel, WSPR band buttons) calls `tuneVFO()`/`_tuneTo()` to move the main receiver's LO so the clicked frequency is actually visible on screen; this one silently didn't. Same category of bug as the earlier FT8 quick-tune-not-retuning-SDR-LO fix.
+
+**Fix:** `rtl433SetFreq()` now also calls `tuneVFO(mhz)`. rtl_433 itself still runs its own independent device, so this doesn't change what rtl_433 decodes — it makes the main spectrum/waterfall jump to the clicked ISM frequency too, so the raw RF activity NEXUS itself is receiving there is actually visible. Frontend-only fix — hard-reload the browser to pick it up, no Python restart needed.
+
+---
+
+### Fixed (2026-07-20) — AIS: DC/LO-leakage spike on the tuned AIS channel corrupting decode
+
+User report: "i have dc spike on the ais freq. does sdrplay have iq correction or can we introduce this to nexus." Investigated whether SDRplay's hardware DC-offset/IQ-imbalance calibration (present in the API, and already applied automatically by SDRConnect, which manages the RSPdx here) would cover this — it doesn't, fully: that calibration zeroes the *receiver's own* internal DC term, but on any zero-IF/direct-conversion SDR, whatever sits exactly on the tuned LO frequency always shows up as a residual spike at 0 Hz baseband, no matter how good the calibration is. Tuning directly onto 161.975/162.025 MHz (as needed to decode AIS) puts that spike right on top of the channel of interest.
+
+**Root cause (confirmed by reading the code):** both `AisDecoder.process_iq()` and `AisDecoderDireWolf.process_iq()` are fed the raw Full-IQ tap (`_fiq_c`) with zero offset-mixing — unlike RTTY/CW, which get a `vfo_offset_hz` correction, AIS decodes straight off whatever's sitting at the hardware LO center, with no DC handling anywhere in the front end. Because the FM discriminator both decoders use is a nonlinear product (`s[n] * conj(s[n-1])`), a strong stationary DC term doesn't just add a fixed bias — it beats against the real GMSK signal and can dominate the discriminator output, corrupting the zero-crossing PLL/bit-slicer well before CRC gets a chance to reject anything. This is the same class of issue rtl-ais's own README warns about (advising against center-tuning directly on the channel of interest) — this codebase's `AisDecoder` is a near-literal port of rtl-ais's receiver.c but never carried over any DC handling.
+
+**Fix:** added a persistent one-pole complex DC-block high-pass filter (`y[n] = x[n] − x[n-1] + R·y[n-1]`) to both decoders, applied to the raw IQ *before* the FM discriminator. `R` is recomputed from the actual `sr` on every sample-rate change so the cutoff stays fixed at ~50 Hz regardless of what rate the Full-IQ tap is running at (it varies a lot, unlike the multimon-ng path's fixed-22050Hz DC block elsewhere in this file) — comfortably below AIS's 9600-baud/±4.8kHz GMSK signal band, so the spike is removed without meaningfully touching real signal energy. Verified standalone: a synthetic strong DC term (fixed complex offset) is suppressed from full amplitude down to ~1e-16 after settling, while a 1kHz test tone standing in for real signal content loses <1% of its amplitude through the same filter.
+
+**Requires a Python restart** (backend-only fix). Not yet re-verified against a live DC-spike capture — the standalone numerical test confirms the filter design behaves correctly (kills a stationary term, passes signal-band content), but this hasn't been confirmed against the user's actual RF yet.
+
+---
+
+### Fixed (2026-07-20) — Logbook "SPOTS PER BAND" always shows Unknown, FREQ column near-zero
+
+User report: in the REPORTING – LOGBOOK tab, every FT8 auto-populated entry's FREQ (MHz) column showed implausible near-zero values (0.0002–0.0024 MHz instead of ~14.074 MHz), and the "SPOTS PER BAND" stats panel bucketed all 504 entries as "Unknown" — despite the real band ("20m") clearly being known, since it rendered correctly as plain text in the same rows' Notes column. User's own diagnosis pointed the right direction: "we already click the band in the quicktune."
+
+**Root cause:** `_ft8DecodeToLogEntry()` (`DARKSKY_NEXUS_w033.html`) built each LogEntry's `frequency` field as `d.freq / 1e6`. `d.freq` is the FT8 decode's AUDIO TONE offset within the passband (~200–2900 Hz) — not an absolute RF frequency — so dividing it by 1e6 produced a near-zero "MHz" value instead of the real dial frequency. This exact distinction was already documented (and handled correctly) a few hundred lines below, in the PSK Reporter forward code added earlier this cycle, which computes `dialHz + d.freq` before treating the result as RF Hz. The Notes column still showed the correct band because `band` there comes from `getCurrentBandName()` — the quick-tune band selection, a completely separate and already-correct lookup — but the stats panel and the band filter dropdown both bucket by `logBandFromFreq(e.frequency)`, reading the broken `frequency` field, so they never matched any band range and always fell back to "Unknown."
+
+**Fix:** `_ft8DecodeToLogEntry()` now adds the current dial/VFO frequency (`DS.vfos.a.freq`, falling back to `DS.liveCenter`) to `d.freq` before converting to MHz, matching the working PSK Reporter calculation. New entries logged after this fix will carry the correct FREQ and band; entries already in the Logbook from before the fix keep their stored (wrong) frequency value until re-logged or manually corrected.
+
+---
+
+### Fixed (2026-07-20) — macOS build fails looking for w032
+
+User report: running `build_macOS.sh` in w033 failed looking for w032 files. Root cause: when w033 was forked from w032, only the docs build scripts were updated for the new version ("Fork docs build scripts w032→w033" — see below); the entire `build/` folder (build_macOS.sh, build_Windows.bat, DARKSKY_NEXUS_macOS.spec, DARKSKY_NEXUS_Windows.spec, DARKSKY_NEXUS_w032.iss, BUILD_NOTES.md, version_info.txt) was never touched and still referenced `../w032_NEXUS.py` and `../DARKSKY_NEXUS_w032.html` — files that don't exist in the w033 folder (only `w033_NEXUS.py`/`DARKSKY_NEXUS_w033.html` do), so PyInstaller's Analysis step failed immediately.
+
+**Fix:** replaced every `w032` reference with `w033` across all seven build/installer files, bumped the dotted version 0.3.2 → 0.3.3 to match, and renamed `DARKSKY_NEXUS_w032.iss` → `DARKSKY_NEXUS_w033.iss`. Verified: both `.spec` files and `version_info.txt` pass `py_compile`, `build_macOS.sh` passes `bash -n`, and every remaining path reference now points at files that actually exist in the w033 folder. w032 itself untouched.
+
+---
+
+### Fixed (2026-07-20) — RTTY tone scope still jumping (worse) — real root cause: two disagreeing audio_fft broadcasters
+
+The confidence-gate fix above (previous entry) stopped the auto-detect mark hopping, but user reported the tone scope was still jumping — "worse" — after restarting NEXUS. Live instrumentation (polling `DS.audioFftMeta` every 250ms while RTTY ran) caught it directly: the frontend was receiving *two different* `audio_fft` broadcasts in alternation — one steady one at `carrier_hz≈mark, sr=48000, 256 bins` and an intermittent one at `carrier_hz=0, sr=50000, 492 bins` — flickering between them every couple of seconds.
+
+**Root cause:** the Full-IQ `audio_fft` broadcaster (both its base and zoom paths, `w033_NEXUS.py`) only ever re-centered its output for CW (`if active_decoder_slug == 'cw' and cw_dec.active`). There was no equivalent branch for RTTY. When RTTY was the active decoder instead, the broadcaster fell through reporting the raw VFO-offset-from-hardware-LO as `carrier_hz` (0 whenever the VFO sits exactly on the hardware center, as in the live repro) instead of the RTTY mark tone the Compact-mode broadcaster (`_carrier_hz_r`, a separate, correct code path) already centers on. Because an nRSP-ST device streams Compact-mode audio continuously *regardless of display mode* (the same fact behind this session's earlier FT8 Full-IQ regression), both broadcasters run simultaneously and race — the frontend's single RTTY tone scope has no way to prefer one over the other, so whichever packet lands last wins, and they disagree about where the center of the window is, at what sample rate, and how many bins.
+
+**Fix, take one:** the Full-IQ broadcaster (base and zoom paths) now recognizes RTTY the same way it already recognized CW — shifting the raw hardware-LO-centered IQ to VFO-relative baseband, then reporting `carrier_hz` as the live RTTY mark tone (matching the Compact-mode broadcaster's convention) instead of 0.
+
+**Still jumping after restart — fix, take two:** live-instrumented `DS.audioFftMeta` again post-restart and confirmed take-one's centering fix WAS active (`carrier_hz` now showed the real mark tone, not 0) — but the two broadcasters were still alternating every ~1s, because they still differ in native sample rate and bin count (48000/256 bins for Compact vs `_fiq_afft_sr`/~512 bins for Full IQ), so switching between them still visibly changed the trace's resolution/shape even with the same centre. Realigning *what* they reported wasn't enough — they're still two independent, competing sources for one on-screen widget. Since an nRSP-ST device's Compact-mode broadcast already covers CW/RTTY correctly by itself (same fact behind both bugs above), the Full-IQ audio_fft broadcast (both paths) is now suppressed entirely whenever `_is_nrsp_st` is true — it now only fires for direct-USB devices (e.g. RSPdx) that get no Compact-mode stream at all, mirroring the exact device-type distinction the FT8 Full-IQ fix already established. Verified via `py_compile`; w032 untouched (hash unchanged). Needs a NEXUS restart to take effect.
+
+---
+
+### Fixed (2026-07-20) — RTTY tone scope waterfall/spectrum "jumping" after restart
+
+User report (after restarting NEXUS to pick up the fix below): "look at live tonescope waterfall/spectrum it's jumping and it didn't do that before." Screen recording confirmed the tone scope's M (mark) marker hopping from 1022 Hz to 899 Hz mid-session with no user action, dragging the whole displayed trace along with it.
+
+**Root cause:** `rttyHandleAutodetect()` applied *every* successful auto-detect reply unconditionally — overwriting the live mark/space and re-sending `rtty_set_params` to retune the decoder on every ~1s capture cycle, regardless of how weak that individual capture's confidence was. On a marginal real signal, the SNR gate added by the fix above only asks "is this above the noise floor at all" (confirmed live: genuine confidence as low as ~27%), so successive 1-second capture windows can each land on a slightly different candidate peak pair. Every accepted-but-weak reply yanked the tone scope's markers (and the live decoder's actual tuning) out from under a perfectly good existing lock.
+
+**Fix:** retuning is now gated on the same 0.45 "not WEAK" confidence boundary already shown in the on-screen quality label. A weak/marginal reply still updates the status text (so the user can see WEAK/Searching) but no longer touches the live mark/space or re-tunes anything until a confident-enough reply arrives — holding the last good lock steady instead of chasing noise.
+
+---
+
+### Fixed (2026-07-20) — RTTY INTERNAL auto-detect confidently "locks" onto noise, producing scrambled decoded text
+
+User report: "rtty internal is running in chrome... decoded text is scrambled." Live repro with Auto-detect baud & shift enabled: the detector locked onto mark=455 Hz/space=302 Hz/100 Bd at a displayed "85% confidence, Signal locked, GOOD" — while the live decoder's own separate squelch simultaneously reported NO SIGNAL on the same audio. Two disagreeing answers to "is there a signal here" from the same feature.
+
+**Root cause, two bugs stacked:**
+
+1. `RttyDecoder.analyse()` (the auto-detect algorithm) only ever checked *relative* fit — is the second spectral peak at least 20% of the first, do the bit-run lengths statistically line up with a standard baud rate — never whether the detected mark/space tones carry any real power above the noise floor. A pair of peaks right at the 300 Hz edge of its own search band (almost certainly a filter-edge artifact, not real signal) satisfied both relative checks and was reported as a confident detection.
+2. The frontend's `rttyHandleAutodetect()` read `msg.confidence || 0.85` — but the backend never actually included a `confidence` field in its reply, so this line silently defaulted to a **hardcoded 85% on every single response**, real detection or not. The "85% / GOOD / Signal locked" UI was not measuring anything.
+
+**Fix:** `analyse()` now gates on absolute SNR using the same spectral-noise-reference technique (`_goertzel_power` at `mark_hz + 2.5×shift`) the live decoder's own squelch already uses, and returns a genuine confidence score blending timing-fit quality with measured SNR margin. The backend now sends this real value; the frontend reads it directly (`msg.confidence ?? 0`, no more silent 85% fallback). Verified with a synthetic test: a strong real signal now scores ~0.86 confidence, a noise pattern matching the exact frequencies from the live bug report is correctly rejected (previously silently accepted), and a weak-but-real signal scores a moderate ~0.57 rather than a flat 85% regardless of quality.
+
+---
+
+### Fixed (2026-07-20) — FT8 INTERNAL zero decodes in Full IQ, again — RSPdx/direct-USB regression from yesterday's fix
+
+Yesterday's fix (below, "FT8 INTERNAL still 0 decodes...") removed Full IQ's
+own FT8 audio broadcast entirely, reasoning that SDRConnect's Compact-mode
+audio broadcast supplies the FT8 buffer in every display mode regardless.
+That's true for networked nRSP-ST units, but not for a directly-connected
+RSPdx (`state['device_type'] == 'RSPdx'`, not `'nRSP-ST'`) — SDRConnect
+never sends a Compact-mode audio stream for that connection type at all, in
+any display mode. Full IQ is the *only* mode a direct RSPdx has, so removing
+its FT8 broadcast left it with zero path to the decoder.
+
+Confirmed live: a Chrome-side packet counter on `handleBinaryFrame` showed
+zero `0x02` (audio) frames over a 15+ second FT8-enabled window with a
+strong on-screen FT8 signal and `device_type: "RSPdx"`.
+
+**Fix:** restored the Full-IQ branch's `_ft8_broadcast_audio()` call, this
+time correcting the actual bug the original (pre-2026-07-19) version had —
+mixing `_fiq_c` down by `_fiq_vfo_off` (shifting the tuned VFO frequency to
+DC) before taking the real part, instead of broadcasting `_fiq_c.real`
+un-shifted (hardware-LO-centered, not VFO-centered — the original root
+cause). Verified with a synthetic-tone test: a tone placed 1500 Hz above the
+tuned frequency lands at exactly 1500 Hz in the demodulated output. Both
+device types now get a working FT8 audio feed in Full IQ: nRSP-ST via the
+Compact-mode broadcast (unaffected by this change), RSPdx via this
+corrected Full-IQ broadcast.
+
+Also noted in passing, now fixed below: the "Full IQ (USB direct)" status
+badge shows whenever `device_type` is merely known and isn't literally
+`'nRSP-ST'` — it doesn't verify an actual direct-USB connection, so it can
+display for a networked/remote RSPdx (e.g. accessed via SSH to a remote
+host, as in this user's setup) just as readily as a genuinely local one.
+
+---
+
+### Fixed (2026-07-20) — misleading "Full IQ (USB direct)" status badge wording
+
+Follow-up to the entry above. Relabeled to **"Full IQ (only mode)"** and
+reworded its tooltip to state the fact this badge can actually verify — that
+SDRConnect exposes no Compact/IQ-Lite mode selector for this device type, so
+it's always genuinely Full IQ once connected — without implying a literal
+local USB cable, which the underlying check (`device_type` known and not
+`'nRSP-ST'`) never actually confirms. No logic change; the badge still
+appears under the same condition, just describes what that condition
+actually means.
+
+---
+
+### Added (2026-07-19) — REPORTING tab: Logbook for SWL reception reports, FT8 decodes, and mission-based logging (w033 only)
+
+New first-class tab (📒 REPORTING) for capturing every loggable event —
+manual entries and auto-populated FT8 decodes alike — not scoped to ham-radio
+QSOs. Originally spec'd assuming a Vue 3 + Tailwind + Base44-entity stack;
+w033 has none of that (single Python backend + single HTML/vanilla-JS
+frontend, no build step), so the feature was implemented natively instead,
+reusing every existing convention in the app rather than introducing a new
+framework:
+
+- **Backend** (`w033_NEXUS.py`): `LOGBOOK_FILE` JSON persistence
+  (`darksky_logbook.json`), mirroring the bookmarks load/save pattern. New WS
+  commands `log_list`, `log_save` (upsert by id), `log_delete`,
+  `log_bulk_save` (FT8 bulk import, replies with `log_bulk_result`). Full
+  list sent on every browser connect, same as bookmarks.
+- **Frontend**: `#tab-reporting` panel — sortable/filterable table (time,
+  callsign, frequency, mode, SNR, grid, mission, notes), search box,
+  mode/band/date filters, mission-tag filter chips (`LOG_MISSIONS` palette:
+  FT8/HF Utility/Airband/Marine VHF/Broadcast/AIS/SIGINT/General SWL),
+  pagination, and a collapsible stats panel (spots/band, SNR distribution,
+  DX-distance histogram, spots/mission — all dependency-free bar/histogram
+  rendering, no chart library).
+- **Add/Edit modal + delete confirmation**: reuses this session's
+  bookmark-popup bugfixes (synchronous focus, mousedown+click backdrop-close
+  guard, global-keydown-guard on the popup's own open state) from the start.
+  Ctrl+N opens the add modal from anywhere in the app.
+- **Export**: ADIF (.adi) and CSV, both scoped to the currently filtered/
+  visible rows.
+- **FT8 auto-populate**: `appendFT8Decode()` is wrapped (not edited) to
+  mirror every raw decode into a rolling `ft8RecentDecodes` buffer; "⭳
+  Populate from FT8" converts new (deduped) decodes into log entries using
+  the app's existing geo/parsing helpers (`extractFT8Callsign`,
+  `extractFT8Grid`, `callsignToCountry`, `gridToLatLon`, `_haversineKm`,
+  `_hfBearing`, `getCurrentBandName`, `HF_LOC`) — no duplicate geo/parsing
+  code added server-side. Country, band, distance, bearing, dt, and the raw
+  FT8 message are folded into the entry's notes field.
+
+Confirmed not to touch `w032_NEXUS.py` (md5 unchanged throughout:
+`038252cbc1e9643dc48177ea21c5d81a`). Both files verified via `py_compile`
+and a Node.js syntax check of the extracted inline script.
+
+---
+
+### Fixed (2026-07-19) — FT8 INTERNAL still 0 decodes in Full IQ after the sample-rate fix (actual root cause: wrong signal, not just wrong rate)
+
+Follow-up to the sample-rate entry directly below, after the user reported
+the resample fix alone didn't resolve it ("no decodes coming through
+despite fix"). The sample-rate mismatch was real and worth fixing, but
+wasn't the actual blocker — reinstalled a live Chrome-side hook on
+`ft8HandleAudioFrame()` and found incoming 0x02 audio frames alternating
+1:1 between two completely different streams while Full IQ was active:
+one near-silent with a variable length (~4500-6100 samples), one healthy
+with a constant 960-sample length and real peak amplitude. That's two
+distinct broadcasts landing in the same buffer, not natural variance in
+one.
+
+Root cause: Full IQ's `_ft8_broadcast_audio(_rcap_real, ...)` call site
+sends `_fiq_c.real` — the real part of Full IQ's wideband complex baseband
+IQ, centered on the **hardware LO**, not the tuned VFO (see `_fiq_vfo_off`
+a few lines below it, which RTTY/the CW skimmer pool/AIS all have to
+explicitly correct for when using this same `_fiq_c`). It was never a
+demodulated single-channel USB audio signal, so FT8's tones don't land
+anywhere near the 200-3000 Hz band `ft8ts` searches — no amount of
+resampling fixes that. Meanwhile SDRConnect turns out to keep sending its
+own correctly VFO-centered, already-demodulated audio (the same stream the
+Compact-mode `t == 4` branch broadcasts from) continuously, regardless of
+which display mode the UI has selected — so that correct stream was
+*already* reaching the browser the whole time, just getting scrambled
+together with Full IQ's irrelevant raw-IQ contribution in the single
+shared `ft8AudioBuffer`.
+
+Confirmed conclusively live: with everything else unchanged (same VFO,
+same USB mode, same FT8-internal session), switching the engine mode from
+Full IQ to Compact produced a real decode within one cycle
+(`IU7BSQ/P FV9MQR/P R JL76`, France, -22 dB). Fix: removed the Full IQ
+branch's `_ft8_broadcast_audio()` call entirely (and the now-unused resample
+cache from the first fix attempt) — Compact mode's broadcast already
+supplies clean audio to the FT8 buffer independent of Full IQ, so FT8
+internal should now work correctly in Full IQ mode too, not just Compact.
+Not yet re-verified live in Full IQ after this second fix (needs another
+server restart); the Compact-mode decode above is what's actually been
+confirmed working end-to-end so far. w033 only.
+
+---
+
+### Fixed (2026-07-19) — FT8 INTERNAL decoder never decodes in Full IQ mode (silently wrong sample rate)
+
+User report: "ft8 internal no longer decodes when running despite strong
+signal incoming." Reproduced live: Full IQ mode @ 250 kSPS, tuned to
+14.074.000 USB, strong FT8 traffic clearly visible in the mini-scope
+(multiple simultaneous tones, +6 to +12 dB SNR) — the internal ft8ts
+decoder ran every 15s cycle (confirmed `ft8DecodeEnabled`, `ft8WorkerReady`,
+full 720,000-sample buffer each cycle) but consistently reported 0 decodes.
+
+Root cause: Full IQ's audio-tap sample rate (`_fiq_afft_sr`) is variable —
+chosen to land as close to 48kHz as possible *without going below it* (see
+the decimation-factor logic added for the CW/RTTY tone-scope resolution
+fix), so it's only exactly 48000 Hz by coincidence. At 250 kSPS it lands on
+50000 Hz instead (dec factor 5); at 62.5 kSPS it's 62500 Hz (no decimation
+at all — 30% off). `_ft8_broadcast_audio()`'s wire format does embed the
+real sample rate in its header, but the browser-side consumer
+(`ft8AudioTap()` / the worker source built in `loadFT8Worker()`, in
+`DARKSKY_NEXUS_w033.html`) never reads it back out — it hardcodes a 4:1
+48000→12000 decimation and always tells `ft8ts`'s `decodeFT8()`
+`sampleRate: 12000`. Compact mode and IQ Lite both sit at a fixed, exact
+48000 Hz (`DECODER_SR`), so this mismatch was invisible there — only Full
+IQ's variable-rate decimation exposes it. Even a ~4% sample-rate error
+shifts FT8's whole audio passband enough to break Costas-array sync,
+dropping every decode despite strong, clearly-visible tones.
+
+Fixed backend-side rather than in the browser: at the Full IQ
+`_ft8_broadcast_audio()` call site (the same real IQ (`_rcap_real`)
+already computed for the RTTY capture feed just above it), resample to a
+true 48000 Hz via `scipy.signal.resample_poly()` (rational ratio from
+`Fraction(48000/_fiq_afft_sr).limit_denominator(1000)`, cached and only
+recomputed when the hw sample rate actually changes) before handing it to
+`_ft8_broadcast_audio()`. This keeps the 48000 Hz contract the browser
+worker assumes true for every caller, without needing to touch the
+worker's decimation/rate-handling logic at all. Falls back to the old
+(rate-mismatched) behaviour if scipy isn't available, matching this file's
+existing no-scipy degraded-mode pattern elsewhere. Verified the resample
+math directly (`resample_poly` at the computed up/down ratios for 62.5
+kSPS, 250 kSPS, 500 kSPS, and 2 MSPS all land on exactly 48000 samples/sec
+of output); not yet re-verified against a live decode (needs the user to
+restart the Python server, since this is a backend/`.py` fix — the
+in-browser mini-scope showing tones isn't enough to confirm actual
+decodes, that requires a full 15s cycle with the fix loaded). w033 only.
+
+---
+
+### Fixed (2026-07-19) — Bookmark popup also closed on an overshot text-selection drag (w033 only, follow-up to the focus-race fix above)
+
+Follow-up live report, after confirming (via hard refresh) that the
+focus-race fix above was working: "changed the text in the first line,
+selected all the text in the second line, and the dialogue box closed."
+Narrowed down live: Tab-navigating between the three fields works fine,
+and typing/editing in all three fields (already re-verified after the
+focus-race fix) works fine — only a text-*selection* gesture (drag-select
+or triple-click, i.e. what "select all" in a short text field usually
+looks like physically) reproduces a close.
+
+Root cause: `#bm-popup-overlay`'s `onclick="if(event.target===this)
+closeBookmarkPopup()"` closed the popup whenever a `click` event's target
+was the backdrop itself — `#bm-popup-box`'s own `onclick="event.
+stopPropagation()"` normally prevents this for ordinary clicks on the
+fields, but only because those clicks' *target* is inside the box to
+begin with, so the event never reaches the backdrop's own handler via
+bubbling. A selection drag that starts inside the (fairly narrow, 320px)
+box but overshoots past its edge before the mouse is released ends up
+with the browser's synthesized `click` event targeting the *backdrop*
+directly (since that's where the mouseup landed) — box's stopPropagation
+never runs for that event at all, because the event's target was never a
+descendant of box in the first place. From the old code's perspective
+this was indistinguishable from a genuine "click outside to dismiss."
+
+Fixed by requiring both the `mousedown` *and* the `click` to have
+targeted the backdrop before closing: added `onmousedown="window.
+_bmOverlayMousedownOnBackdrop = (event.target === this)"` to the overlay,
+and changed its `onclick` to additionally check that flag. A real
+dismiss-click satisfies both (mousedown and click both land directly on
+the backdrop); an overshot selection-drag that starts inside the box
+(mousedown target = an input, not the backdrop) no longer does, even
+though its terminating click event's target happens to be the backdrop.
+
+Not yet re-verified live — the Claude in Chrome extension disconnected
+mid-session before this fix could be retested the same way the focus-race
+fix was (open popup, reproduce the exact reported gesture, confirm no
+close). w032 confirmed byte-identical (md5 unchanged) — w033-only.
+
+---
+
+### Fixed (2026-07-19) — Bookmark popup: typed keystrokes leaked to global keyboard shortcuts instead of the name field (w033 only)
+
+Live-reported: "when i press the bookmark button and attempt to enter
+text, it closes unexpectedly." Reproduced directly in a connected live
+session: clicking the ⭐ Bookmark button opens the popup correctly, but
+typing "test bookmark" immediately after did not appear in the Name field
+at all — instead it opened the Signal Radar modal (the 'r' in "bookmark")
+and the Bands panel (the 'b'), i.e. the keystrokes were being consumed by
+`window.addEventListener('keydown', ...)`'s single-key shortcut switch,
+not the popup's focused input.
+
+Root cause: `openBookmarkPopup()` set the overlay visible
+(`style.display = 'flex'`) and then deferred focusing the name field via
+`setTimeout(fn, 0)`. That created a real window between the popup
+becoming visible and the input actually receiving focus. Any keydown
+landing in that window — fast typing, or a key auto-repeating right after
+the click — still saw `document.activeElement` as the Bookmark button (or
+`<body>`), not the input, so the shortcut switch's activeElement guard
+didn't catch it and the keystroke fell straight through to shortcuts like
+'r' (Radar) and 'b' (Bands panel). Confirms this general class of bug
+already seen elsewhere this session (state not syncing until a specific
+event fires) can also show up as a UI *input* race, not just a *display*
+one.
+
+Fixed two ways: (1) `openBookmarkPopup()` now calls `.focus()`
+synchronously right after setting `display:flex`, instead of deferring it
+— Chrome allows focusing an element the instant it's `display`-visible,
+so the `setTimeout(0)` was pure unneeded risk, not a required delay; (2)
+added a guard at the top of the global keydown handler —
+`if (document.getElementById('bm-popup-overlay')?.style.display ===
+'flex') return;` — mirroring the existing `cmd-overlay` check just above
+it, so shortcuts are blocked by the popup's own open/closed state rather
+than relying on focus timing at all (defense in depth against any future
+similar race).
+
+Verified live: reran the exact repro (open popup, immediately type "test
+bookmark") after the fix — the text now appears correctly in the Name
+field (appended to the auto-prefilled "Lightning Sferics" guess right
+where the cursor was) and neither Signal Radar nor the Bands panel opened.
+w032 confirmed byte-identical (md5 unchanged) — w033-only.
+
+---
+
+### Fixed (2026-07-19) — SSTV caused progressively worsening spectrum/waterfall stutter/freeze when no VIS header ever locked (w033 only)
+
+Live-reported: "sstv decoder running. spectrum and waterfall stutter/freeze."
+Root cause: `SstvDecoder._scan_for_vis()`'s existing "memory bound" (trims
+`self._freq_buf` once `self._searched_upto` grows past 5s) only fires once
+`_searched_upto` has advanced past a leader-tone run that was actually
+found — either locked into a real header or conclusively rejected. If the
+tuned signal never produces a matching 1900Hz leader tone at all (the
+`near_leader`/`all_leader_runs` check comes back empty every single pass —
+the ordinary case while SSTV sits on a channel with no valid transmission
+yet, or one that never arrives), `_searched_upto` stays at 0 forever and
+that trim never triggers. `_freq_buf` then grows unbounded, and every
+`process_iq()` call rescans the *entire* buffer for the leader tone — an
+O(n) `np.abs(...)` pass with n growing every call, so total cost is O(n²)
+the longer SSTV runs without locking a header. That scan runs
+synchronously inline with the exact code path (all 5 of `sstv_dec`'s call
+sites) that also computes and broadcasts the spectrum/waterfall FFT bins,
+so it directly delays them — explaining a stutter that gets progressively
+worse over time rather than a one-off glitch.
+
+Fixed with a hard cap on `_freq_buf`'s length, independent of
+`_searched_upto`: added a check right after the buffer is appended to in
+`process_iq()` that trims it to at most 8 seconds (`_SSTV_SR * 8`,
+comfortably longer than one nominal ~620ms VIS header so a genuine header
+in progress is never cut off), adjusting `_searched_upto` down by the same
+trim amount (clamped to 0).
+
+Verified via a stress test (not just synthetic single-header decode, like
+the original SSTV validation) — extracted the current `SstvDecoder` fresh
+from the file and fed it 2 minutes of pure phase noise (chunk-by-chunk,
+20ms chunks at 48kHz, never producing a valid leader tone) through
+`process_iq()`, timing every call. Before this fix, `_freq_buf` would grow
+to the full 2 minutes' worth of samples (~5.76M) with per-call cost
+climbing the whole time; after the fix, the buffer hits its 384,000-sample
+(8s) cap by chunk 500 (~10s in) and stays flat for the remaining ~110s of
+the run, with per-call cost settling at roughly 1ms instead of continuing
+to climb. w032 confirmed byte-identical (md5 unchanged) — w033-only.
+
+---
+
+### Fixed (2026-07-19) — AIS Idle/Active badge and Start/Stop buttons never synced from the server on connect (w033 only)
+
+Live-diagnosed via a fresh browser tab connected to a real, running session
+(Full IQ, 250kSPS, tuned to 161.975 MHz, `ais_active: true` confirmed
+directly from the server's own state) — the AIS tab still showed
+"○ Idle" / "▶ Start" and the top-bar decoder badge said "No decoder
+active", even though AIS was genuinely running. Root cause: `applyState()`
+(the handler for the server's `get_state`/`state` snapshot, which already
+carries `ais_active` on every connect and on most state-changing events)
+never read that field at all — `_decoderUpdateUI()` already knows how to
+flip `#dec-badge-ais`/`#dec-start-ais`/`#dec-stop-ais`, it just was never
+called from `applyState()`. Fixed by adding a check at the end of
+`applyState()`: `if (s.ais_active !== undefined) _decoderUpdateUI('ais',
+s.ais_active)`. Deliberately does not touch `_activeDecoderSlug` (the
+"only one decoder exclusively active" tracker), since `"type":"state"` is
+broadcast constantly during normal use — on VFO tune, mode change, sample-
+rate change, and dozens of other events, not just once on connect — so
+forcing `_activeDecoderSlug` to `'ais'` on every one of those broadcasts
+would fight with switching to a different decoder locally while AIS keeps
+running server-side in the background.
+
+Verified live: reloaded the connected browser tab from scratch — badge
+and buttons now correctly show "● Active" / "■ Stop" and the top-bar
+badge shows "● AIS active" immediately on load, with zero clicks. Other
+Full-IQ/external decoders (`wefax_active`, `pocsag_active`, `adsb_active`,
+etc.) likely have the identical gap — none of them are read in
+`applyState()` either — but this fix is scoped to AIS only, since that's
+what was reported and verified live; a future pass could generalize it to
+the rest. w032 confirmed byte-identical (md5 unchanged) — w033-only.
+
+Separately (not a bug, just a finding from the same live session): AIS
+was confirmed genuinely active with correct settings but had decoded zero
+vessels so far. The waterfall showed real burst-like activity on both AIS
+channels, but frames_seen/frames_crc_ok — the diagnostic that would show
+whether the demodulator is finding candidate packets that fail CRC versus
+finding nothing — is only ever `log.info()`'d server-side, never broadcast
+over the WebSocket, and the mounted log-folder copy of `darksky_nexus.log`
+turned out to be stale (last entry July 17), so this couldn't be confirmed
+remotely. Left as an open item for the user to check directly in their
+own terminal output.
+
+---
+
+### Changed (2026-07-19) — Decoders tab redesigned as a category-tab + button-grid panel, matching the bands dropdown (w033 only)
+
+The DECODERS tab's old dropdown was a click-to-open vertical list: 23
+`<div class="dropdown-item">` rows grouped under 3 collapsible headers
+(COMPACT/FULL IQ/EXTERNAL). Per user request ("redesign the layout of the
+decoders tab to match the layout and style of the bands dropdown ie
+buttons"), it's now a floating panel — opened via `toggleDecodersPanel()`,
+rendered by `_renderDecoderPanel()` from a new `DECODERS_DB` table — with
+category tabs across the top (COMPACT/FULL IQ/EXTERNAL, one visible at a
+time) and a 2-column grid of `.dec-nb-btn` buttons below, the same
+structural pattern `_renderBandPanel()`/`BANDS_DB` already used for the
+bands dropdown. Differences from the bands panel are deliberate: 560px
+wide (vs 500px) and a 2-column grid (vs 6-column), since decoder names run
+much longer than a frequency label ("Olivia / Contestia / MFSK / Hell /
+DominoEX" vs "20m"); violet (`#a78bfa`) used for the active-category-tab
+and currently-running-decoder highlight instead of the bands panel's
+orange, matching the DECODERS tab's own existing accent color.
+
+All 23 decoder entries carried over 1:1 (same slugs, tag text, tag
+colors) — this is a pure layout change, no decoder was added, removed, or
+reassigned to a different tier. The old "Stop active decoder" row is
+preserved, now rebuilt from live state (`_activeDecoderSlug`/`ft8Running`)
+on each panel open rather than living as an always-in-DOM row toggled by
+`_decDropdownStopRow()` (that function is left in place — harmless no-op
+now that its target elements are gone — since other call sites weren't
+audited for removal). The old `.dropdown-item`/`.dec-group-hdr` CSS/markup
+is removed from the decoders tab's own dropdown; the underlying
+`.dropdown-menu`/`.dropdown-toggle`/`toggleDropdown()`/`closeAllDropdowns()`
+plumbing is left alone since it isn't decoders-specific dead code — no
+other tab used it, but nothing on this pass confirmed removing it
+wouldn't affect something un-audited.
+
+Verified: `#tab-dec-btn` kept its id/class so `showTab()`'s existing
+"light up DECODERS when any decoder sub-tab is active" logic needed no
+change (only its CSS selector, `#tab-dec-btn.selected` instead of the old
+`#drop-decoders>.dropdown-toggle.tab.selected`, since the `#drop-decoders`
+wrapper no longer exists). Toggling the decoders panel now also closes the
+bands panel and BW panel if open (and vice versa), matching the existing
+mutual-exclusion behavior between the bands and BW panels. All `<script>`
+blocks re-verified via Node `new Function()` syntax check; w032 confirmed
+byte-identical (md5 unchanged) — this change is w033-only.
+
+---
+
+### Fixed (2026-07-19) — WEFAX image never rendered in the UI; `sr=` crash risk on 2 call sites (w033 only)
+
+Both bugs were found while building SSTV's image renderer above and
+fixed here at the user's request, in w033 only (w032 untouched).
+
+- **Frontend never drew the WEFAX image.** `wefax_line`'s WS handler
+  only appended a text log line (`[WEFAX line N]`) and never read
+  `msg.image_b64` or touched the `wefax-image-container` div, which sat
+  permanently empty — the backend had been streaming real per-line
+  PNGs the whole time. Fixed with a real canvas renderer
+  (`wefaxHandleLine()`/`wefaxReset()`), same technique as SSTV's new
+  renderer above (each row is its own tiny PNG, decoded via the
+  browser's native `Image()`). Unlike SSTV, WEFAX has no VIS-style
+  header telling the frontend the final line count up front, so the
+  canvas grows in 600px chunks as more lines arrive instead of being
+  sized once. Reset on both Start (`decoderStart('wefax')`) and the
+  existing `wefax_clear` command.
+- **`WefaxDecoder.process_iq()` didn't accept the `sr=` keyword** two
+  Full-IQ call sites were already passing it
+  (`fax_dec.process_iq(iq_c, sr=48000)` / `sr=DECODER_SR`) — an
+  uncaught `TypeError` here would have killed the whole `rx()` bridge
+  loop, the exact crash class already fixed for `ft8_dec`/
+  `PocsagDecoder` elsewhere in this file. Both sites always pass 48000
+  in practice (`DECODER_SR` is 48000), so this was a live but latent
+  crash risk rather than a silent wrong-rate bug. Fixed properly (not
+  just papered over): `process_iq()` now accepts `sr` and resamples to
+  48000 first if it's ever anything else, the same pattern
+  `AisDecoder`/`SstvDecoder`/`RttyDecoder` already use. Verified with a
+  synthetic test: the exact previously-crashing call
+  (`sr=48000`) now completes without error, and a genuinely different
+  rate (96kHz) was also tested end-to-end through the resample path to
+  confirm it produces output rather than just not-crashing.
+
+---
+
+### Added (2026-07-19) — SSTV (native) and rtl_433 (ISM-band sensors) decoders, closing two gaps found against an OpenWebRX+ feature comparison
+
+User uploaded an "OpenWebRX+ Decoded Signal Types & Backend Decoders"
+reference spreadsheet and asked for w033 to be compared against it
+(FT8/WSPR and AIS excluded from the comparison — already covered/being
+worked on separately). Findings: w033 already matches OpenWebRX+ on
+most categories (pagers/selcall via multimon-ng, HFDL/VDL2/ADS-B via
+the same dumphfdl/dumpvdl2/dump1090 tools, APRS via direwolf KISS-TCP,
+DAB/DAB+ via dab-cmdline, digital voice via DSD/DSD+, PSK31/Olivia/
+NAVTEX/etc. via an fldigi bridge) — but had no SSTV and no ISM-band
+sensor (rtl_433) decoding at all. Also surfaced, as a side effect of
+the comparison: SSTV/FLEX/RDS were previously logged in project memory
+as "Phase 2B Tier 2 Complete," but no SSTV code or CHANGELOG entry
+actually exists anywhere in this codebase — that memory note was stale
+and has been corrected.
+
+User chose to add both gaps to **w033 only** (not w032), keeping w032
+as the unmodified main release.
+
+**SSTV** — new `SstvDecoder` class, native Python DSP (no external
+binary), following the same FM-discriminate → instantaneous-frequency
+→ fixed-timing-scan approach `WefaxDecoder` already uses for HF FAX,
+extended to auto-detect the mode via the VIS calibration header
+(1900Hz leader / 1200Hz break / 1900Hz leader / 7-bit code + parity,
+each bit 1300Hz=0 / 1100Hz=1) and produce RGB (not greyscale) output.
+Decodes Martin M1/M2 and Scottie S1/S2/DX in full; Robot 36/72 are
+recognised via their VIS code (so the UI shows the detected mode name)
+but not decoded — that format's line-alternating, 2:1 vertically
+subsampled luma/chroma layout was judged too easy to get subtly wrong
+without a captured real signal to validate against, so it's left for a
+future, validated pass rather than shipped guessed. Wired into all 5
+IQ call sites `WefaxDecoder`/`PocsagDecoder` already use (SDRplay Full
+IQ, IQ-Lite, Compact-mode audio, RTL-SDR path, and the two raw-bytes
+fallback shims), a new `sstv_enable` WS command (mirroring
+`wefax_enable`) plus a `sstv` case in the generic `decoder_enable`
+handler, and a `SstvDecoder()` instance added to `deactivate_all_decoders()`.
+
+Frontend: new SSTV tab with a canvas that renders the streamed
+single-row PNGs as they arrive (each row decoded via the browser's own
+`Image()`, not a hand-rolled PNG parser) — genuinely working image
+display, unlike the existing WEFAX tab (see BUGFIX note below, found
+while building this).
+
+**VALIDATION CAVEAT**: unlike `AisDecoder`/`AisDecoderDireWolf`
+(validated this session against several real captured WAV files),
+SSTV has **not** been validated against a real captured SSTV
+transmission — none was available. The VIS header detection and
+Martin M1/Scottie S1 line decoding were validated against synthetic
+test signals (known frequencies fed through the exact same FM-
+discriminator/IQ round-trip the real pipeline uses) and decode with
+high accuracy there (Martin M1: exact pixel match; Scottie S1: within
+~7% due to boundary interpolation at channel edges) — this confirms
+the algorithm and timing tables are internally consistent and
+correctly implemented, but does **not** confirm real-world SSTV audio
+(with actual radio noise, Doppler, clock drift, and AGC behavior)
+decodes correctly. Recommend capturing a real transmission (a ham SSTV
+net, e.g. 14.230 MHz USB, or an ISS SSTV event) and validating/tuning
+against it before relying on this for anything that matters.
+
+Two real bugs were found and fixed during this synthetic validation,
+both in the VIS header search logic, before it was considered working:
+the lookahead window used to detect the second leader tone was sized
+to `leader_min` (150ms) instead of the tone's full nominal length
+(300ms), so a genuinely-present leader could never pass its own length
+check; and the buffer-trimming fallback (meant only to bound memory on
+a channel that's never had SSTV on it) was eroding data out from under
+a header that was still validly in-progress across chunk boundaries,
+so a real header spanning multiple ~20ms audio chunks could never
+complete. Rewritten so the search pointer only advances past a
+candidate that's been *conclusively* rejected (rejected with enough
+surrounding data to be sure), never past one that's merely incomplete
+so far.
+
+**rtl_433 (ISM-band sensors)** — new engine following the exact same
+subprocess + UDP-JSON pattern as the existing HFDL/VDL2 engines:
+`_find_rtl433()`/`_launch_rtl433()` locate and spawn the `rtl_433`
+binary (github.com/merbanan/rtl_433) with `-F udp:127.0.0.1:5558`,
+`_Rtl433UdpProtocol` listens and parses each JSON reading (rtl_433's
+schema varies per device — temperature/humidity/pressure/wind/rain
+fields are surfaced when present, the full raw object is always kept
+too), `rtl433_udp_server()` manages the listener + auto-relaunch
+watchdog, and new `rtl433_start`/`rtl433_stop`/`rtl433_clear` WS
+commands mirror `hfdl_start`/`vdl2_start`. Defaults to a plain RTL-SDR
+dongle (`-d 0`); set `rtl433_device` to a SoapySDR driver name (e.g.
+`sdrplay`) to use SDRplay hardware instead, same convention
+`hfdl_device`/`vdl2_device` already use. Frontend: new tab with a live
+reading table, following the HFDL/VDL2 tab layout.
+
+**BUGFIX note (found, not fixed — out of scope for this entry, filed
+for awareness)**: while building SSTV's image renderer, discovered the
+existing WEFAX tab's frontend never actually renders the fax image —
+`wefax_line`'s handler only appends a text log line
+(`appendDecode('hf-decode-out', '[WEFAX line N]', ...)`) and never
+reads `msg.image_b64` or touches the `wefax-image-container` div, which
+sits permanently empty. The backend has been streaming real per-line
+PNGs all along; the frontend just never draws them. Also found: two of
+the four `fax_dec.process_iq(iq_c, sr=...)` call sites (the two `t==1`
+"standard RSPdx" PCM-audio branches) pass a `sr=` keyword argument that
+`WefaxDecoder.process_iq(self, iq_c)` doesn't accept at all — the exact
+crash class already documented and fixed for `ft8_dec` elsewhere in
+this file (an exception here would kill the whole `rx()` bridge loop).
+Neither issue affects SSTV (built with its own working canvas renderer
+and a `sr`-aware `process_iq`) or anything in this entry; both are
+pre-existing in w032 as well and are left for the user to decide how
+to prioritize.
+
+---
+
+### Added (2026-07-19) — w033 forked from w032: second AIS front end (Dire Wolf-derived) merged in alongside the rtl-ais port
+
+**w033 forked from w032.** w032 is unchanged and remains a separate,
+independent release — this and all following w033 entries apply to w033
+only.
+
+Follow-on from the rtl-ais AIS decoder rebuild below, via an explicitly
+scoped research/experiment thread ("id like to experiment"): evaluated two
+alternative AIS front-end designs against the production `AisDecoder`
+using real captured IQ and a ground-truth bit-level diagnostic (spy on
+`AisDecoder`'s own confirmed-correct bit stream via its
+`_protodec_decode_bit`, isolate the real-signal sub-window around each
+confirmed CRC-OK frame, then measure bit-error-rate at every offset/
+polarity — this caught bugs a raw pass/fail CRC-OK count alone would have
+missed).
+
+- A **Gemini-generated Gardner-timing-recovery decoder** was evaluated,
+  patched (missing NRZI decode step, a cold-start deadlock in its cubic
+  interpolator, insufficient left-context for its mid-point sample) and
+  tested — it never achieved a single CRC-OK frame on real captures after
+  fixing every identified bug, so it was **not** carried forward.
+- A **Dire Wolf-derived (github.com/wb2osz/direwolf) multi-slicer front
+  end** was ported: `demod_9600.c`'s peak/valley AGC, 5-slice parallel
+  HDLC decoding (each biased by a different DC offset), and an
+  interpolated zero-crossing PLL with an added Type-2 (phase + frequency)
+  loop so it tracks the actually-observed symbol rate instead of assuming
+  nominal 9600 baud is exactly right. Reuses `AisDecoder`'s own validated
+  36-tap FIR and `_protodec_*` HDLC/CRC backend rather than re-deriving
+  framing logic.
+  - Initial testing found two real, previously-unidentified, rate-
+    dependent bugs: (1) Dire Wolf's AGC time constants were tuned assuming
+    ~48kHz internal audio — applied unscaled at NEXUS's native 125kHz/
+    250kHz capture rates the AGC settles too fast in wall-clock terms
+    (fixed via `_dw_rate_scaled_alpha()`); (2) the borrowed 36-tap FIR
+    assumes input already resampled to 48kHz/5-samples-per-symbol —
+    applied directly to native-rate discriminator output its real-Hz
+    bandwidth is proportionally too wide (~2.6x at 125kHz, ~5.2x at
+    250kHz), which alone explained why the 250kHz captures were totally
+    broken (0 candidates) while 125kHz partially worked (fixed by
+    resampling to `AisDecoder.TARGET_SR` before filtering, same order
+    `AisDecoder` itself uses).
+  - After both fixes, validated against production `AisDecoder` on 3 real
+    WAV captures (2 original + 1 brand-new, independently recorded): exact
+    CRC-OK match on 2 of 3 (9/9 at 125kHz; 7/7 at 250kHz, on a file that
+    was totally broken through every earlier iteration); on the 3rd (a
+    low-amplitude, `max|iq|=0.008` capture) it found 13 CRC-OK frames / 8
+    unique MMSIs vs `AisDecoder`'s 12 frames / 9 MMSIs — 7 MMSIs in
+    common, each catching some the other missed. **Not** a strict
+    superset of `AisDecoder` on its own.
+
+Shipped to `w033_NEXUS.py` as a new `AisDecoderDireWolf` class, running
+**alongside** `AisDecoder` (not replacing it) — both feed the same
+`_ais_update_vessel()`/`ais_vessels` merge-by-MMSI path the UDP/aisstream.io
+sources already share, tagged `decoder_source='direwolf'` vs `'native'` so
+the frontend can show which decoder(s) confirmed each vessel. Re-validated
+the merged pair (extracted directly from the actual `w033_NEXUS.py`, not
+the research scratch files) against all 3 real captures: the **merge beats
+either decoder alone on every file** — e.g. on the 3rd (fresh) capture,
+`AisDecoder` alone found 9 unique MMSIs and `AisDecoderDireWolf` alone found
+8, but the merge found **10**, confirming the two front ends genuinely
+catch different marginal-SNR frames rather than one being a strict subset
+of the other. `aisstream.io` integration untouched throughout.
+
+Both decoders share `ais_dec`'s existing `ais_active` on/off gate at the
+one Full-IQ AIS call site (`w033_NEXUS.py`, SDRplay Full IQ branch) — a
+single AIS on/off switch for the user, not two separate ones — and both are
+reset together whenever AIS is (re-)enabled.
+
+---
+
+### Changed (2026-07-19) — Native AIS decoder rebuilt from scratch as a faithful rtl-ais port; AIS-catcher bridge removed entirely
+User directive after two AIS-adjacent crashes surfaced this session (the
+`PocsagDecoder`/`AisCatcherBridge.feed_iq()` crash-class fixes below): *"strip
+out the ais decoder completely, and rebuild from scratch ... if a better
+solution is to implement a known sourcecode that works then do so, but do not
+use ais catcher."* Both the previous from-scratch native `AisDecoder` (energy-
+gated burst segmentation + Gaussian-matched filter + bang-bang PLL + a batch/
+rescan HDLC frame-finder) and the `AisCatcherBridge` subprocess wrapper added
+2026-07-18 (see below) are now gone completely — no external AIS-catcher
+dependency remains anywhere in NEXUS, backend or frontend.
+
+In their place, `AisDecoder` is rebuilt as a near-literal Python port of
+**rtl-ais** (github.com/dgiardini/rtl-ais, GPL v2 — Ruben Undheim & Heikki
+Hannikainen 2008, later AISDecoder/AISHub fork), the mature, decade-old,
+widely-deployed RTL-SDR AIS receiver, rather than another from-scratch design:
+
+- **receiver.c's 36-tap fixed receive FIR** (exact published coefficients)
+  applied to the FM-discriminated signal before bit-slicing.
+- **receiver.c's fixed-point zero-crossing PLL** bit-sync + inline NRZI
+  decode, with rtl-ais's own tuned constants unchanged (`pllinc = 0x10000/5`,
+  nudge divisor 16).
+- **protodec.c's streaming HDLC state machine** (`ST_SKURR`/`ST_PREAMBLE`/
+  `ST_STARTSIGN`/`ST_DATA`/`ST_STOPSIGN`), including its exact bit-destuffing
+  logic and its CRC-via-magic-residual check (pack payload+FCS together,
+  standard CRC-16/X.25, valid iff the result equals the fixed residual
+  `0x0f47`) — ported bit-for-bit rather than re-derived.
+- Runs as one continuous streaming receiver with no burst/energy gating,
+  matching rtl-ais's own always-on model (its framing state machine + CRC
+  check reject noise on their own; no separate squelch layer needed).
+
+This is architecturally the **same non-coherent FM-discriminator family** as
+the old design, not a coherent detector like AIS-catcher — the value here is
+a far more battle-tested, proven implementation of that family (real
+deployed fixes and tuned constants), not a sensitivity-improving
+architecture change. rtl-ais's own NMEA-sentence text generation
+(`protodec_getdata`/`protodec_generate_nmea`) was deliberately **not**
+ported: once a frame passes the new CRC check, its raw destuffed payload
+bits are handed to NEXUS's existing, independently-validated
+`_ais_bits_to_bytes()` → `_ais_bytes_to_sixbit_ascii()` → `_ais_decode_payload()`
+pipeline, unchanged from before.
+
+**aisstream.io integration is completely untouched** — the background
+WebSocket client, key storage/load/save, persistent vessel store, and its
+GUI key-entry row all remain exactly as they were; only the RF-side native
+decoder and the AIS-catcher bridge were touched.
+
+**Validated** against two real captures used throughout this session's AIS
+work (`SDRconnect_IQ_20260717_203346_161975000HZ.wav`, 30.5s @ 125kHz;
+`SDRconnect_IQ_20260718_110222_162025000HZ.wav`, 30.7s @ 250kHz), run through
+the actual production `AisDecoder` code (extracted verbatim into a standalone
+harness) fed in packet-sized chunks: 9–11 CRC-OK frames per file across
+5ms–whole-file chunk sizes (consistent, real MMSIs recovered across all
+chunk sizes tested — not noise), msg types {8, 10, 12}. As expected, this
+does not close the long-message-type (1/2/3/4/5/18/24, Class A/B position
+reports) gap versus AIS-catcher's coherent detection — that was never the
+goal of this rebuild — but the candidate-to-CRC-OK hit rate is markedly
+better than the old design's noise-dominated frame-finder (most detected
+candidates now pass CRC, vs. the old design's ~98% noise-triggered false
+positives noted 2026-07-17).
+
+Removed: `AisCatcherBridge` class, its `feed_iq()`/`start()`/`stop()`/
+`get_status()` methods, its Full-IQ call site, WS commands
+`ais_catcher_bridge_start`/`_stop`/`_status`, its shutdown-cleanup call, and
+the frontend's AIS-catcher toggle row + `aisCatcherBridgeToggle()`/
+`_aisCatcherBridgeRenderStatus()` JS + `aiscatcher_bridge_status` WS case +
+its status-request on connect.
+
+### Fixed (2026-07-19) — Starting POCSAG crashed the entire SDRConnect bridge (waterfall/spectrum "blank, then frozen")
+User report: "when i start the pocsag decoder the waterfall and spectrum go
+blank, then reappear frozen." Confirmed via the user's own terminal log —
+this was a hard crash, not a UI glitch: `PocsagDecoder.process_iq()` had no
+`sr` parameter at all, but three call sites (the `t==1` PCM-audio branch,
+the Full IQ `_fiq_c` branch, and the IQ-Lite branch) called it as
+`poc_dec.process_iq(iq_c, sr=...)` — every sibling decoder (`cw_dec`,
+`rtty_dec`, `fax_dec`) had long since been updated to accept `sr=` as part
+of a uniform calling convention; `PocsagDecoder` was simply never updated
+to match. The instant POCSAG's Start toggle went active, the very next
+packet raised `TypeError: PocsagDecoder.process_iq() got an unexpected
+keyword argument 'sr'` inside `asyncio.gather(rx(), tx())` in
+`sdr_bridge()` — an unhandled exception there kills the *entire*
+SDRConnect bridge connection, not just POCSAG's own output, which is why
+the whole waterfall/spectrum went blank rather than just POCSAG failing
+quietly. The outer reconnect-with-backoff loop then reconnects 5 seconds
+later, briefly shows live frames again while it re-negotiates the stream,
+and hits the identical crash the instant the next packet reaches
+`poc_dec.process_iq()` (since `poc_dec.active` was never reset to `False`
+by the crash) — an endless blank/flicker/freeze cycle for as long as
+POCSAG stayed toggled on, exactly matching the reported symptom.
+
+**Fix:** `process_iq()` now has a real `sr` parameter (default `48000`,
+preserving the two call sites that never passed one), and actually uses it
+in `samples_per_bit` instead of a hardcoded `48000` regardless of the real
+rate a caller passed. Also capped `_get_bit_power()`'s Goertzel input at
+`GOERTZEL_MAX_N = 2000` samples (decimated down from whatever arrives) as
+a secondary defensive fix — Full IQ mode can hand this tens of thousands of
+raw samples per call, and `_get_bit_power()` → `_goertzel_power()`
+allocates a fresh `np.arange()`/`np.exp()` reference array sized to the
+full input on *every* call with no caching, twice per packet (mark +
+space); harmless at typical packet sizes but capped now so it can't become
+its own, much smaller, source of loop lag.
+
+### Fixed (2026-07-19) — "SDRConnect"/"Full IQ (USB direct)" status badges stayed green after disconnect
+Reported via the community wall (Ash Nallawalla, Windows 11, w032): the
+`rspdx-strip`/`nrsp-strip` badges (and the underlying `DS.device_type` they
+key off) were only ever updated inside `applyState()`, which only runs when
+a live `state` message actually arrives from the backend. There was no code
+path that hid them again on disconnect, so once shown they stayed frozen on
+whatever they last said — even with SDRConnect.exe fully closed and
+`setConnected(false)` correctly flipping the *main* connection dot/label to
+OFFLINE the whole time. Confusing symptom: the primary indicator correctly
+read OFFLINE, but these two secondary badges kept reading "connected"
+because nothing ever told them the connection was gone, making it look like
+NEXUS had a live SDRConnect link with zero data flowing rather than simply
+no connection at all.
+
+**Fix:** `setConnected(false)` now explicitly hides `rspdx-strip` and
+`nrsp-strip` and clears `DS.device_type`, so a genuine disconnect always
+resets these badges to neutral — they can only go green again once a fresh
+`state` message actually arrives on a new connection.
+
+### Added (2026-07-18) — AIS-catcher bridge: real external decoder as a second AIS option
+Deep investigation this session confirmed the native AIS decoder has a genuine
+architectural sensitivity gap: it only ever recovers short message types (8,
+10, 12) and never the long ones (1, 2, 3, 4, 5, 18, 24 — including Class A/B
+position reports, the dominant real-world traffic), because it demodulates via
+FM discrimination (non-coherent detection), which is well-established in
+communications theory to be several dB less sensitive than coherent detection
+performed directly on the complex IQ domain. A from-scratch Python port of a
+Gardner timing-error-detector replacement, and later a faithful port of
+AIS-catcher's own coherent multi-phase-bank detector (`PhaseSearchEMA`),
+were both prototyped and validated against real captured IQ this session —
+the coherent-detector port was proven algorithmically correct against a
+synthetic known-bit GMSK signal, but real-world performance still fell short
+of AIS-catcher's own binary (likely due to AIS-catcher's proprietary matched-
+filter tap coefficients not being reproducible from the fetched source alone).
+Rather than continuing that open-ended DSP port, added `AisCatcherBridge`: a
+class that runs the real, free, open-source AIS-catcher binary
+(github.com/jvde-github/AIS-catcher) as a subprocess, fed with NEXUS's own
+live Full-IQ stream over a pipe (no second SDR/dongle needed, and no
+conflict over exclusive SDR access).
+
+- **Single-channel constraint handled in software**: NEXUS/SDRconnect only
+  ever captures one AIS channel at a time (161.975 or 162.025 MHz, ≤31.5kHz
+  bandwidth) — it cannot capture both AIS1+AIS2 simultaneously the way a
+  dedicated AIS-catcher+RTL-SDR setup normally would. AIS-catcher's channel
+  filters assume a virtual 162.000MHz reference DC with channel A at −25kHz
+  and channel B at +25kHz from that point (confirmed empirically this
+  session: a 162.025MHz-centered capture decoded zero messages through
+  AIS-catcher until frequency-shifted, then decoded ~80 real messages
+  including position reports once corrected). `AisCatcherBridge.feed_iq()`
+  continuously re-centres the single tuned channel to that virtual
+  162.000MHz reference in software (a pure complex-multiply frequency
+  shift, no extra bandwidth needed) before handing samples to AIS-catcher's
+  default dual-channel (`-c AB`) scan — the real content lands in whichever
+  of the two ±25kHz slots matches the actual tuned channel.
+- Feeds AIS-catcher via `-r CF32 stdin -s 200000 -o 2 -u 127.0.0.1 10110`
+  (raw CF32 stdin, resampled to 200kHz — safely inside AIS-catcher's
+  documented 96K–12288K sample-rate range), and its NMEA output lands on
+  the same UDP:10110 port NEXUS's existing `_AisUdpProtocol` already
+  listens on, so decoded vessels merge into `ais_vessels` exactly like any
+  other UDP feed (tagged `decoder_source='udp'`, same 🛰️/⚡ tagging added
+  earlier this session).
+- New WS commands `ais_catcher_bridge_start` / `_stop` / `_status`, and a
+  toggle row in the AIS tab ("AIS-catcher (external decoder)") — independent
+  on/off from the native decoder's own Start/Stop, so both can run
+  side-by-side for direct comparison, which was the user's original request
+  at the start of this investigation.
+- Requires AIS-catcher installed separately and on `PATH`; the bridge
+  detects common install locations (Homebrew, Program Files, etc.) and
+  surfaces a clear "not found" toast/status if it isn't available, same
+  pattern as the existing `MultimonDecoder`/`dumphfdl`/`dumpvdl2` subprocess
+  wrappers.
+- Native `AisDecoder`'s underlying sensitivity gap remains open (task
+  tracked separately) — this bridge is the pragmatic path to full message-
+  type coverage in the meantime, not a fix to the native decoder itself.
+
+### Fixed (2026-07-18) — REC IQ-mode "Saved" toast never showed the sample rate
+`rec_stopped` already carried `sample_rate` (see `_rec_stop_and_report()`) but
+the toast only rendered duration and file size, so anyone needing the exact
+rate for an external tool (e.g. feeding a `.cf32` capture into AIS-catcher,
+which requires `-s` to match exactly) had to go dig through terminal
+scrollback for a `sr=...` log line instead. Toast now shows it directly:
+`Saved: <path>  (12.3s, 4567KB, 50000Hz)`.
+
+### Added (2026-07-18) — AIS RF-overload diagnostic + reference-decoder comparison tagging
+Two additions to help isolate why the native AIS decoder's `msg_types`
+histogram was only ever showing 8/10/12 (binary/inquiry/safety) and never
+1/2/3/18 (Class A/B position reports) despite confirmed nearby real vessel
+traffic (VesselFinder cross-check):
+
+1. **Clip/overload counter** — `AisDecoder` now tracks `clip_samples`,
+   `total_samples`, and `max_abs_iq` on the raw incoming IQ chunk (never
+   the rolling buffer, so overlapping scan windows can't double-count),
+   surfaced as `clip%=` and `max|iq|=` in the periodic `[AIS-DIAG]` log
+   line. Tests the theory that a too-high rfgain setting is clipping/
+   intermodulating the ADC specifically on the strongest, most frequent
+   signals near the receiver -- which would be exactly the Class A/B
+   position-report traffic from nearby moving vessels -- while weaker,
+   less frequent base/binary/safety messages survive untouched. A dropping
+   `clip%` alongside `msg_types` finally showing 1/2/3/18 after reducing
+   rfgain would confirm this without needing any decoder code change.
+
+2. **`decoder_sources` vessel tag** — every `decoded` dict passed to
+   `_ais_update_vessel()` is now tagged `decoder_source: 'native'` (from
+   `AisDecoder._decode_segment()`) or `'udp'` (from
+   `_AisUdpProtocol.datagram_received()`, i.e. an external decoder like
+   AIS-catcher feeding NEXUS's existing UDP:10110 listener). Both sources
+   accumulate into `vessel['decoder_sources']` rather than overwriting, so
+   a vessel decoded by only one path stays visibly distinguishable from
+   one decoded by both. Frontend: MMSI cell shows 🛰️ for udp-only (with a
+   tooltip explaining NEXUS's own decoder never recovered that frame) and
+   ⚡ when both agree -- no tag at all for the default native-only case, so
+   normal single-decoder operation is visually unchanged.
+
+   Context: NEXUS's own antenna/SDR is only reachable over SDRConnect's
+   WebSocket (nRSP-ST is not a locally-hardwired dongle on this machine),
+   so a live dual-decoder test isn't possible via a splitter + second
+   dongle. The intended comparison path is file-replay: capture Full IQ
+   with the existing REC feature (already writes AIS-catcher-compatible
+   CF32, see `_rec_write_iq()`), then feed that exact file through
+   AIS-catcher (`AIS-catcher -r <file> -ga FORMAT CF32 -s <rate> -u
+   127.0.0.1 10110`) so it decodes into the same `ais_vessels` table via
+   the pre-existing UDP path -- no new NEXUS code required for the
+   comparison itself, only the tagging above to make the result legible.
+
+### Removed (2026-07-18) — VesselAPI integration (user request: "not using it anymore")
+Deleted the entire VesselAPI per-MMSI REST lookup path: key load/save
+helpers, the 90-day expiry checker, the persistent MMSI store and its
+150-call budget tracker, `_ais_lookup_poller()`, the three GUI key-management
+WS commands, and the matching frontend key-entry panel/warning banner/
+`name_source: 'lookup'` UI branches. aisstream.io is now the sole online
+vessel-enrichment source. `.vesselapi_key.json`, `.vesselapi_call_count.json`,
+and `ais_mmsi_store.json` are no longer read or written by NEXUS -- safe to
+delete manually if present from a previous run. Also updated: build script/
+`.spec` security guards (previously checking for a bundled VesselAPI key,
+now checking for aisstream.io's) and the User Manual/Troubleshooting docs
+(section 6.9a rewritten for aisstream.io; docx/pdf rebuilt and copied to
+`docs/word/w032/` and `docs/pdf/`).
+
+### Added (2026-07-18) — MMSI plausibility filter (reject impossible identities)
+Prompted by a user-supplied VesselFinder screenshot showing a real, nearby,
+actively-transmitting vessel (MMSI 316003140, a validly-assigned Cayman
+Islands MID) completely absent from NEXUS's own 38-vessel list, while most
+of what NEXUS WAS tracking had MIDs that cannot correspond to any real
+registered station at all under the ITU numbering scheme (e.g. 119xxxxxx,
+120xxxxxx, 848xxxxxx, 790xxxxxx -- all outside the 201-775 range assigned
+to ship MIDs, confirmed against navcen.uscg.gov). Added `_ais_mmsi_plausible()`
+and gated `_ais_update_vessel()` on it, so an MMSI failing this check is
+never added to the vessel table at all, regardless of message type or CRC
+status. Deliberately narrow: only validates the plain-ship-MMSI and AIS-AtoN
+(`99MIDxxxx`) shapes against the 201-775 range -- doesn't attempt to
+validate every special-purpose prefix (group ship, coast station, SAR
+aircraft, SART/MOB/EPIRB), to avoid false-rejecting a legitimate but rarer
+category. This does not fix the underlying question of WHY these implausible
+MMSIs are being produced in the first place (still under investigation --
+see next entry); it only stops them from cluttering the displayed list.
+
+### Fixed (2026-07-18) — aisstream.io: "no close frame received or sent" every ~5 seconds
+A second, separate bug discovered immediately after the SSL fix above went
+live: every connection died again after roughly 5 seconds with
+`AIS: aisstream.io connection error: no close frame received or sent`, in a
+tight endless reconnect loop -- meaning the connection never stayed open
+long enough to receive anything, independent of whatever else was wrong.
+Root cause: wrapping `ws.recv()` in `asyncio.wait_for(..., timeout=5.0)` to
+periodically check whether a resubscribe was due, even with no incoming
+traffic. Cancelling a pending `recv()` this way is a known problem with the
+`websockets` library -- the cancellation doesn't always cleanly abort the
+underlying read, leaving the connection's internal state corrupted, which
+then surfaces as this exact error on the next read or write. The failure
+timing (consistently ~5s after every single connect, matching the timeout
+value exactly) was the tell. Fixed by never cancelling `recv()`: a separate
+concurrent task (`_periodic_resubscribe()`) now drives the resubscribe timer
+on its own 5s loop, independent of the main receive loop, which does a
+plain, uninterrupted `await ws.recv()`. The periodic task is cancelled
+cleanly in a `finally` block when the connection closes for any other
+reason.
+
+### Added (2026-07-18) — TEMPORARY: known-active test MMSI for aisstream.io receive diagnostics
+After both bugs above were fixed, a live restart confirmed connection and
+subscription both now succeed (no errors), but `received=0 matched=0` on
+every periodic check across ~1 minute and two subscription refreshes (1
+then 8 MMSIs). Not necessarily still broken -- plausible this specific set
+of MMSIs (several confirmed non-standard/invalid MIDs, the rest only ever
+seen locally via binary/safety messages) just has nothing being relayed by
+any other station in aisstream's network. To tell "pipeline broken" apart
+from "these specific vessels are quiet," added
+`AIS_AISSTREAM_DIAG_TEST_MMSI` ('368207620', a real always-active vessel
+lifted from aisstream.io's own documentation example) to every
+subscription alongside the user's real tracked MMSIs, plus a distinct
+`AIS-DIAG-TEST` log line that fires the moment any data for it arrives --
+independent of the normal apply-message vessel-membership gate, so it
+proves receipt even though this MMSI is never added to the displayed
+vessel table. **Explicitly temporary** -- remove `AIS_AISSTREAM_DIAG_TEST_MMSI`
+and its two use-sites (search the name) once the pipeline is confirmed
+working or the investigation concludes it's a coverage/data-availability
+issue rather than a bug.
+
+### Fixed (2026-07-18) — aisstream.io: SSL CERTIFICATE_VERIFY_FAILED on every connection
+The `websockets` import fix below (necessary but not sufficient) let the
+next restart surface a second, unrelated bug on every single attempt:
+`[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get
+local issuer certificate`. Same root cause as the existing EIBI/AOKI HTTPS
+downloader elsewhere in this file: a python.org-installed Python on macOS
+doesn't use the system certificate store by default, so any TLS connection
+via the default `ssl` context fails unless the user has separately run
+"Install Certificates.command". aisstream.io's `wss://` feed is the first
+*encrypted* WebSocket connection anywhere in this file -- `sdr_bridge()`'s
+own `websockets.connect()` only ever talks to a local, unencrypted `ws://`
+endpoint (SDRConnect), so this class of bug had never come up in AIS work
+before. Fixed the same way already established for EIBI/AOKI: build an
+explicit SSL context with `verify_mode = ssl.CERT_NONE` and pass it to
+`websockets.connect(..., ssl=ctx)`, rather than pulling in a new dependency
+(e.g. `certifi`) for one connection.
+
+### Added (2026-07-18) — aisstream.io received/matched message counters
+User report after the `websockets` NameError fix below: 40+ tracked vessel
+MMSIs, still nothing pulled from aisstream.io. NEXUS runs from source in
+this environment (no file logging active -- see MMSI decode notes above),
+so the only diagnostic channel is a live terminal paste, and the existing
+logging couldn't tell "still not connecting" apart from "connecting and
+subscribed fine, but aisstream.io genuinely has no data for any of these
+MMSIs" (a real possibility -- several of the tracked MMSIs turned out to
+have MIDs outside the ITU-assigned 201-775 range, meaning they're not
+standard registered ship identities at all, per the earlier "MMSI decoded
+incorrectly?" investigation). Added `recv_count`/`match_count` counters
+that piggyback on the existing periodic resubscribe log line, so the next
+terminal paste shows `(received=N matched=M since last check)` alongside
+the subscription-updated message -- N=0 means the connection/subscription
+is still broken; N>0 with M=0 means aisstream.io is alive and subscribed
+but has nothing on these specific MMSIs.
+
+### Fixed (2026-07-18) — aisstream.io never actually connected: `websockets` module not imported
+Terminal output after a restart showed the real, previously-invisible root
+cause: every single connection attempt logged
+`AIS: aisstream.io connection error: name 'websockets' is not defined`. The
+`websockets` package is imported elsewhere in this file (`sdr_bridge()` for
+the SDRConnect link, and the browser WS server), but only as a **local**
+import inside those specific functions -- it was never imported at module
+scope, so `_aisstream_client()` (a separate top-level function) had no
+`websockets` name available to it at all. This meant the subscription-window
+fix below, while a real and necessary fix, could never have taken effect on
+its own -- the code was raising a `NameError` before it ever got far enough
+to hit that logic. Fixed by adding a local `import websockets` at the top of
+`_aisstream_client()`, matching the existing pattern used elsewhere in the
+file. Confirmed via terminal log that both bugs needed fixing together;
+this was the one actually blocking every connection attempt end-to-end.
+
+### Fixed (2026-07-18) — aisstream.io key configured but nothing ever came through
+User report after adding a key and starting AIS: the panel showed zero
+aisstream.io activity at all, no matter how long it ran. Root cause: the
+subscription-refresh logic added `_resubscribe_if_due()` `return`ed
+immediately whenever the wanted-MMSI list came out empty -- which it
+always does on the very first check of every session, since `ais_vessels`
+starts empty (`ais_stop` clears it) and nothing's been RF-decoded yet at
+the moment the connection opens. aisstream.io requires a subscription
+message within 3 seconds of connecting or it closes the connection outright
+-- so NEXUS was sending nothing in that window on essentially every
+attempt, getting disconnected every time, and retrying forever without
+ever once successfully subscribing. Invisible from the outside: the
+connection attempt, failure, and backoff all happened silently (only a
+`log.warning` on the connection-error path, easy to miss without watching
+the terminal continuously).
+
+Fixed with two changes together: (1) always send a subscription within the
+window -- omitting `FiltersShipMMSI` entirely (rather than sending an empty
+list, whose "match nothing" vs. "no filter" semantics aren't documented)
+when there's nothing to filter on yet, which subscribes unfiltered to
+aisstream.io's entire global feed until NEXUS has RF-decoded at least one
+real MMSI to narrow it down to; (2) `_aisstream_apply_message()` now
+ignores any MMSI not already present in `ais_vessels`, so that brief global
+firehose (~300 msg/s per their docs) gets silently discarded instead of
+flooding the vessel table with thousands of unrelated ships -- this is what
+makes sending an unfiltered subscription safe at all. Also removed the
+normal 30s resubscribe throttle specifically during this "no real filter
+sent yet" bootstrap window, so the unfiltered period lasts only as long as
+it takes NEXUS to decode its first vessel (typically seconds) rather than
+up to a full 30 seconds every time.
+
+### Added (2026-07-18) — aisstream.io resolved MMSIs now persist across sessions
+Follow-up to the aisstream.io integration below (same day): user question
+("is the data persistent, so eventually it will only have to check for
+vessels that are new") exposed a real gap -- `_aisstream_apply_message()`
+only wrote into the in-memory `ais_vessels` dict, which `ais_stop` clears
+and a restart wipes entirely, so a previously-resolved vessel would need
+re-subscribing (and re-waiting for aisstream.io to send its data again)
+every session, unlike VesselAPI's results which already survive restarts
+via `ais_mmsi_store.json`.
+
+Added a parallel persistent store, `ais_aisstream_store.json`, but
+deliberately NOT a shared one with VesselAPI's -- only FIXED/durable
+fields ever get written to it (name, callsign, ship_type, destination,
+and lat/lon *only* for base stations/AtoN, which are fixed infrastructure).
+A moving vessel's position/speed/course is never persisted here: that data
+goes stale within minutes, and blindly replaying a week-old "current
+position" on a later sighting would be actively misleading, unlike a
+ship's name which essentially never changes. `_ais_update_vessel()` (the
+RF-decode path) now checks this store as a second free hit alongside the
+existing VesselAPI one; `_aisstream_client()` checks it before including
+an MMSI in the next subscription refresh, so an already-resolved vessel
+neither re-touches the network nor wastes one of the 50 filter slots that
+a genuinely new, still-unknown MMSI could use instead.
+
+### Added (2026-07-18) — aisstream.io live-feed cross-reference (second AIS enrichment source)
+Follow-up to VesselAPI's lookup exhausting its 150-call free-tier budget
+(previous entry) with zero vessels resolved -- traced to VesselAPI being a
+per-MMSI *commercial vessel registry* lookup, while everything NEXUS's own
+antenna has decoded so far (types 8/10/12) tends to come from senders that
+simply aren't in that kind of registry (buoys, AtoN, safety/binary
+broadcast systems). aisstream.io is a different shape of service: a free
+(beta) WebSocket feed aggregating live AIS traffic from thousands of
+contributed receivers worldwide, with no lifetime call cap. Added as a
+second, independent enrichment source (`_aisstream_client()`), alongside
+VesselAPI rather than replacing it -- either, both, or neither can be
+configured.
+
+Implementation: one persistent WebSocket connection to
+`wss://stream.aisstream.io/v0/stream`, subscribed with a world bounding box
+plus `FiltersShipMMSI` set to whichever up-to-50 MMSIs NEXUS is currently
+tracking without a name or position (their own hard limit on that filter);
+the subscription is periodically refreshed (every `AIS_AISSTREAM_RESUB_SECS`)
+by resending it, since aisstream.io documents that as swap-and-replace
+rather than merge. Parses `PositionReport`/`StandardClassBPositionReport`/
+`ExtendedClassBPositionReport` (position/speed/course/heading/status),
+`ShipStaticData`/`StaticDataReport` (name/callsign/type/destination),
+`BaseStationReport` and `AidsToNavigationReport` (tagged `station_type`,
+same non-ship treatment as the native type-4 decoder above) into the same
+`ais_vessels` dict the RF decoder and VesselAPI both write to -- so a
+vessel resolved by any one source shows up complete regardless of which
+one supplied which field. Names/positions sourced this way are tagged
+`name_source: 'aisstream'` (📡 in the UI) so they read as "another receiver's
+live decode", distinct from VesselAPI's 🌐 ("static registry lookup") and
+plain RF-decoded fields (no tag).
+
+Same GUI key-entry pattern as VesselAPI (env var `DARKSKY_AISSTREAM_KEY` or
+a local `.aisstream_key.json`, pasteable from the AIS Maritime panel) --
+new `ais-aisstream-key-config` block sits directly under the existing
+VesselAPI one, wired through the same `ais_key_status` message shape now
+carrying a `provider` field (`'vesselapi'` or `'aisstream'`) so one
+frontend handler (`_aisRenderKeyStatus()`) serves both instead of a
+near-duplicate copy.
+
+### Added (2026-07-17) — AIS Base Station Report (type 4) decoding + raw msg-type diagnostic
+Live-testing session after the Full IQ stream got unstuck (see the
+"AIS decoder shows no vessels" investigation below this entry): with real
+frames now flowing (500+ CRC-OK, 47+ vessels), every single decoded/counted
+message was type 8 (binary broadcast), 10 (UTC/date inquiry), or 12
+(addressed safety-related) — none of which carry name, position, speed, or
+course per the ITU-R M.1371 spec, so the vessel table filled with MMSI-only
+rows. That part is correct, documented behaviour (see the DIAG comment in
+`_decode_segment()`), not a bug. The `msg_types` histogram total also didn't
+add up to `frames_crc_ok` (e.g. 482 CRC-OK frames vs. only 306 counted),
+which initially looked like message types silently falling through
+`_ais_decode_payload()`'s `else: return None`. Added a second counter,
+`all_msg_type_counts`, that tags every CRC-OK frame's real msg_type
+regardless of whether the payload parser recognizes it, now included in
+the periodic `[AIS-DIAG]` log line — but a live restart with it running
+showed the gap is actually just `frames_crc_ok` counting re-detections of
+the *same* frame across overlapping burst windows before the
+already-existing dedup (`_seen_frame_hashes`) drops them, not missing
+message types — `all_msg_type_counts` and `msg_types` track each other
+exactly once dedup is accounted for. Worth keeping the counter anyway:
+it's the direct way to answer "what's really on the air here" instead of
+guessing, next time the traffic mix looks suspicious.
+
+BUGFIX (same day, caught before shipping): the first cut of
+`all_msg_type_counts` read `payload_bytes[0] >> 2`, silently assuming
+MSB-first bit order within a byte — but `_ais_bits_to_bytes()` packs
+LSB-first (see its own docstring), so that pulled out a meaningless mix of
+bits 2-7 instead of the real msg_type. It happened to look self-consistent
+in a live test because msg types 8/10/12 all share the same top two bits
+(all in the 001xxx range), so the remapping was accidentally bijective for
+exactly the traffic seen — but would have mislabeled anything else,
+including the type-4 traffic this same fix was added to surface. Fixed by
+reading msg_type off the already-correct `sixbit_str` (same value
+`_ais_decode_payload()` itself computes via `get_uint(0,6)`) instead of
+re-deriving bit order by hand.
+
+Also implemented type 4 (Base Station Report) itself — shore AIS base
+stations repeat it every ~10s, and it was the only message this common
+with a fully-specified, simple layout (168 bits, same length family as
+1/2/3/18) that wasn't handled at all. Decodes MMSI + position (lon/lat at
+bit offsets 79/107 — different from mobile stations' 61/89 because the UTC
+timestamp fields sit where nav-status/SOG normally do) and tags the vessel
+record `station_type: 'base'` so it doesn't get merged with real ship data.
+Frontend: base-station entries now render as a small grey square marker
+(not the ship arrow — they have no heading) and read "Base Station"
+instead of "Unknown" in the vessel list, map popup, and detail modal.
+
+### Fixed (2026-07-17) — AIS decoder showed no vessels despite Full IQ mode selected
+Live-testing the DSP rework below in the running app (not just the offline
+validation capture): the AIS Maritime panel showed "No vessels decoded yet"
+indefinitely, "FULL IQ" highlighted in the UI, AIS toggled active, and a
+real signal visible on the waterfall at 161.975/162.025MHz. The `[AIS-DIAG]`
+log line (frames_seen/frames_crc_ok/msg_types, gated on native-decoder
+calls) never appeared even once across the entire log history, despite AIS
+having been active for many minutes at a time. Root cause, found in the
+running backend's own log rather than the code: NEXUS had correctly sent
+SDRConnect a `set_stream_mode: 'Compact' → 'Full IQ'` request and updated
+its own UI accordingly, but SDRConnect never actually started emitting
+type-2 (Full IQ) frames afterward — the per-100-frame `SDRConnect frame
+types` log line showed only `{1: ..., 3: ...}` (Compact PCM audio +
+spectrum) for the entire session, zero type-2 frames. AIS's native decoder
+(like every other Full-IQ-only decoder) only runs off type-2 frames, so it
+had zero samples the whole time — not a DSP bug, a stream-mode desync
+between NEXUS's displayed state and what SDRConnect actually delivered
+(same class of issue as the previously-documented SDRConnect Compact-mode
+demod-stuck case — SDRConnect's own internal state not responding to an
+otherwise-correct API-driven request). Resolution: re-toggling the device
+mode in NEXUS (away from and back to Full IQ) got SDRConnect to actually
+start streaming type-2 frames; no NEXUS code change was needed for this
+part.
+
+### Fixed (2026-07-17) — REC recordings now save to the user's Documents folder
+Follow-up to the REC feature below: `REC_DIR` was `os.path.dirname(__file__)`,
+which is fine when running from Python source but breaks under a packaged
+build — in a frozen `.app`/`.exe` that path resolves inside PyInstaller's
+read-only bundle extraction dir (`sys._MEIPASS` on macOS) or an installed
+Program-Files-style folder on Windows, neither writable nor a place a user
+would think to look for their own recordings. Recordings (both AUD/.wav and
+IQ/.cf32) now always save to `~/Documents/DARKSKY NEXUS/Recordings/`
+(`Documents\DARKSKY NEXUS\Recordings\` on Windows), created on first use,
+regardless of whether NEXUS is frozen or run from source. The actual save
+path is still echoed back to the GUI in the `rec_started` WS message, so the
+on-screen path is always accurate.
+
+### Reworked (2026-07-17) — AIS front-end DSP overhaul: burst squelch + GMSK-matched filter (2x decode yield)
+Follow-up to the REC feature below: once REC could capture raw IQ, it
+became possible to record a real 30.5s 161.975MHz AIS session and
+cross-validate NEXUS's native decoder against AIS-catcher (a mature
+open-source reference decoder) on the *exact same signal* for the first
+time. NEXUS decoded far fewer messages, and only two low-information
+message types (8, 10) — never any position/voyage reports. Initial
+hypothesis was that the zero-crossing PLL bit-sync was the weak link, so
+several days were spent building and testing a proper interpolating
+timing-error-detector (Gardner TED) to replace it — this was the wrong
+target and never shipped. Rigorous testing disproved it conclusively:
+a brute-force search trying 20 phase offsets against all 391 candidate
+HDLC frames the old pipeline found recovered **zero** additional frames
+beyond the 6 the old zero-crossing PLL already got. Bit-sync quality was
+never the bottleneck.
+
+Power analysis of those 391 candidates found the real problem: the 6 real
+decodes sat at 5.6x–39x the background noise floor, while the other 385
+"candidate frames" had *median power at or below the noise floor* — they
+were noise-triggered false 0x7E flag-pattern matches, not real AIS
+bursts. The old pipeline ran its filters and PLL continuously across the
+whole stream with no burst detection at all.
+
+Replaced the AIS front-end with:
+- **Burst/energy squelch** — causal sliding-window IQ power detector
+  (2ms window, running noise-floor EMA, 6dB threshold) isolates real
+  burst windows before any decode is attempted, instead of scanning
+  continuous noise. Cut candidate frames from 391 to ~13–17 on the same
+  capture.
+- **GMSK-matched Gaussian receive filter** (BT=0.5, 63 taps) replacing
+  the old generic 5760Hz-cutoff low-pass — shaped to AIS's actual
+  modulation instead of a generic anti-alias filter, recovering
+  materially more marginal-SNR bursts. BT swept 0.3–0.7 against the real
+  capture; 0.5 (not the nominal transmit-side 0.4) gave the best yield.
+- **Per-burst DC-mean removal** replacing the old continuously-running
+  DC/CFO high-pass tracker — a burst-local bias estimate is more accurate
+  than a slow global tracker for a ~30–70ms burst (linear detrending was
+  also tried and made things worse — kept the simpler mean-subtraction).
+- 15ms of padding either side of each burst gives the resample/filter
+  chain time to settle past its startup transient before the region
+  that's actually scored — cold per-burst filtering was initially
+  *losing* known-good frames purely from filter warm-up until this was
+  added.
+- The existing zero-crossing PLL is unchanged (proven adequate — see
+  above) and the HDLC frame sync/CRC/payload decoder are untouched.
+
+**Validated** against the real 161.975MHz capture (same file used for the
+AIS-catcher cross-check), run through the actual production `AisDecoder`
+class in small streaming chunks (matching how live IQ arrives): **12
+unique decoded messages / 11 MMSIs**, vs. the old design's **6 messages /
+5 MMSIs** — roughly 2x, plus message type 12 (safety-related) recovered
+for the first time. Still well short of AIS-catcher's full yield on the
+same capture (which also does coherent frequency tracking and proper
+soft-decision decoding — a larger undertaking than this pass), but a
+real, measured improvement with no regressions on the previously-working
+6 messages.
+
+Applied identically to w031 and w032 (`_ais_gaussian_lpf_taps()` +
+reworked `AisDecoder` class in both `w031_NEXUS.py` and `w032_NEXUS.py`).
+
+### Added (2026-07-17) — REC button now actually records (AUD/IQ modes)
+User request: "add a select toggle for demodulated/IQ when Rec is
+pressed." Turned up something worth flagging while implementing it: the
+REC button has existed in the toolbar for a long time, but `toggleRecord()`
+was a pure UI stub — it flipped the icon and popped a toast (misleadingly
+claiming "IQ Recording started" regardless of the button's own tooltip,
+which said "saves demodulated audio"), but never sent anything to the
+backend, and there was no backend recording code at all, for either mode.
+Nothing has ever actually been saved by pressing REC until now.
+- New **AUD | IQ** pill next to REC — persistent (localStorage), set once,
+  every REC press uses whatever's selected. AUD works in any stream mode;
+  IQ requires Full IQ device mode (backend rejects the request with a
+  toast otherwise, rather than silently writing an empty file).
+- **AUD mode:** demodulated audio → WAV file. Tapped from the same `mono`
+  buffer already fed to the CW/RTTY/FAX/POCSAG/ACARS decoders in the t==1
+  PCM-audio branch.
+- **IQ mode:** raw Full IQ → `.cf32` file (interleaved float32 I/Q —
+  `np.complex64.tobytes()` *is* CF32, no header). Tapped from `_fiq_i`/
+  `_fiq_q` at the earliest point in the Full IQ branch, before any of
+  NEXUS's own anti-alias/decimation filtering — i.e. the same raw
+  hardware-rate samples SDRConnect delivered, byte for byte. This exists
+  specifically so a capture can be replayed through an external decoder
+  (e.g. AIS-catcher's `-r` file input with `-ga FORMAT CF32`) for a fair,
+  apples-to-apples comparison against NEXUS's own native decoders,
+  without needing to fight over exclusive access to a live SDR device —
+  came up directly from a real AIS decode-quality investigation this
+  session where the actual SDR turned out to be a standalone network
+  receiver, unreachable by any second program's local hardware driver.
+- Backend: new `rec_start`/`rec_stop` WS commands, `_rec_write_audio()`/
+  `_rec_write_iq()`/`_rec_stop_and_report()`. Files save to a `recordings/`
+  folder next to the script, named `darksky_rec_<mode>_<timestamp>.wav`
+  or `.cf32`. `rec_stopped` reports the saved path, duration, size, and
+  sample rate back to the UI as a toast.
+
+### Fixed (2026-07-17) — AIS: VesselAPI lookup was hitting the wrong endpoint entirely, never resolved a single vessel name
+Live-tested with a real, correctly-configured key and a healthy 150-call
+budget — still zero names, zero SOG/COG/status, zero map markers after
+12+ minutes tracking 54 vessels. Checked VesselAPI's actual live API docs
+(vesselapi.com/docs/vessels) against what the code was calling and found
+two compounding mistakes, both present since the GUI key-entry feature
+was first built:
+- **Wrong URL:** was `GET /v1/vessels/{mmsi}` (plural, no query param).
+  The real endpoint is singular — `GET /v1/vessel/{id}?filter.idType=mmsi`
+  — and the `filter.idType` param is required (the same `{id}` slot also
+  accepts an IMO number, so the API can't tell which one you're passing
+  without it). Every single call 404'd.
+- **Wrong response shape:** even reaching the endpoint, the code was
+  looking for `vesselName`/`callsign`/`vesselType`/`flag` at the top
+  level. The real response nests fields under a `"vessel"` key with
+  snake_case names — `name`/`call_sign`/`vessel_type`/`country`.
+- Both mistakes were invisible in normal operation: the HTTP failure was
+  caught by a blanket `except Exception` and logged at DEBUG level only.
+  Added a dedicated `HTTPError` handler that logs any non-404 response
+  (401/403 bad key, 429 rate-limited, 5xx outage) at INFO level, so a
+  broken integration doesn't go silently unnoticed again — a plain 404
+  (vessel genuinely not in VesselAPI's database) stays quiet since that's
+  expected and common.
+- Reminder: this fixes the **name/callsign/flag** lookup only. SOG, COG,
+  and nav status are never sourced from VesselAPI in NEXUS's current
+  integration — those only come from decoded AIS position reports (msg
+  types 1/2/3/18) off the RF stream itself. If those still show blank
+  after this fix, that's the separate `msg_type_counts` RF-decode
+  question, not a VesselAPI problem.
+
+### Removed/Fixed (2026-07-17) — Marine/VHF tab: dropped embedded AIS panel, fixed dead channel-list refresh
+The Marine/VHF tab is badged ● COMPACT in the Decoders dropdown — its
+channel quick-tune list is pure tuning, works on any stream mode, no
+decoder of its own. It also used to embed a full AIS Vessels sub-panel
+(quick-tune buttons, toggle, vessel list), but that panel is Full-IQ-only
+and simply cannot function while the tab it lives in is audio-mode native.
+User flagged the mismatch directly: "in audio marine, do we need ais
+decoder here?"
+- Removed the AIS Vessels panel (buttons, toggle, `#marine-vessel-list`)
+  from `tab-marine` entirely. Replaced with a short note plus an **Open
+  AIS tab →** button (`showTab('ais')`) for anyone who lands here looking
+  for vessel tracking. AIS now lives in exactly one place: the dedicated
+  AIS tab.
+- **Bugfix found while editing this code:** `showTab()`'s marine case (and
+  the page-load init list) called `populateMarineChannels()` — no such
+  function exists, only `_populateMarineChannels()` (with underscore) is
+  defined. The call was wrapped in `try/catch`, so it silently no-opped
+  every time; harmless in practice since the channel list is static and
+  was already populated once at page load, but a genuine dead reference.
+  Fixed both call sites to use the correct underscored name.
+
+### Added (2026-07-17) — AIS: GUI VesselAPI key entry, so distributed builds never bundle a personal key
+Follow-up to the VesselAPI diagnostic below — since the free-tier 150-call
+budget is a personal, per-account allowance, it can't be baked into a
+build shared with other users. Previously the only way in was
+`DARKSKY_VESSELAPI_KEY` (an env var, invisible if NEXUS is launched from
+IDLE — see below) or hand-editing `.vesselapi_key.json`.
+- New **VesselAPI lookup** field in the AIS tab: paste a key, click
+  **Save**, done — no restart needed. Shows live status (`not configured`
+  / `configured (…XXXX)`), a **Clear** button, and a direct link to
+  generate a free key at dashboard.vesselapi.com.
+- Backend: new `ais_set_vesselapi_key` / `ais_get_vesselapi_key_status` /
+  `ais_clear_vesselapi_key` WS commands, writing through the existing
+  `_ais_vesselapi_save_key()`. Saving a new key also resets the local
+  150-call budget counter, since a different key means a different
+  VesselAPI account with its own separate allowance — without this, a
+  fresh key would be wrongly throttled by whatever count the *previous*
+  key had accumulated.
+- **Bugfix while wiring this up:** `_ais_lookup_poller()` used to check
+  for a configured key exactly once, before entering its loop, and exit
+  permanently if none was found at startup — meaning a key added later via
+  this new GUI field would never actually be picked up without a full app
+  restart. The check now runs every cycle instead, so a freshly-saved key
+  takes effect within ~5 seconds.
+- **Build scripts now guard against ever shipping a personal key:**
+  `build_macOS.sh`/`build_Windows.bat` warn if `.vesselapi_key.json`
+  exists locally, and hard-abort the build if any of
+  `.vesselapi_key.json` / `.vesselapi_call_count.json` /
+  `ais_mmsi_store.json` are found inside the built output — on top of the
+  `.spec` files' `datas` lists already being an explicit whitelist that
+  never referenced them. Each end user is expected to generate and enter
+  their own key via the GUI field above.
+- Documented in User Manual section 6.9a and a new Troubleshooting entry.
+
+### Added (2026-07-17) — AIS map: same style picker as the FT8 maps
+User request: "in the iq ais decoder pane, add the same map options
+pulldown as ft8". Added a CARTO Dark/Light/Voyager, OpenStreetMap, Esri
+Satellite picker next to the AIS map, mirroring `changeFt8BridgeMapProvider()`
+almost exactly (own provider table, `bringToBack()` on switch so a newly
+added tile layer doesn't cover the QTH marker/vessel icons, choice
+persisted to `localStorage`).
+- Also fixed **while implementing this**: `aisClear()` only ever cleared
+  `#ais-vessel-table` (the standalone AIS tab), so clicking Clear from the
+  Marine tab left stale rows sitting in `#marine-vessel-list` — same root
+  cause as the vessel-list render bug above, just a different call site.
+  Now clears both containers.
+
+### Diagnostic (2026-07-17) — AIS vessel table: all-MMSI rows, blank NAME/SOG/COG/STATUS
+Follow-up to the VesselAPI note below — SOG/COG/STATUS come from decoded
+RF (message types 1/2/3/18), not the online lookup, so this needed its
+own investigation. Read through `_ais_update_vessel()`: it only merges
+nav/name fields for `msg_type` in (1,2,3,5,18,24). Types 8 (Binary
+Broadcast — commonly sent by shore/base stations and AtoN buoys, not just
+ships), 10 (UTC/Date Inquiry), and 12 (Addressed Safety Message) are also
+decoded by `_ais_decode_payload()` but were never given a merge case —
+by design, since those message types genuinely carry no nav/name data in
+the base spec — so a vessel entry built from one of those alone will
+*permanently* show MMSI-only, with no bug required to explain it, if
+that MMSI never also happens to transmit a type 1/2/3/5/18/24 message.
+Whether that's actually what's happening (vs. a genuine decode-accuracy
+problem in the type 1/2/3/18 path) can't be told apart from the terminal
+alone yet, so:
+- Added `AisDecoder.msg_type_counts` (a running histogram of every
+  successfully-decoded `msg_type`), surfaced in the periodic `[AIS-DIAG]`
+  log line as `msg_types={...}`. Next run's terminal output will show
+  the actual distribution — if it's dominated by 8/10/12, that's the
+  full explanation and no further code fix is needed; if 1/2/3/18 show
+  up in real numbers but still produce blank fields, that's a genuine
+  bug still to chase down.
+
+### Diagnostic (2026-07-17) — AIS VesselAPI lookup: no visibility into whether it's actually running
+User-reported: expected online MMSI-name lookup (VesselAPI) to fill in
+vessel names, but every decoded vessel showed MMSI only. `_ais_lookup_poller()`
+was already correctly written to no-op silently when no key is configured
+(an intentional "opt-in feature, stay out of the way entirely" design) —
+but that meant there was no way to tell "not configured" apart from
+"configured but nothing resolved yet" just from the terminal log.
+- Added an explicit one-time startup log line: `AIS: VesselAPI lookup
+  ENABLED` (with the key's last 4 chars, for confirmation without
+  exposing the whole key) or `AIS: VesselAPI lookup DISABLED — no
+  DARKSKY_VESSELAPI_KEY env var or .vesselapi_key.json found`.
+- **Worth knowing if you launch NEXUS from IDLE (Run Module/F5) rather
+  than a Terminal:** `DARKSKY_VESSELAPI_KEY` is read via `os.environ` —
+  IDLE's process only inherits env vars from the shell that launched IDLE
+  itself, not from `~/.zshrc`/`~/.bash_profile` in general, so a key
+  exported there can be genuinely set and still invisible to NEXUS when
+  run this way. The local keyfile path (see `_ais_vesselapi_save_key()`)
+  sidesteps this since it doesn't depend on how the process was launched.
+- Separately, and unrelated to VesselAPI: the same live vessel table also
+  showed blank SOG/COG/STATUS (not just NAME) for every one of 17
+  vessels — those three fields come from decoded RF (message types
+  1/2/3/18), not the online lookup, so this points at something else
+  worth a closer look if it persists.
+
+### Fixed (2026-07-17) — Marine tab AIS panel: vessel count updated live, list stayed on "Awaiting AIS…"
+User-reported (live, immediately after the DC/CFO fix below): the Decoders
+> Marine/VHF panel's header correctly showed "AIS Vessels 5 vessels", but
+the list underneath it never left its static "Awaiting AIS…" placeholder.
+- **Cause:** there are two separate AIS vessel-list containers in the
+  page — `#ais-vessel-table`, in the standalone "AIS Maritime" tab
+  (`tab-ais`), and `#marine-vessel-list`, in the Decoders > Marine/VHF
+  panel (`tab-marine`) most people actually use day to day. Only the first
+  one was ever wired to `updateAISDisplay()`. The Marine tab's own vessel
+  *count* pill (`#ais-vessels-pill-marine`) was separately, correctly
+  wired directly in the `ais_update` message handler — which is exactly
+  why the count updated live while the list right below it never did:
+  two different code paths, only one of them complete.
+- **Fix:** extracted the per-vessel row-building logic out of
+  `updateAISDisplay()` into a shared `_aisBuildVesselRow()` helper, and
+  `updateAISDisplay()` now renders into *both* `#ais-vessel-table` and
+  `#marine-vessel-list` from the same vessel data. Hard-reload the browser
+  (Cmd+Shift+R / Ctrl+Shift+R) to pick up this frontend-only fix — no
+  Python restart needed.
+
+### Fixed (2026-07-17) — Native AIS decoder: real signal on the waterfall, zero decodes
+User-reported (live, 161.975 MHz / CH87B, Full IQ, SDRConnect connected):
+AIS toggled on, genuine burst-shaped RF activity visible right on the AIS
+channel in the waterfall, yet the vessel table stayed on "Awaiting AIS…"
+indefinitely. Investigation found the AIS toggle itself was off going into
+the test (0 active decoders) — starting it live confirmed correct tuning,
+Full IQ, and real bursts, but still 0 decodes after ~45 seconds.
+- **Cause:** `_ais_pll_clock_recovery_nrzi()` slices GMSK bits with a bare
+  `x > 0` threshold against the raw FM-discriminator output, assuming the
+  signal's frequency deviation is centred exactly on 0 Hz. Nothing in the
+  pipeline ever compensated for the small DC bias this threshold is
+  actually sensitive to — and AIS/ITU-R M.1371 explicitly allows
+  transmitters up to ±500 Hz of carrier tolerance, on top of whatever PPM
+  error the receiving SDR's own LO has. That's normally enough to bias the
+  discriminator output off true zero and corrupt every zero-crossing
+  slicer decision, well before CRC gets a chance to reject anything — this
+  was never carried over from the original `ais_decoder_dev.py` proof-of-
+  concept, which was only ever validated against a handful of captures
+  clean enough not to expose it.
+- **Fix:** Added a 1-pole IIR high-pass ("DC/CFO tracker", 75 Hz cutoff at
+  the 48 kHz decode grid) in `AisDecoder`, applied after the existing
+  receive low-pass and before the PLL slicer, continuously removing slow
+  bias while passing the much faster GMSK symbol transitions the slicer
+  needs.
+- **Also added:** a rate-limited `[AIS-DIAG]` log line (every 5s while AIS
+  is active) reporting `frames_seen` vs `frames_crc_ok` vs `vessels` — if
+  `frames_seen` stays 0 that points to a deeper frame-sync/PLL problem (or
+  genuinely no AIS energy); `frames_seen > 0` with `frames_crc_ok` still 0
+  means frame sync is working but bits are still wrong, i.e. this fix
+  needs further tuning rather than being the whole story. Check the
+  terminal NEXUS was launched from after restarting to pick this up.
+- **Requires a Python restart** (backend-only fix) — a browser reload
+  alone will not pick this up.
+- **Not this:** an unrelated question came up about whether the
+  jvde-github/AIS-catcher v0.70 release (an external, separate program
+  some users feed into NEXUS via UDP 10110 as an alternative source) might
+  help here — it doesn't apply to this issue. It's a different program
+  from NEXUS's own native decoder above, and v0.70 itself only touches
+  network-layer robustness (rewritten TCP server, bounded output queues,
+  a dropped-message counter) plus two unrelated bug fixes (ADS-B callsign
+  padding, a CTRL-C hang) — nothing in it changes signal decoding.
+- **AIS channel bandwidth, for reference:** confirmed 25 kHz, not
+  12.5 kHz — NEXUS's own `aisAutoTune()` already tunes CH87B/88B at
+  `bw_hz=25000` ("AIS = 25 kHz channel"), matching the global AIS1/AIS2
+  channel spacing under ITU-R M.1371.
+
+### Fixed (2026-07-17) — FT8 INTERNAL quick-tune/Hop mode never actually retuned the SDR
+User-reported (screenshot): the FT8 mini-spectrum/waterfall looked wrong
+compared to the User Manual's reference screenshot — a single peak near
+0 Hz tapering to flat, instead of the expected forest of peaks across the
+passband. Follow-up report: pressing an FT8 band quick-tune chip left the
+main spectrum/waterfall completely unchanged and put the tuning cursor at
+the very left edge of the display. Both turned out to be the same root
+cause, confirmed live in the browser.
+- **Cause:** `setFTband()` (manual band quick-tune) and `advanceHop()`
+  (automated Band Hopping) fired 5 raw low-level SDRConnect `set_property`
+  commands back-to-back with no delay — `device_sample_rate`,
+  `device_center_frequency`, `device_vfo_frequency`, `demodulator`,
+  `filter_bandwidth` — ported directly from the standalone reference
+  `websocketft48` tool this panel was originally adapted from. This
+  bypasses NEXUS's own `cmd:'tune'` handler entirely, which exists
+  specifically because SDRConnect/nRSP-ST needs its demodulator
+  re-asserted ~350ms after a genuine LO move or it silently drops the
+  retune (see the `cmd == 'tune'` handler in `w032_NEXUS.py`). Confirmed
+  live: clicking a band chip updated the VFO digit display, but the LO
+  (and therefore the actual received passband) never moved — NEXUS kept
+  listening to whatever band it was on before, so the FT8 decoder had
+  nothing real to decode, the main display didn't change, and the tune
+  cursor rendered off-screen because the VFO frequency was now far outside
+  the LO span that never actually updated. Automated Band Hopping had the
+  same bug, meaning an unattended multi-band scan never actually changed
+  bands on the radio, only in the UI.
+- **Fix:** both functions now call `tuneVFO()` — the same proven call
+  every other band-change mechanism in NEXUS already uses (WSPR band
+  buttons, the Bands panel, quick-tune segments, bookmarks) — instead of
+  reimplementing an uncoordinated version of the same thing.
+  `device_sample_rate` is no longer force-set on every click either: FT8
+  already runs at a fixed 500 kSPS, and forcing a sample-rate change (a
+  full stream restart) on every single band click only added more
+  settling-time risk for no benefit.
+- **Verified live** (RSPdx, Compact mode, 20m): before the fix, 0 decodes
+  after several minutes with the LO stuck on the previous band; after the
+  fix, switching to 20m and starting the decoder produced 26 decodes /
+  26 callsigns / 9 countries within about a minute, with the mini-spectrum
+  showing the expected multi-peak shape and the main waterfall correctly
+  centred on the new band.
+
+---
+
+### Fixed (2026-07-16, inherited from w031) — SSH Launcher shipped with the developer's own personal connection details
+Same fix as w031 — see that CHANGELOG entry for the full write-up. A
+different user's screenshot of the Connection Setup screen showed a real
+SSH connection attempt (and timeout) against `jon@192.168.1.114`, the
+developer's own private home LAN address, hardcoded as the default in
+`SSH_DEFAULT_CONFIG`. `ssh_host`, `ssh_user`, and `local_client` now
+default to blank instead of the developer's personal values; the SSH
+Host/Username input placeholders were also genericised.
+
+---
+
+### Added (2026-07-16) — CW mini-waterfall zoom is now a real "zoom FFT", not a crop
+Follow-up to the resolution fix directly below. `DS.cwWfZoom` (the −/+
+zoom control above the CW mini-waterfall) used to be purely cosmetic: the
+backend always sent the same fixed-resolution bins, and zooming just
+cropped and linearly interpolated that same array client-side — adding no
+real information, the same "fake zoom" limitation flagged in the earlier
+resolution discussion. This is now a genuine zoom, matching the technique
+dedicated SDR panadapters (SDR#, CubicSDR, SDRuno) use: since Hz/bin =
+sample-rate/FFT-size, a real increase in resolution needs a genuinely
+longer observation window, not just more display pixels.
+- The frontend now sends the current zoom level to the backend (new `cw_wf_zoom`
+  WS command) whenever it changes via `cwWfAdjustZoom()`.
+- The backend (`w032_NEXUS.py`, IQ-Lite and Full IQ audio_fft branches)
+  scales its FFT size with the requested zoom level (base 4096-pt → up to
+  32768-pt at 8×) and runs it over a rolling raw-IQ buffer, rather than the
+  fixed 4096-pt overlap-averaged FFT the base (1×) path uses. The result:
+  zooming in on the mini-waterfall shows genuinely finer detail, not a
+  blurrier crop of the same 512 bins.
+- **This is a real trade-off, not a free upgrade:** the STFT uncertainty
+  principle (Δf·Δt ≥ 1) means a longer window needed for finer frequency
+  resolution is, unavoidably, a longer window in time too — window
+  duration grows from ~85ms at 1× to ~683ms at 8×, so the mini-waterfall
+  updates more slowly and blurs fast keying transitions more at high zoom.
+  This is expected, and matches how real panadapters behave when zoomed in
+  — the CW mini-waterfall's job is frequency identification ("where is
+  this signal"), not showing individual key-down timing (that's what the
+  separate keying/activity scope is for).
+- Scoped to IQ-Lite and Full IQ (the complex-IQ paths) — Compact-mode's
+  audio_fft is already close to its native resolution at the existing FFT
+  size and its audio is already BW-filtered by the time NEXUS sees it, so
+  there's comparatively little left to zoom into there; it keeps the old
+  crop/interpolate behaviour for now.
+
+---
+
+### Fixed (2026-07-16) — CW mini-waterfall was discarding half its real resolution
+User asked how leading SDR apps get sharper waterfalls, which turned up a
+genuine inefficiency: the `audio_fft` broadcast (the CW mini-waterfall's,
+RTTY tone scope's, and fldigi waterfall's shared data source) computed a
+native FFT slice — around 512 bins at ~11.7 Hz/bin for the IQ-Lite/Full IQ
+paths (4096-pt FFT on 48kSPS decimated IQ) — then resampled it down to a
+fixed 256 bins via `np.interp` before sending it to the browser, and the
+browser then re-interpolated those 256 values back up across a ~450px-wide
+waterfall canvas. Real data was being thrown away on the way out and
+fabricated back on the way in.
+- All three `audio_fft` broadcast branches (IQ-Lite, Full IQ, Compact-mode)
+  now send their native FFT slice directly, unresampled — the `_AUDIO_FFT_OUT
+  = 256` downsample step is removed. This roughly doubles genuine displayed
+  frequency resolution on the IQ-Lite/Full IQ paths (Compact-mode's native
+  slice was already close to 256 bins, so no meaningful change there).
+  Bandwidth cost is negligible (a few hundred extra bytes at 10Hz over a
+  local WebSocket).
+- No frontend change was needed: `_renderCwNexusWf`, `_renderCwNexusSpectrum`,
+  and the RTTY tone scope all already read `bins.length` dynamically rather
+  than assuming a fixed 256.
+- **Not changed (documented, not fixed):** true zoom on the CW mini-waterfall
+  (`DS.cwWfZoom`) still crops and interpolates this same bin array
+  client-side rather than re-decimating the IQ and re-running the FFT at a
+  lower sample rate for the zoomed span — the technique real "zoom FFT"
+  panadapters (SDR#, CubicSDR, SDRuno) use to get genuinely finer resolution
+  when zoomed in, not just a smoother-looking crop of the same underlying
+  data. Flagged as a follow-up, not implemented in this pass.
+
+---
+
+### Added (2026-07-16) — Build scripts now bundle the docs
+Same website feedback that flagged "Windows can't read the document files"
+turned up a real gap: neither `build_macOS.sh` nor `build_Windows.bat` ever
+copied the Quick Start/User Manual/Troubleshooting PDFs into the built app
+at all — there was nothing local to open, on either platform, in any prior
+release.
+- **Windows:** `build_Windows.bat` now copies `docs/pdf/*.pdf` into a new
+  `Docs\` subfolder next to the .exe as a post-processing step (same
+  pattern already used for `eibi.csv`/`airports.csv`/etc.). No `.iss`
+  change needed — the installer already packages the whole app folder
+  (`dist\...\*`) recursively, so `Docs\` is picked up automatically;
+  updated its `[Files]` comment to say so explicitly.
+- **macOS:** `build_macOS.sh` copies the same PDFs into
+  `Contents/Resources/Docs` inside the `.app` bundle (for completeness),
+  but more importantly now stages the `.app` together with a top-level
+  `Docs/` folder in a new `dmg_staging/` directory before building the DMG,
+  so the PDFs are visible immediately when a user opens the DMG rather than
+  buried inside "Show Package Contents." Both `create-dmg` and the
+  `hdiutil` fallback now build from that staged folder instead of the
+  `.app` directly.
+- Both scripts warn (non-fatally) and continue if `docs/pdf/` doesn't
+  exist at build time, rather than failing the build.
+- **Windows installer:** added a new opt-out `docsshortcut` Task to
+  `DARKSKY_NEXUS_w031.iss` — checked by default (unlike the existing
+  `desktopicon` Task, which stays opt-in) since it directly addresses the
+  reported problem, adds a Start Menu → Documentation shortcut pointing at
+  `{app}\Docs`. The PDFs are installed either way; this only controls
+  whether a shortcut to them is created. No `[Files]` change was needed —
+  see above.
+
+---
+
+### Fixed (2026-07-16) — CW SKIMMER/SINGLE toggle could hide itself
+User-reported (screenshot, Compact mode): "no toggle visible for single
+decode or skimmer." Root cause: the SKIMMER/SINGLE toggle buttons
+(`#cw-view-skimmer-btn`/`#cw-view-single-btn`, added 2026-07-15) lived
+inside `#cw-skimmer-panel`'s own header — but `_cwApplyDecodeView()` sets
+that whole panel to `display:none` whenever SINGLE view is active, which
+took the only way back to SKIMMER view down with it. Anyone who ended up
+in SINGLE view (a prior session's `localStorage` value, or FLDIGI engine
+forcing it) had no UI path back to Skimmer. Moved the toggle out of the
+panel it controls and into the tab's persistent header row (next to
+Engine/Clear, always visible in both views) — same element IDs, so
+`cwSetDecodeView()`/`_cwApplyDecodeView()` needed no logic changes, just a
+DOM relocation.
+
+### Not a bug — CW mini-waterfall still BW-limited in Compact mode
+Same report also flagged the mini-waterfall as "still effected by bw
+settings." Confirmed via the screenshot (COMPACT mode selected in the top
+bar): this is the already-documented Compact-mode limitation, not a
+regression of the 2026-07-15 wideband-scope fix. That fix's ±3000 Hz
+BW-independent scope only applies to IQ-Lite/Full IQ streams, where the
+backend computes it from unfiltered complex IQ — in Compact mode
+SDRConnect has already band-limited the audio to the selected BW before
+NEXUS ever sees it, so there's no wider signal left to show regardless of
+span setting (see the Troubleshooting Guide's CW waterfall section).
+Switching to IQ Lite or Full IQ gives the true BW-independent view.
+
+---
+
+### Fixed (2026-07-16) — Dark theme secondary text failed WCAG contrast
+User feedback (via website): "very difficult to read anything on the screen
+with the dark format. Not enough contrast." Measured it — `--muted`
+(labels, units, sub-text throughout the app) was `#4a5a6a` on `#0a0c0f`,
+~2.8:1 contrast against WCAG's 4.5:1 minimum for normal text. Main body
+text (`--text`) was fine at ~13.5:1; this was specifically the dimmer
+secondary text. Lightened `--muted` to `#7a8da0` (~5.7:1) in dark theme
+only — still visibly dimmer than `--text` so the hierarchy is unchanged,
+just actually readable now. Light theme's `--muted` measured ~4.5:1
+(right at the cutoff) and was left alone, since the report was specifically
+about dark mode.
+
+---
+
+### Docs (2026-07-16) — User Manual + Troubleshooting Guide caught up to code
+Two gaps found when auditing docs against recent changes: the User Manual
+never mentioned the new "My QTH" map marker (added below), and the
+Troubleshooting Guide's "Address already in use" entry still described the
+old manual-kill-it-yourself fix, not the automatic self-heal added the same
+day. Added a QTH-marker note to the User Manual's map sections and rewrote
+the Troubleshooting entry to lead with "usually automatic now," keeping the
+manual macOS/Linux/Windows kill commands as the fallback for the (rare)
+case where the port is held by something that isn't NEXUS. `w031 Release
+Notes.md` also updated with the Windows self-heal fix. Docx/PDF rebuilt for
+both.
+
+---
+
+### Fixed (2026-07-16) — Windows port self-heal was a silent no-op
+A user (pre-w030 build) hit a hard crash on launch — `OSError: [WinError 10048]`
+failing to bind port 8889 — and reported it via the new website Community
+Wall feedback form. Root cause: `_free_stale_port()` (added to auto-recover
+from a previous NEXUS instance not shutting down cleanly) always shelled out
+to `lsof`/`ps`/`os.kill` to find and kill the stale process holding the
+port — all Unix-only. On Windows, `lsof` doesn't exist, so the function hit
+its own `except FileNotFoundError: pass` and did nothing, meaning Windows
+never actually got the self-heal at all — a leftover process (from a crash,
+a Task Manager "End Task", or just double-launching the app before the
+first instance finished starting — there's no console window on a windowed
+build, so there's no visual sign it's already running) just crashed the
+next launch outright. Added a Windows branch using `netstat -ano` +
+`tasklist` + `taskkill /F`, mirroring the same "only kill things that look
+like NEXUS/python" safety check the Unix path already had. Also updated
+both HTTP/WebSocket bind-failure log messages, which previously only
+printed a macOS `lsof` remedy command, to give Windows users a relevant
+"check Task Manager" message instead.
+
+---
+
+### Fixed (2026-07-16) — Skimmer candidate detection now uses real SNR, not display bins
+Per the CW decoder evaluation: `_skDetectLoop()` picked candidate frequencies
+from `DS.liveBins`, the same per-frame, self-normalizing, log-compressed
+array used to draw the visible spectrum — not a stable measurement. Its
+"floor + 30" threshold was an arbitrary distance in a unit that rescales to
+fit each frame's own peak, with no fixed relationship to real SNR;
+`CWSkimmerPool`'s own diagnostic broadcast had already shown candidates it
+promoted often sat at 0-1.5dB real SNR against the 8dB a `MorseDecoder`
+actually needs to decode — genuinely weak-but-decodable signals could be
+rejected by this display-only heuristic before ever reaching a real decoder.
+- New `_cw_scan_candidates_from_mag()` (backend) scans the real (fftshifted,
+  linear-magnitude, pre-log/pre-rescale) FFT array the nRSP-ST/IQ-Lite path
+  already computes for its own spectrum display (`_nrsp_fft_avg`) — zero new
+  DSP cost, just reading the array before the display-only `log1p`/rescale
+  steps mutate it. Floor is a trailing-window minimum in real dB (same
+  technique already proven in `MorseDecoder.process_iq()`'s noise-floor
+  tracking), threshold is floor + 8dB (matching the decoder's own default),
+  width filtering is in real Hz rather than an arbitrary display-bin count.
+- New `skimmer_candidates` broadcast (real `freq_mhz`/`snr_db`/`width_khz`
+  per candidate, plus the actual scanned `span_hz`/`center_mhz`) replaces
+  the unused legacy stub of the same name. New `skimmer_detect` WS command
+  toggle (`cmd:'skimmer_detect', active: true/false` — the frontend already
+  sent this; the backend used to just acknowledge it as a no-op) now
+  actually turns the scan on/off so idle connections don't pay for it.
+- Frontend: new `skHandleRealCandidates()` consumes the real backend list
+  with the same persistence/eviction window `_skDetectLoop()` always had, so
+  switching between the real backend path and the old client-side fallback
+  never causes rows to just vanish. `_skDetectLoop()`'s original
+  `DS.liveBins` scan is kept as a fallback specifically for Full IQ/Compact
+  connections, where the backend doesn't yet compute an equivalent real
+  wideband array (Full IQ currently relays SDRConnect's own native spectrum
+  for display rather than computing its own — see the w0.2.3 decision
+  further down this file) — it auto-resumes if real candidates go stale.
+- Scan range is no longer tied to the main spectrum's zoom/pan state (which
+  was implicit and easy to miss — surfaced only as a small muted readout).
+  For the real-SNR path it's now the actual scanned span, always accurate.
+
+### Fixed (2026-07-16) — Unmatched Morse patterns no longer silently dropped
+Also per the CW decoder evaluation: `MorseDecoder.process_iq()` rendered a
+non-empty symbol buffer that didn't exactly match `morse_table` as an empty
+string — any timing error (a QSB-distorted dash, keyer weighting, a dropped
+dit) just silently ate the character, indistinguishable from "nothing was
+sent." A genuinely non-empty, unmatched buffer now renders `#` instead, so a
+run of timing errors is visible as a run of `#`s rather than invisible gaps.
+An empty buffer (a long trailing gap with nothing typed — not an error)
+still stays silent, unchanged.
+
+### Changed (2026-07-16) — CW tab layout: persistent decode ticker, channel overlay, consolidated toolbar
+Implements the remaining layout items from the CW decoder/tab evaluation
+above (candidate-detection and error-placeholder fixes landed separately,
+just above). All four changes are purely visual/layout — no change to the
+decode algorithm, WS protocol, or backend.
+- **Persistent "Tuned Decode" ticker:** a single-line, tail-truncated
+  readout showing the single-channel decoder's live text was added between
+  the CW stats bar and the three sub-columns, always visible regardless of
+  SKIMMER/SINGLE view. Previously the single-channel decode text
+  (`#cw-decode-out`) was only reachable by switching to SINGLE view,
+  hiding the Skimmer channel list — there was no way to watch the dial
+  frequency and the Skimmer pool at the same time. Fed from the same
+  `cw_frame` messages `#cw-decode-out` already uses (`cwHandleFrame`), just
+  mirrored into the new `#cw-tuned-ticker` element.
+- **Skimmer channel markers on the mini-waterfall:** each active Skimmer
+  channel now gets a coloured tick + callsign/SNR (or frequency, before a
+  callsign is extracted) label drawn directly on the CW mini-waterfall, at
+  its actual frequency offset from the VFO. Colour-matched to that
+  channel's row in the Skimmer Channels list (`skRenderChannels()` now
+  assigns each row a colour from a fixed 10-colour palette by list
+  position, stored on the shared `_skChanText` row object; `_renderCwNexusWf()`
+  reads the same colour back). This was the biggest gap versus real CW
+  Skimmer/CwGet: with up to 20 channels decoding at once there was
+  previously no way to see where any of them actually sat on the waterfall.
+  Only drawn in SKIMMER view.
+- **Waterfall toolbar consolidated:** the zoom/colour-palette row and the
+  floor/range row (previously two separate full-width rows, added in
+  separate June 2026 requests) are now one row with a thin divider between
+  the two control clusters. Same buttons/handlers, just less vertical
+  space spent on chrome.
+- **TONE readout demoted:** the read-only "TONE (FROM WATERFALL)" value
+  (just reflects the waterfall drag-cursor position, not an editable
+  control) shrank from its own full-width labelled block down to a single
+  small inline line, so it no longer competes visually with KEY THRESHOLD,
+  the control directly below it that the user actually adjusts.
+- **Skimmer scan range surfaced prominently:** the scan-range readout
+  moved from a small muted line buried in the Skimmer Channels panel
+  header (which disappears entirely in SINGLE view — the same "control
+  vanishes with its panel" problem the SKIMMER/SINGLE toggle itself had
+  before its own earlier fix) to a coloured chip in the always-visible tab
+  header, right next to the SKIMMER/SINGLE toggle it's most relevant to.
+- **Waterfall/spectrum canvases grown:** the vertical space freed by the
+  toolbar consolidation went into the mini-waterfall (220px → 260px) and
+  its spectrum trace (70px → 90px) instead of being left blank — the
+  waterfall is the most information-dense element in that sub-column.
+
+---
+
+## w032 — CW decoder + CW tab layout overhaul
+
+### Why this exists
+Forked from w031 (2026-07-16) after a requested evaluation of the internal
+CW decoder's operation (both single-channel and Skimmer) and the CW tab's
+layout against best practice and dedicated CW tools (CW Skimmer, CwGet,
+fldigi). The evaluation found the decode algorithm itself solid but flagged
+Skimmer's candidate-detection front-end as relying on display-only spectrum
+bins rather than real SNR, silent character drops on unmatched Morse
+patterns, and a layout that buries the decoded text (the actual point of
+the tab) behind a hard SKIMMER/SINGLE toggle with no visual link between
+the Skimmer channel list and the waterfall. This fork implements the fixes
+proposed in that evaluation; see each dated entry below for specifics as
+they land.
+
+---
+
+## w031 — Live decoder-testing pass + PSK Reporter spot upload
+
+### Why this exists
+Forked from w030 (2026-07-15) specifically to hold the results of a live,
+in-Chrome testing pass across the decoders not already confirmed working by
+Jon (FT8 INTERNAL, the WSJT-X bridge, and fldigi-routed decoders were
+excluded — already confirmed working) — WSPR Beacons, CW (NEXUS engine),
+Marine/VHF, Multimon, Numbers-Station/HF-Intel (Rivet), and FreeDV — plus
+the previously-scaffolded PSK Reporter spot-upload feature (callsign/locator
+fields were added 2026-07-13 with the comment "not sent anywhere yet").
+
+### Live testing results (2026-07-15, RSPdx via SDRConnect, 20m/CW/DSC-calling
+frequencies, real air signals)
+- **Rivet (Numbers-Station/HF-Intel):** started/stopped cleanly on both DSC
+  and Baudot modes, tuned correctly to the 8414.5 kHz DSC distress/calling
+  quick-tune, no console errors. No live DSC traffic decoded in the ~25s
+  observation window — expected, real DSC calls are sporadic, not a bug.
+- **FreeDV:** failed to start with a clear, correctly-surfaced error
+  (`freedv_rx not found — build codec2 and ensure it is on PATH`) — a
+  missing dependency on the host machine, not a NEXUS bug. Degrades
+  gracefully; no crash.
+- **WSPR Beacons:** started cleanly, `wsprd` binary found, correctly
+  detected the live UTC even-minute capture window and began a fresh
+  110.6s capture right at the `:20` boundary in real time. No decode
+  observed in the ~100s test window (a full cycle needs ~110s+ processing;
+  not run to completion given session time budget).
+- **CW (NEXUS engine, Skimmer/monitor mode):** reproduced a real bug — see
+  Fixed below.
+- **Marine/VHF (AIS):** reproduced a real bug — see Fixed below.
+
+### Fixed (2026-07-15)
+- **WSPR — no anti-aliasing filter before decimation.** `WsprDecoder.process_iq()`
+  decimated 48kHz/2MSPS baseband down to 12kHz for `wsprd` via a bare
+  strided slice (`base[::dec]`) with no low-pass filter first — the
+  adjacent comment even said "low-pass and decimate" but the low-pass was
+  never actually written. Energy above the new Nyquist folded straight
+  back into the WSPR passband (1400-1600Hz) on every call, corrupting
+  decode on all three feed paths (Compact, IQ-Lite, Full-IQ). Now uses
+  `scipy.signal.decimate(..., ftype='fir', zero_phase=True)` (falls back to
+  the old unfiltered slice only if scipy is unavailable).
+- **WSPR — wrong sample rate on the RTL-SDR path.** `wspr_dec.process_iq()`
+  was passed `state.get('sample_rate')` (the raw/undecimated hardware
+  rate) instead of `_rtl_dec_sr` (the actual rate of the decimated signal
+  being passed in) — the exact bug class already fixed for `cw_dec`/
+  `rtty_dec`/`cw_skimmer_pool` two lines above in the same block, just
+  missed for WSPR. Now passes `sr=_rtl_dec_sr`.
+- **Multimon — fed audio through a raw-IQ FM discriminator, with the wrong
+  sample rate.** `MultimonDecoder.process()` expects genuine, not-yet-
+  demodulated raw IQ (it runs its own FM discriminator internally) and
+  internally defaulted to `state.get('sample_rate')` (the RF/hardware
+  rate) for its resample math. It was being called identically from four
+  places, but two of them (the Compact-mode "t==1" stereo-audio path and
+  the "t==4" Compact-mode-audio path) only ever have *already-demodulated*
+  audio at ~48000Hz available — not raw IQ. Running a meaningless FM
+  discriminator over audio (in the t==1 case, literally treating
+  left/right stereo channels as I/Q pairs), on top of a badly wrong
+  sample-rate assumption, meant Multimon (POCSAG/FLEX/EAS/DTMF/selcall/
+  MORSE_CW/AFSK1200/FSK9600) was completely non-functional in Compact
+  mode — badged "COMPACT" in the decoder dropdown — with no error or
+  indication anything was wrong. Added `MultimonDecoder.process_audio()`,
+  a separate path that skips the discriminator and takes an explicit
+  `sr`, for the two Compact/IQ-Lite call sites; `process()` (genuine raw
+  IQ, Full-IQ path only) now also takes an explicit `sr` instead of
+  relying on its internal fallback.
+- **Marine/VHF (AIS) — silent failure in Compact/IQ-Lite mode.** The
+  `ais_start` WS command handler was the one decoder-enable handler in the
+  whole file that never called `_check_iq_mode()` — the function every
+  *other* Full-IQ-only decoder's start handler already calls to warn the
+  browser ("iq_mode_warning" toast) when the connected stream can't
+  actually deliver what the decoder needs. AIS's only decode call site
+  (`ais_dec.process_iq()`) is Full-IQ-only, so starting it from the
+  Marine/VHF tab in Compact/IQ-Lite mode showed "running: True" with zero
+  vessels and zero indication anything was wrong. Now calls
+  `_check_iq_mode()` like every other decoder does.
+- **CW Skimmer — "ACTIVE" but never finds any candidates at default zoom.**
+  Live-reproduced: `_skDetectLoop()`'s false-positive width filter
+  (`widthKhz < 2.0`) didn't account for spectrum bin resolution. At the
+  default 1x/whole-band zoom (coarse bins, ~3.4kHz/bin on a ~1.75MHz span),
+  even a real, strong, genuinely narrow CW carrier can only ever measure
+  as ≥1 whole bin wide (≥3.4kHz), so it always failed the flat 2.0kHz
+  ceiling — Skimmer showed "ACTIVE" with a clearly visible signal on
+  screen but "Skimmer Channels (0)" forever. The ceiling now scales with
+  bin resolution (`max(2.0kHz, 2.5 bins)`), so genuinely wide/non-CW
+  signals are still rejected at fine zoom while narrow real signals aren't
+  rejected purely as a bin-averaging artifact at coarse zoom.
+
+### Added (2026-07-15) — PSK Reporter spot upload
+Implements the pskreporter.info UDP/IPFIX reporting protocol (see
+https://pskreporter.info/pskdev.html) — the same "de callsign callsign"
+propagation-reporting network WSJT-X, JTDX, and fldigi already report to.
+- New `PskReporterUploader` class (`w031_NEXUS.py`): builds and sends
+  IPFIX-format UDP datagrams to `report.pskreporter.info:4739`, batching
+  spots and respecting the protocol's ~5-minute minimum send interval and
+  per-callsign de-dupe window; resends the record-format-descriptor
+  templates for the first 3 packets and hourly thereafter, per spec.
+- Wired into three decode paths: FT8/WSPR via the WSJT-X ALL.txt bridge
+  (best-effort callsign extraction from the free-text message), native
+  WSPR (`wsprd`, already-structured call/freq/snr fields), and CW Skimmer
+  callsign decodes. FT8 INTERNAL (client-side `ft8ts`) is **not** wired up
+  yet — those decodes never reach the backend process today.
+- New `psk_reporter_config` WS command; new "PSK Reporter" checkbox next to
+  the callsign field in the HF Utility location bar (frontend), reusing the
+  existing callsign/locator fields rather than adding a new settings
+  surface. Locator sent to the backend is computed from the existing
+  lat/lon location setting via a new `latLonToGrid()` (Maidenhead 6-char),
+  the inverse of the existing `gridToLatLon()`.
+
+### Not yet resolved
+- **Decoder dropdown reorg (Internal/Compact/Full-IQ/External):** DAB/DAB+
+  was moved from FULL IQ to EXTERNAL in w030 (dab-cmdline opens the SDRplay
+  device directly, bypassing NEXUS's own IQ stream). The broader ask — a
+  clean 4-way Internal/Compact/Full-IQ/External split — doesn't fit the
+  current architecture cleanly: CW, RTTY, and FT8/WSPR are each dual-mode
+  at *runtime* (NEXUS-native engine vs. external fldigi/WSJT-X, toggled by
+  the user, not fixed per decoder), so they can't be statically pinned to
+  either "Internal" or "External". Recommend keeping the existing
+  COMPACT/FULL IQ/EXTERNAL section groups and instead making the
+  per-row engine badge (already present on CW/RTTY/FT8) the "Internal vs
+  External" signal for those three, rather than duplicating rows or
+  building a 4th static group — proposed to Jon, not yet actioned pending
+  his call.
+- GitHub research into upstream improvements (multimon-ng, wsprd, codec2)
+  was not pursued — all three are mature, actively-maintained tools; every
+  bug found this pass was in NEXUS's own integration code, not upstream.
+
+### Added (2026-07-15) — Windows installer script
+- New `build/DARKSKY_NEXUS_w031.iss` (Inno Setup 6) — the first installer
+  script for the project; prior versions only shipped a zip of the
+  PyInstaller onedir build. Packages `build_Windows.bat`'s output into a
+  single `DARKSKY_NEXUS_w031_Setup.exe`, with a fixed `AppId` GUID so future
+  releases install as upgrades rather than side-by-side copies,
+  `PrivilegesRequired=lowest` (freeware, no admin requirement), and an
+  `[UninstallDelete]` rule that removes the whole install directory
+  (including any config/cache files NEXUS writes at runtime next to the
+  exe) on uninstall.
+- Audited and fixed stale `w030` references left over from the fork across
+  `build_macOS.sh`, `build_Windows.bat`, both `.spec` files, and
+  `version_info.txt` (version bumped `0.3.0`→`0.3.1` to match); updated
+  `BUILD_NOTES.md`'s "on every release" checklist from 5 to 6 files to
+  include the new `.iss`.
+
+### Fixed (2026-07-15) — CW tab: keying-scope digit jump, mini-waterfall not starting, stuck 3rd-column placeholder
+Three bugs reported together from a live Chrome session with CW Skimmer
+running against 14 active channels:
+- **Keying scope jumped horizontally as SNR digits changed width.** The
+  TONE/SPEED/SNR stat boxes had no fixed width, so e.g. `9.2 dB` → `12.4 dB`
+  changed the box's rendered width and visibly shifted the whole keying
+  scope sideways on every update. Fixed with `min-width` on each stat box
+  and `font-variant-numeric: tabular-nums` on the value text so digits
+  occupy a constant width regardless of value.
+- **CW mini-waterfall not starting.** Root cause traced to the CW mini-
+  waterfall being driven by a server-computed FFT (`audio_fft` broadcast
+  messages) that was never sent unless FT8 INTERNAL's audio feed happened
+  to also be active — CW's own decoder starting didn't turn that feed on.
+  Rather than patch the gating, redesigned CW's mini-waterfall to work the
+  same way FT8 INTERNAL's tone/waterfall already does: a client-side FFT
+  computed in the browser directly from the existing raw-audio binary
+  stream (`0x02` frames), instead of a separate server-side computation.
+  New `cwAudioTap()`/`_cwClientComputeFFT()`/`cwHandleAudioFrame()` in the
+  frontend; backend gate on `_ft8_broadcast_audio()` widened from
+  `ft8_internal_active` to `ft8_internal_active or cw_dec.active` at all 5
+  call sites so the audio stream is actually flowing whenever CW decode is
+  running, regardless of FT8 INTERNAL's state. The old server `audio_fft`
+  broadcast is kept for RTTY/fldigi, which still use it.
+- **3rd column stuck on a fixed placeholder message.** The CW Skimmer pool
+  and the single-channel CW decoder write to two separate DOM elements
+  (kept apart since a June 2026 fix to stop their text interleaving); when
+  only the Skimmer pool was active, the single-channel decoder's own panel
+  never got any text and so never cleared its idle "Click Start" notice —
+  even though Skimmer channels were visibly decoding elsewhere on screen.
+  The notice now swaps its wording (not its target panel) to point at the
+  Skimmer Channels list once Skimmer decodes start arriving, if the
+  single-channel decoder itself hasn't produced any text yet.
+
+### Changed (2026-07-15) — CW tab layout: 3 sub-columns + Skimmer/Single toggle
+Per request, removed the CW tab's always-visible 3rd "decoded text" column
+as a permanent fixture (it forced scrolling to reach the panels below the
+mini-waterfall) and replaced it with a SKIMMER/SINGLE toggle:
+- The NEXUS-engine panel is now 3 side-by-side sub-columns instead of 2 —
+  waterfall + zoom/floor/colour controls | tone/threshold + Last Chars +
+  sweep config | speed trend + Skimmer Channels — so nothing stacks below
+  the waterfall on a normal-height window.
+- The single-channel decoder's own text panel (`#cw-decode-out`) is no
+  longer permanently on screen; a new SKIMMER/SINGLE toggle in the third
+  sub-column shows it on demand. Default view is SKIMMER. Switching to the
+  FLDIGI engine always force-shows it regardless of the toggle (fldigi has
+  no Skimmer pool of its own). Preference persists across reloads.
+
+### Fixed (2026-07-15) — BW dropdown rendering far wider than its content
+User-reported and confirmed via screenshot: the BW preset dropdown was
+rendering nearly the full width of the window for as few as 5 short
+presets, next to the properly-sized Bands dropdown. Root cause: a legacy
+CSS rule (`#bw-panel { position:absolute; top:100%; right:0; ... }`) from
+an earlier, pre-`toggleBWPanel()` implementation of the same element was
+still declaring `right:0`. The current implementation only ever sets `left`
+and `top` inline at runtime and never touches `right` — so with
+`position:fixed` (set inline) plus a computed `left` and a leftover
+`right:0`, the browser stretched the box to fill the gap between them
+instead of shrink-wrapping to its content. Added `right:auto` to the
+element's inline style to override the stale declaration; also tightened
+the preset grid from 3 to 2 columns and matched the panel's corner-radius/
+shadow to `#nexus-bands-panel` for visual consistency between the two
+dropdowns.
+
+### Fixed (2026-07-15) — FT8 SOURCE buttons looked like info text, not buttons
+The inactive FT8 SOURCE button (INTERNAL or WSJT-X, whichever wasn't
+selected) had `border: none; background: none` — indistinguishable from
+plain label text next to a bullet character. `.ft8-src-btn` now always
+renders with a visible border/background (matching `.ft8-ctrl-btn`/
+`.ft8-band-chip` elsewhere in the same tab), with a hover state added and
+the active state additionally getting an accent-coloured border.
+
+### Fixed (2026-07-15) — FT8 INTERNAL monitor audio distortion; new volume slider
+User-reported audible distortion when FT8 INTERNAL decode starts, requiring
+the OS volume to be turned down to compensate. Root cause: the existing
+low-SDRConnect-volume gain-compensation curve in `ft8HandleAudioFrame()`
+(added 2026-07-12 to fix a related complaint) was unbounded as volume
+dropped — roughly 5.6x at 20% device volume, ~26.8x by 0% — and every
+sample was then hard-clamped to ±1, a brick-wall clip that produces
+audible crackling on any sample the curve pushed past full-scale. Fixed in
+two passes:
+- Capped the compensation multiplier (`FT8_MAX_GAIN`, tightened from an
+  initial 2.5 down to 1.6 after user follow-up) and replaced the hard clamp
+  with `Math.tanh()`, a soft-knee curve that rounds off peaks smoothly
+  instead of flat-topping them.
+- Added a **MON VOL** slider to the FT8 INTERNAL toolbar (default 50%,
+  persisted via localStorage) that scales only the local browser playback
+  in `ft8HandleAudioFrame()` — independent of `DS.volume` (the actual
+  SDRConnect/receiver volume) and applied *after* the signal is handed to
+  `ft8AudioTap()`, so turning the monitor volume down never affects decode
+  sensitivity, only how loud the monitor audio is in your speakers.
+
+### Fixed (2026-07-15) — FT8 INTERNAL gain-cap regression hurt decode count
+Follow-up to the distortion fix above: user reported fewer decodes after the
+gain cap was tightened, and asked whether that was the cause — yes. The
+first pass of the distortion fix capped the compensation gain and ran it
+through `Math.tanh()` on the *same* `mono` array that was also handed to
+`ft8AudioTap()` for decoding, not just to the speaker output. Capping the
+boost reduced the amplitude reaching the decoder at low SDRConnect volumes,
+and `tanh`'s soft-knee saturation — applied to a passband that normally
+holds several simultaneous FT8 signals, not just one tone — introduces
+intermodulation distortion across all of them, which can bury weaker
+signals. Neither concern applies to a `Float32Array` that only ever gets
+FFT/LDPC-processed in JS (no hardware clipping is possible there); they
+only matter for what comes out of the speakers. Fully separated the two
+paths: the decode tap now gets the original linear compensation gain,
+**uncapped** and with no soft-clip; the speaker-output copy is computed
+separately and is the only one that gets `FT8_MAX_GAIN`/`tanh`/MON VOL
+applied. The gain cap is now purely a playback-loudness knob and no longer
+trades off against decode sensitivity.
+
+### Added (2026-07-15) — CW quick-tune highlight fix, FT8 stat prominence, FT8 INTERNAL → PSK Reporter
+- **FT8 band quick-tune chips now stay highlighted after clicking.**
+  User-reported: pressing a band chip (160m-6m) didn't visibly stay
+  selected, but hovering over one did. Root cause: the click handler ran
+  `setFTband(num)` before `_ft8HighlightBand(num)` in the same inline
+  `onclick` — if `setFTband` took a moment or threw, the highlight call
+  after it could be skipped or delayed. Also, `.active` and `:hover` used
+  the exact same border/text colour, differing only by a barely-visible
+  10%-opacity background tint, so even a correctly-applied selection looked
+  almost identical to the unselected state. Fixed by highlighting first
+  (instant feedback, independent of whether the tune logic that follows
+  succeeds), tracking the selection in `ft8SelectedBandNum` so it survives
+  a chip-list rebuild, and giving `.active` a solid, bold, unmistakable
+  fill.
+- **Decodes/Callsigns/Countries counters made prominent.** Were 9px muted
+  text easy to miss; now rendered as bold, colour-coded badges (13px,
+  cyan/green/violet) in the FT8 INTERNAL toolbar.
+- **FT8 INTERNAL decodes now reach PSK Reporter.** User reported 828 local
+  decodes / 118 callsigns / 20 countries with nothing showing up under
+  their callsign on pskreporter.info. Root cause: FT8 INTERNAL decodes
+  entirely client-side (the `ft8ts` Web Worker) and never sent a single
+  decode to the Python backend — the only process that can open a UDP
+  socket to `report.pskreporter.info`. This was a known, documented gap
+  from the original PSK Reporter implementation earlier the same day (see
+  above). New `ft8_internal_spot` WS command: `appendFT8Decode()` forwards
+  each decode's callsign/frequency/mode/SNR to the backend — only when
+  `ft8Source === 'internal'` (the WSJT-X-bridge path already reports via
+  its own backend-side ALL.txt-tailing `FT8Decoder`, so forwarding those
+  too would double-report) and only while PSK Reporter is enabled. Absolute
+  frequency is computed client-side as dial/VFO frequency + the decode's
+  audio tone offset, matching how the WSJT-X-bridge path already derives
+  its own frequency field. Also fixed a stale "not sent anywhere yet"
+  message left in the callsign-entry popup from before PSK Reporter upload
+  was wired up — it now reflects whether uploading is actually on.
+
+### Fixed (2026-07-15) — CW mini-waterfall never moved when retuning the VFO
+User-reported, with screenshot: a dense noise blob permanently stuck on the
+left half of the CW mini-waterfall (labelled -3000..-1000 Hz), nothing on
+the right half, unchanged no matter how the VFO was retuned. Two compounding
+bugs in the client-side FFT tap added earlier the same day:
+- `_cwClientComputeFFT()` centred its slice on the decoder's live tone
+  reading (~700 Hz) with a ±3000 Hz span, clamping the low end to 0 without
+  adjusting the displayed range to match — so the real data (0 to ~3700 Hz
+  of raw absolute audio spectrum) got stretched across the *entire* canvas
+  width, while the axis labels (`-3000..+3000`, from `_cwNexusWfHzBounds()`)
+  were computed completely independently and never corresponded to what was
+  actually in the bins.
+- That ±span "0 Hz = VFO" symmetric convention was inherited from the OLD
+  backend implementation, which achieved it via a genuine complex IQ
+  frequency shift (see the "Mini-waterfall freeze" entry earlier in this
+  file). It's physically impossible to reproduce from the new data source:
+  0x02 frames carry already-demodulated, real-valued mono audio, which for
+  USB/CW demodulation only ever has content at *positive* Hz — audio Hz
+  already equals the RF offset above the VFO dial directly, there's no
+  negative side to show. The symmetric axis was guaranteed to put real
+  content on one side and nothing on the other regardless of the slicing
+  bug above.
+- Fixed by removing the tone-centring entirely and slicing straight from
+  0 Hz (= VFO dial) to +3000 Hz — the same 0..+span mapping FT8 INTERNAL's
+  own waterfall already uses. `_cwNexusWfHzBounds()` now returns `{lo:0,
+  hi:span_hz}` instead of `{lo:-span_hz, hi:span_hz}`; the drag-to-tune
+  handler, cursor overlay, and axis-tick drawing all read that function
+  generically, so retuning-by-drag, the cursor position, and the axis
+  labels all stayed in sync with a single change.
+- Also stopped writing to the shared `DS.audioFftMeta` object from this
+  client-side CW tap — RTTY's tone scope and the fldigi waterfall still
+  read that object from the server's own `audio_fft` broadcast, and CW's
+  writes to the same object would have silently corrupted whichever one ran
+  more recently if CW and RTTY/fldigi decode were ever active together. CW
+  now maintains its own `DS.cwAudioFftMeta`.
+
+### Changed (2026-07-15) — CW mini-waterfall reverted to server-side wideband scope; new spectrum trace added
+Following the fix above, Jon asked "CW WATERFALL DOESNT CHANGE WHEN I CHANGE
+VFO" (fixed above), then "WHEN I CHANGE BW THE CW WATERFALL CHANGES" — which
+turned out not to be a bug, but the expected consequence of the client-side
+tap genuinely reflecting the CW decoder's own BW-filtered audio. Jon then
+asked for the opposite: "For the CW waterfall, rather than change with bw,
+can it not be fixed span like ft8 internal... would be good to add spectrum
+also", and confirmed, being a Full IQ user (0.5/1/2 MSPS): "in the main
+spectrum and waterfall, i am usually looking at 2, 1 or 0.5 msps. Having the
+cw spectrum waterfall at 3000hz would provide me with a close up scope which
+is what i need."
+
+Investigating turned up that the backend already had exactly this,
+untouched the whole time: a server-side `audio_fft` broadcast for both
+IQ-Lite and Full IQ mode, computed from genuine *unfiltered* complex IQ
+(not the BW-filtered demodulated audio the client-side tap used), VFO-
+centred via `_audio_fft_center_hz()`, at a fixed ±3000 Hz span — immune to
+the CW decoder's own narrow BW filter by construction. This was the
+original pre-w031 mechanism; the same-day client-side-tap redesign had
+disconnected CW from it without knowing it already covered this need.
+
+- Reverted the CW mini-waterfall (and the new spectrum trace below) back to
+  consuming the server's `audio_fft` broadcast: the WS message handler's
+  `case 'audio_fft':` now again calls `_renderCwNexusWf(msg)` and
+  `_renderCwNexusSpectrum(msg)` whenever CW is the active NEXUS decoder,
+  populating the CW-only `DS.cwAudioFftMeta` from the server message.
+- `_cwNexusWfHzBounds()` reverted to the symmetric `{lo:-span_hz,
+  hi:span_hz}` window — correct again now that the source is genuine
+  complex IQ (which really can have content on both sides of a VFO shifted
+  to DC), not one-sided real audio.
+- `cwHandleAudioFrame()` (the client-side tap entry point) is now a no-op;
+  `_ft8_broadcast_audio()`'s internal gate and all five of its call sites
+  in `w031_NEXUS.py` dropped the `or cw_dec.active` added earlier the same
+  day, back to `ft8_internal_active` only — CW no longer needs that 0x02
+  raw-audio stream, so this also saves the bandwidth/CPU of broadcasting it
+  when only CW (not FT8 internal) is running. `cwAudioTap()`,
+  `_cwClientComputeFFT()`, and `_cwFFT()` are left in place as unused code
+  rather than deleted.
+- Added a new spectrum trace (`_renderCwNexusSpectrum()`, cyan line plot on
+  a new `#cw-nexus-spectrum-canvas`) above the mini-waterfall, sharing the
+  exact same zoom/floor/range and Hz-axis mapping as the waterfall so the
+  two stay pixel-aligned — the FT8-internal-style pairing Jon asked for.
+- Also fixed a related, previously-undiagnosed axis bug in the Compact-mode
+  `audio_fft` block (`w031_NEXUS.py`, the `t==1` branch): it clamped its
+  low bin to 0 (real audio has no negative Hz) without shifting the window
+  to compensate, silently narrowing the reported span while still claiming
+  `carrier_hz` was the nominal CW tone/RTTY mark — not the actual centre of
+  what got sliced. Now shifts the window up to preserve the full requested
+  width when clamped, and reports the true centre.
+
+### Added (2026-07-15) — "My QTH" home marker on every NEXUS map
+Jon: "on any maps in nexus, can you add a distinguishing mark on my qth?"
+Audited all six maps in the app. The WSJT-X bridge map (`ft8Map`) and the
+WSPR spot map already had a home marker (the WSPR one was just a small
+plain circle labelled "RX"); the ADS-B, AIS, ACARS position, and FT8
+Skimmer/station (MapLibre) maps had none at all.
+
+- Added a shared `_addQthMarker(map)` / `_qthHomeIcon()` helper — the same
+  orange pin+dot SVG icon and "My QTH" popup `ft8InitMap()` already used,
+  now reused everywhere instead of being drawn ad hoc per map. Reads live
+  from `HF_LOC` (the HF Utility tab's location bar), with the same
+  53.4°N/-3.0°W fallback the WSJT-X bridge map already used if no location
+  has been set.
+- Wired it into `adsbInitMap()`, `aisInitMap()`, and `_acarsInitMap()`
+  (all previously marker-less).
+- Upgraded the WSPR spot map's plain "RX" circle to the same pin icon for
+  visual consistency across every map (its `_rxLL` receiver-position
+  tracking used for arc lines to spots is unchanged).
+- The FT8 Skimmer/station map runs on MapLibre GL JS, not Leaflet, so it
+  has no `L.divIcon` equivalent — added a plain `maplibregl.Marker` built
+  from the same SVG string directly in `initStationMapInstance()`'s
+  `on('load', ...)` handler instead of going through the shared Leaflet
+  helper.
+
+---
+
+## w030 — Native FT8/FT4 decoder, ported from w029 onto the w026 baseline
+
+### Why this exists
+Jon asked for w029 to be examined. w029 looked like a large, legitimate
+piece of new work (a client-side FT8/FT4 decoder, `ft8ts` by Roger Need,
+GPL v3 — decodes FT8/FT4 entirely in-browser via a Web Worker, no WSJT-X
+required) — but its HTML (`DARKSKY_NEXUS_w029.html`) turned out to be
+forked from the ancient **w0.1.2** snapshot (`../OLD VERSIONS/w012`), not
+from w026, w027, or w028. Internal markers gave it away: the `<title>` and
+the JS section header both still literally read `w0_1_2`. Its Python
+backend (`w029_NEXUS.py`), separately, was a byte-for-byte copy of w026's
+— so the two halves came from different, non-adjacent points in the
+project's history.
+
+Net effect: relative to w026 (the deployed baseline), w029's frontend was
+missing HFDL, VDL2, RIVET, and Trunk decoding entirely; RTTY was gutted to
+a fraction of its w026 implementation; AIS, ACARS, DAB, POCSAG, and CW
+Skimmer were all cut down to old, much smaller w0.1.2-era versions; and
+the light/dark theme toggle was gone. The Dockview dockable-panel UI from
+w028 was also absent, but per Jon that's expected/wanted — w027/w028 were
+his own UI testing, not something to carry forward into NEXUS.
+
+Decision: keep w029's one genuinely new contribution (the native FT8/FT4
+decoder) and move it onto w026, rather than trying to backfill everything
+w029 was missing.
+
+### Added: native/internal FT8 & FT4 decoding (no WSJT-X required)
+- New **FT8 SOURCE** toggle at the top of the FT8/WSPR tab: **WSJT-X**
+  (default — the existing, unchanged ALL.txt-bridge mode from w026) or
+  **INTERNAL** (new — decodes FT8/FT4 entirely client-side).
+- Vendored `ft8ts` (GPL v3, © Roger Need, https://github.com/e04/ft8ts) —
+  a from-scratch JS/TS port of the WSJT-X v2.7 FT8/FT4 algorithm — inline
+  in the page, running inside a dedicated Web Worker so decoding (LDPC
+  belief-propagation, FFT correlation, etc.) doesn't block the UI thread.
+- New spectrum/waterfall canvases, band-quick-tune chips, and a
+  decode-list/QSO-detail panel for the internal decoder, separate from
+  (and not disturbing) the existing WSJT-X-bridge table/map UI, which is
+  now wrapped in its own `#ft8-bridge-panel` and stays the default.
+- Backend: real demodulated mono audio is now streamed to the browser for
+  the internal decoder. New `ft8_internal_active` flag + `ft8_internal_enable`
+  WS command, gated so it only costs bandwidth/CPU when INTERNAL mode is
+  actually selected *and* decoding is turned on — bridge-mode users (the
+  default) and idle users are unaffected. New binary wire format,
+  `_ft8_broadcast_audio()` in `w030_NEXUS.py`: `byte[0]=0x02` (audio —
+  previously a reserved no-op in `handleBinaryFrame`), `bytes[1:3]`=
+  uint16-LE sample rate in Hz, `bytes[3:]`=int16-LE mono PCM. Wired in at
+  every demod hook point (SDRConnect PCM, IQ-Lite, Full IQ, RTL-SDR,
+  Compact-mode).
+
+### Fixed: FT8 bridge mode was silently crashing the SDRConnect connection
+Found while wiring up the audio feed above, not something w029 introduced
+— this bug has been present since `FT8Decoder` was written (inherited by
+w027/w028/w029 too, since they all carry the same class): `FT8Decoder` only
+tails WSJT-X's `ALL.txt` file for spots — it has no `process()` or
+`process_iq()` method. But five call sites across the SDRConnect/RTL-SDR
+demod paths called exactly those non-existent methods whenever
+`ft8_dec.active` was true (i.e. whenever the FT8 tab's bridge mode was
+turned on). Every one of those call sites sits inside the same
+`try: ... except Exception: log "SDRConnect bridge error… retrying in 5s"`
+block that wraps the whole SDRConnect message loop — so enabling FT8 threw
+`AttributeError` on the very next audio packet, which silently tore down
+and reconnected the entire SDRConnect bridge (dropping spectrum/audio
+momentarily), then did it again on the next audio packet, in a continuous
+crash-reconnect loop for as long as FT8 stayed enabled. All five dead call
+sites removed; four of them repurposed to feed the new native-decoder audio
+broadcast described above instead.
+
+### Known gaps carried over from w029, not fixed here (flagged, not fabricated)
+- `getWinSec()`/`getCollectSamples()`/`cycleFT8Depth()` referenced
+  `FT8_WIN_SEC`/`FT4_WIN_SEC`/`FT8_COLLECT_SAMPLES`/`FT4_COLLECT_SAMPLES`/
+  `ft8CurrentMode`/`ft8Depth` — none of which were ever declared anywhere
+  in w029. Calling any of them would have thrown `ReferenceError`. Defined
+  now using standard WSJT-X cycle lengths (FT8=15s, FT4=7.5s @ 48kHz).
+- `countryToLatLon()`/`callsignToCountry()` (used by the QSO propagation
+  map's country grouping/coloring) referenced `DXCC_CENTROIDS`/
+  `DXCC_PREFIXES` — also never defined anywhere in w029. Stubbed as empty
+  objects rather than fabricated (a real DXCC prefix table is ~400+
+  entries and needs a verified source) — the map still works, just without
+  country grouping/coloring, until a real table is sourced.
+- The propagation map itself (`loadStationMapDeps`/`initStationMapInstance`)
+  pulls MapLibre GL JS + tile styles from `cdnjs.cloudflare.com` and
+  `tiles.openfreemap.org` — same "no general internet access on the
+  Chromebook deployment device" constraint already documented for
+  Dockview in `../w028/CHANGELOG.md`. It degrades to an on-screen message
+  rather than crashing, but won't render there as-is.
+- A pre-existing minor precision note, not a bug: on the RTL-SDR path, the
+  internal decoder's audio arrives at whatever `cur_sr / dec_r` actually
+  works out to (not always exactly 48000 Hz — `cur_sr // dec_r` is an
+  integer floor division, documented in several existing BUGFIX comments
+  in `w030_NEXUS.py`). The client always knows the true rate (it's in the
+  wire format), but still assumes a fixed 4:1 decimation to 12kHz — a
+  fully sample-accurate fix means resampling that tap to a true 48000 Hz
+  stream, which wasn't done here.
+- Two small harmless duplicate function definitions inherited verbatim
+  from w029 (`openStationMapModal`/`closeStationMapModal`, and a `ts()`
+  timestamp helper, each defined twice within the ported FT8 section).
+  JS just uses the later definition; left as-is rather than risk an edit
+  during an already-large merge.
+
+### Also fixed while merging (not FT8-related, just found along the way)
+- w029's copy of the FT8/FT4 code declared `const FT8_BANDS =
+  {1:1840000, ...}` (exact dial frequencies for band-hop quick-tune chips,
+  keyed 1-11) — but w026 already has a **different**, pre-existing global
+  `const FT8_BANDS = [{lo,hi,name,color}, ...]` (a generic amateur-band
+  lookup-by-frequency table used elsewhere, e.g. `ft8BandInfo()`). Same
+  name, incompatible shapes — `const` can't be redeclared, so this was a
+  hard `SyntaxError` that would have broken the *entire* app the moment
+  this code was merged in as-was. Renamed the new one to
+  `FT8_HOP_BANDS`/`FT4_HOP_BANDS`.
+
+### Docs and build/ packaging scripts synced to match (w026 → w030)
+Following the same convention as past releases: `docs/md/w030/` (QuickStart,
+User Manual, Troubleshooting — updated for the new FT8 SOURCE toggle, the
+INTERNAL native decoder, and the WSJT-X-bridge crash fix, with every
+pre-existing historical `(w0.2.6)`/`(w0.2.x)` version tag left untouched
+rather than rewritten as `(w030)`, since those document *when* each past
+change actually shipped) and matching `docs/word/w030/*.docx`, built via
+the existing `docs/_docx_build/` node/docx pipeline (`build_quickstart.js`,
+`build_usermanual.js`, `build_troubleshooting.js`) with the same content
+changes mirrored into each build script. `build/` packaging scripts
+(`build_macOS.sh`, `build_Windows.bat`, both `.spec` files,
+`version_info.txt`, `BUILD_NOTES.md`) also ported: the app-name construction
+now uses a dedicated `APP_VERSION_TAG` (`w030`, matching NEXUS's own
+version string everywhere else) kept separate from `APP_VERSION` (`0.3.0`,
+the dotted-numeric form the macOS/Windows metadata fields actually require)
+— building both from the same variable the way w026's scripts did would
+have produced an app named "w0.3.0" instead of "w030", inconsistent with
+every other self-identifying string in the app (title, `#brand-version`,
+`VERSION` constant, this CHANGELOG).
+
+### Fixed (post-release, live-tested): `_find_html()` fallback still pointed at the old filename
+First real run of w030 failed at startup with "DARKSKY UI not found —
+expected: .../DARKSKY_NEXUS_w0_2_6.html". `_find_html()`'s same-stem check
+(comparing the .py filename to the .html filename) has never actually
+matched in this codebase — `w030_NEXUS.py` vs `DARKSKY_NEXUS_w030.html` are
+different naming patterns, so it always falls through to a glob (looking
+for `DARKSKY*w0_2_6*.html`) and a hard-coded fallback path, both of which
+still said `w0_2_6` in three places. These weren't caught by the earlier
+version-string sweep because they're deep inside a helper function, not
+near the file's obvious self-identifying strings (title, `VERSION`, etc.).
+Fixed all three references to `w030`; verified against the real file that
+the glob now resolves correctly.
+
+### Fixed (post-release, live-tested): shutdown always ended in a `RuntimeError`
+Closing the browser tab (or Ctrl+C/SIGTERM) correctly ran the full
+shutdown sequence — child processes terminated, HTTP server stopped,
+background tasks cancelled, "NEXUS shutdown complete." logged — but then
+`asyncio.run(main())` raised `RuntimeError: Event loop stopped before
+Future completed.` on every single exit. Pre-existing, inherited from
+w026 unchanged (this shutdown code isn't something w030 touched) — found
+because it showed up in the terminal on first live test. Root cause:
+`main()` idles forever on a bare `await asyncio.Future()` that can never
+resolve on its own; `_graceful_shutdown()` called
+`asyncio.get_running_loop().stop()` directly to end the program, which
+halts the loop while `main()`'s task is still suspended on that
+unresolvable Future — so `asyncio.run()`'s own internal bookkeeping sees
+its top-level task as never having completed, and raises. Confirmed with
+a minimal standalone repro before and after. Fixed by introducing a
+module-level `_shutdown_event` (`asyncio.Event`): `main()` now awaits
+`_shutdown_event.wait()` instead of the bare Future, and
+`_graceful_shutdown()` calls `_shutdown_event.set()` instead of
+`loop.stop()` — `main()` wakes up and returns normally, so `asyncio.run()`
+completes without an exception. Also excluded `main()`'s own task from the
+shutdown's "cancel every other task" sweep (it's tracked via a new
+`_main_task` global set at the top of `main()`), since the intent is for
+it to return normally, not be cancelled out from under itself.
+
+### Fixed (post-release, live-tested): VFO, spectrum, and waterfall all stopped rendering
+App connected fine but showed no VFO readout, no spectrum, no waterfall —
+found via live report immediately after the shutdown fix above. Root
+cause: the three FT8 integration "monkey-patch" wrappers added to the
+frontend —
+
+```js
+const _origHandleBinaryFrame = handleBinaryFrame;
+function handleBinaryFrame(buf) { _origHandleBinaryFrame(buf); ... }
+```
+
+— used a `function` declaration to redefine a name that already had a
+`function` declaration earlier in the same script. JS hoists function
+declarations before any code runs, and when the same name is declared
+twice in one scope the *last* declaration wins during that hoisting pass.
+So by the time `const _origHandleBinaryFrame = handleBinaryFrame` actually
+executed, `handleBinaryFrame` had already been rebound to the wrapper
+itself — making `_origHandleBinaryFrame === handleBinaryFrame` and turning
+every call into infinite self-recursion (stack overflow, silently caught
+inside the WS message handler's try/except-equivalent, so nothing ever
+rendered). This hit all three wrapped functions: `handleBinaryFrame`
+(every spectrum/waterfall frame), `handleJSONFrame` (VFO/state updates),
+and `showTab` (tab switching) — fully explaining the symptom. Confirmed
+with a standalone Node.js repro before fixing, and again after. Fixed by
+changing all three wrappers from a `function name(){}` redeclaration to a
+plain assignment (`name = function(){}`), which only ever declares the
+name once and avoids the hoisting collision entirely.
+
+### Fixed (post-release, live-tested): FT8 INTERNAL source threw on first click — "FT8 internal not working"
+Clicking the FT8 tab, or clicking the INTERNAL source toggle, or clicking
+Decode On, each immediately threw `ReferenceError: ft8WorkerReady is not
+defined` — so the native ft8ts decoder never actually started. Root
+cause: the native-decoder integration has an entire `State` section
+header (`// State`, just above `// Init`) that was left completely empty —
+about 30 variables (`ft8Worker`, `ft8WorkerReady`, `ft8Decoding`,
+`ft8AudioBuffer`, the FFT/waterfall buffers `ft8FftBuffer`/`ft8FftMag`/
+`ft8FftCumSum`/`ft8WfAvgSum` and their size constants `FT8_FFT_SIZE`/
+`FT8_FFT_HOP`/`FT8_DISPLAY_BINS`/`FT8_BINS_PER_PX`, the cycle-timing state
+`ft8CycleBoundaryTime`/`ft8NextBoundaryMs`/`ft8CycleTimerInterval`, the
+UI-mode state `ft8CountryMode`/`ft8CumulativeMode`/`ft8WfSpeed`/
+`ft8CurrentBandName`/`ft8TrackedFreq`, plus `FT8_GRID_FALSE_POSITIVES` and
+`vfoInitialised`) were referenced throughout the ported code but never
+declared with `let`/`const`/`var` anywhere. An assignment like
+`ft8Worker = new Worker(...)` silently creates an implicit global the
+first time it runs, but reading a name before its first assignment —
+e.g. `if (!ft8WorkerReady)` on the very first click — throws immediately,
+since the identifier has no binding at all yet. Filled in the whole
+block: FFT sizing chosen as a 4096-point FFT on the 48kHz audio tap
+(≈11.7 Hz/bin) with `FT8_DISPLAY_BINS` covering the same 0–3320 Hz
+passband the spectrum/waterfall grid already draws; `FT8_GRID_FALSE_POSITIVES`
+stubbed as an empty `Set` (same "no fabricated ham-radio reference data"
+approach as `DXCC_CENTROIDS`/`DXCC_PREFIXES`); UI-mode defaults
+(`ft8CountryMode='all'`, `ft8CumulativeMode=true`, `ft8WfSpeed=4`) matched
+to the button labels already shipped in the HTML (Country All /
+Cumulative / Slow). Verified via live click-through in Chrome (INTERNAL
+toggle → Decode On → worker loads, `ft8WorkerReady` becomes `true`, zero
+console errors) after the fix; reproduced the exact three-error sequence
+before it.
+
+### Fixed (post-release, live-tested): dead `window.onload` block threw on every page load
+Separately, every page load logged `ReferenceError: buildSmeter is not
+defined` from a `window.onload` handler, before anything else in that
+handler could run. Investigated and found the entire block was foreign,
+non-functional code: none of the four functions it called
+(`buildSmeter`, `buildAudioMeter`, `updateSliderFill`,
+`updateButtonStates`) or the DOM ids it referenced (`ipInput`,
+`portInput`, `ipDropdown`, `volumeSlider`) exist anywhere in this
+codebase or in w026 — it doesn't match NEXUS's actual connection modal
+(SSH Host/Port/User/Password) or its actual meters (header SNR/dBm
+readouts). Removed the block entirely; changes nothing functionally
+since none of it ever executed successfully, it just removes a
+guaranteed startup console error.
+
+### Investigated (live-tested + user's own server log): FT8 INTERNAL still shows no decodes/waterfall on nRSP-ST + Compact mode — not a NEXUS bug
+After the two fixes above, clicked through the full INTERNAL flow live
+(same running backend/session the user was on, via a second browser tab)
+with instrumentation on `handleBinaryFrame`/`handleJSONFrame`: source
+toggle and Decode On both fire with zero JS errors, the backend
+acknowledges `ft8_internal_status: active=true` and logs "FT8 internal
+(native ft8ts) audio feed: ON" — but zero `0x02` FT8 audio frames ever
+arrived browser-side. First hypothesis (that the pre-existing
+`_check_iq_mode()` "no raw IQ in Compact/IQ-Lite on nRSP-ST" warning
+explained this) was wrong and got corrected: that diagnostic is
+specifically about type-2 IQ frames, not type-4 audio — Compact mode
+exists precisely to send demodulated audio *instead of* raw IQ, so its
+absence is normal and doesn't imply audio is missing too. Settled by
+the user's own server log (`SDRConnect frame types: {...}`, which this
+codebase already logs every 100 frames): over ~15 minutes and 9000+
+frames, with the FT8 feed confirmed ON throughout, **every single frame
+was type 3 (spectrum) — zero type 1, zero type 2, zero type 4** — despite
+`set_primary_device_enable`/`device_stream_enable`/`iq_stream_enable`
+all completing and SDRConnect reporting `'started': True`. So the `t==4`
+"Compact mode audio IQ" code path (where the FT8 broadcast hook lives,
+alongside CW/RTTY's Compact-mode handling) is correctly written but has
+never once fired on this connection — SDRConnect itself isn't emitting
+any binary audio or IQ data in this mode on this hardware, only
+spectrum. Same root cause class as the already-documented type-2 IQ
+finding for Compact/IQ-Lite on nRSP-ST, now confirmed to extend to
+audio too. No code fix applies — switch SDRConnect to **Full IQ** mode
+(the one mode this file's own comments confirm, via prior SDRplay
+support contact, actually delivers binary signal data over this bridge
+on the nRSP-ST), or use the RSPdx directly / RTL-SDR engine. Separately
+fixed one small pre-existing mislabel found along the way: the new
+`_ft8_broadcast_audio(p, sr=state.get('sample_rate', 48000))` call at
+the `t==4` site was passing the RF/hardware sample rate (e.g. 500000
+for 500 kSPS) as the audio sample rate — copied from
+`_rtty_capture_feed`'s call two lines above it, which has the same
+pre-existing mislabel (left alone, out of scope). Changed the FT8 call
+to a fixed `sr=48000`, matching every other audio-broadcast call site.
+Requires a NEXUS restart to take effect (Python changes, unlike the
+HTML, aren't picked up on next page load).
+
+### Fixed (root cause, user-confirmed via independent reference client): SDRConnect never streamed audio at all — NEXUS was missing `audio_stream_enable`
+The "Full IQ required" theory above (both the first, wrong version citing
+the type-2 IQ warning, and the corrected version resting on the 9000+
+spectrum-only frames in the user's log) turned out to be the wrong fix,
+even though the log evidence itself was accurate. User supplied a
+separate, independently-written standalone tool
+(`WebsocketFT48_v1.html`) that connects directly to SDRConnect and does
+successfully decode FT8 — 41 decodes, real S-meter/audio-meter/waterfall
+— on the exact same nRSP-ST in Compact mode. Diffing its connect
+sequence against NEXUS's found the actual gap: on `ws.onopen` it sends
+`device_stream_enable`, then **`audio_stream_enable`**, then
+`audio_mute=false` (plus `demodulator=USB`, `filter_bandwidth=3000`,
+`audio_volume_percent`). NEXUS's connect sequence
+(`set_primary_device_enable` → `device_stream_enable` →
+`iq_stream_enable`, in the deferred-enable block around line 7051) never
+sent `audio_stream_enable` anywhere in the file — confirmed by grep, zero
+matches as an outbound command. `audio_stream_enable` is a separate gate
+from `iq_stream_enable`, apparently unconditional on device mode:
+without it SDRConnect sends spectrum only, forever, in Compact **or**
+Full IQ; Full IQ mode was never actually the requirement — it just
+happened to be untested since nobody had tried FT8 INTERNAL/CW/RTTY on
+this exact nRSP-ST + Compact combination with `audio_stream_enable` sent
+before now. Also explains why CW/RTTY were silently non-functional on
+Compact mode this whole time (same missing command, same t==1/t==4 code
+paths). Fixed: added `audio_stream_enable` (0.3s after `iq_stream_enable`)
+and `audio_mute=false` (0.2s after that) to the same deferred-enable
+sequence, same wire format/timing pattern as the existing three sends.
+Once this lands, SDRConnect should start sending real type-1 audio
+frames — which the existing t==1 branch (line ~6264) already forwards to
+`_ft8_broadcast_audio()` when `ft8_internal_active` is on, no further
+change needed there. Requires a NEXUS restart; not yet re-verified live
+against a running NEXUS instance (only against the reference tool
+directly) — confirm FT8 INTERNAL actually decodes after restart.
+
+### Fixed (live-tested, post-restart): three more bugs that only surfaced once real audio actually started flowing
+After the `audio_stream_enable` fix above, restarted NEXUS and confirmed
+real `0x02` audio frames finally arrive (869 binary frames in 6s: 147
+spectrum + 722 audio). This exercised code paths that had never once run
+against real data before, surfacing three more bugs:
+1. **`RangeError: start offset of Int16Array should be a multiple of 2`**
+   in `ft8HandleAudioFrame` — `new Int16Array(buf, 3)` where the wire
+   header is 3 bytes (1 type + 2 sample-rate); byte offset 3 isn't
+   2-aligned, which `Int16Array` requires. Fixed to `new
+   Int16Array(buf.slice(3))` — slicing copies into a fresh, always-aligned
+   buffer.
+2. **Tab froze solid** — `ft8NextBoundaryMs` defaulted to `0` (added in
+   the earlier state-variables fix), but `ft8AudioTap`'s catch-up loop
+   does `while (nowMs >= ft8NextBoundaryMs) ft8NextBoundaryMs += cycleMs`
+   against a real Unix epoch `nowMs` (~1.78e12 ms) — from 0, that's
+   ~100 billion iterations. Never triggered before since `ft8AudioTap`
+   was never called with zero audio frames ever arriving. Fixed the
+   default to `Date.now()`, and added a safety-cap guard in the loop
+   itself (jump straight to the next real boundary if
+   `ft8NextBoundaryMs` is ever more than an hour stale, instead of
+   incrementing one cycle at a time) so no future variant of this can
+   recur.
+3. **`IndexSizeError: createImageData... source width is zero`** in
+   `ft8DisplayFrame` — `spCanvas.offsetWidth` is 0 whenever the canvas
+   isn't laid out (FT8 tab not open, panel hidden), and
+   `createImageData(0, 1)` throws. Added a guard to skip the frame
+   instead of crashing.
+
+With all three fixed: clicked through the real UI (Decoders → FT8/WSPR →
+INTERNAL → Decode On) and got a genuinely working pipeline — real
+spectrum trace and waterfall rendering in the FT8 panel, `triggerFT8Decode`
+firing every 15s with full 720000-sample windows, the worker responding
+in under a second, zero JS errors. This is the first time any of this
+has actually run against live data.
+
+### Investigated (live-tested, unresolved): pipeline fully healthy, decoder still returns 0 results every cycle
+Despite everything above working, 8+ consecutive 15s cycles all returned
+`resultsLen: 0` from the ft8ts worker — while the user's reference tool
+got 41 decodes on the same band minutes earlier. Ruled out, with live
+measurements:
+- **Silence**: no — RMS ~0.033, real non-zero signal content, matching
+  visible peaks in the rendered spectrum/waterfall.
+- **Sample count/window**: no — consistently 719040-720000 samples
+  (15s × 48kHz), correct.
+- **Sample rate mismatch**: no — measured real wall-clock-vs-sample-count
+  implied rate at 48154 Hz against a declared 48000 Hz — 0.3% off,
+  nowhere near enough to break FT8 sync.
+- **Mode/bandwidth/frequency**: no — confirmed via `get_state`: USB,
+  3000 Hz BW, 14074000 Hz VFO, exactly matching the reference tool's
+  settings and the correct FT8 dial frequency.
+- **Audio level**: partially — NEXUS never set `audio_volume_percent`
+  at all, inheriting whatever SDRConnect's last-remembered value was.
+  Tested live (via the browser's existing `set_property` passthrough,
+  no restart needed): the original level measured RMS ~0.033 (quiet);
+  75% overshot into hard clipping (samples pinned at ±0.9999); 45%
+  measured clean (0% samples above 0.95, RMS ~0.166) — a sane level with
+  real headroom. Fixed in the backend to send `audio_volume_percent=45`
+  in the same enable sequence. Still 0 decodes at this clean level,
+  across multiple cycles, so audio level alone isn't the full
+  explanation either — though it was a real, separate bug worth fixing
+  regardless (the original level really was too quiet).
+- **Downmix logic**: compared byte-for-byte against the reference tool's
+  `handleAudio()` — both do the identical `(left+right)*0.5` stereo
+  interleaved int16 downmix. Not a divergence point.
+
+No confirmed root cause yet for the remaining gap between "pipeline is
+provably healthy on every measurable axis" and "decoder finds zero sync
+candidates." Worth trying next: run the reference tool and NEXUS
+side-by-side against the same moment's audio to see whether the
+reference tool decodes what NEXUS's own worker is being fed (would
+isolate the ft8ts integration itself vs. some remaining audio-quality
+factor not yet measured), and/or add raw-audio capture/playback in
+NEXUS for direct A/B listening.
+
+---
+
+### Resolved (live-tested, real decodes): the zero-decode mystery is over
+After the fixes below (quicktune buttons, active-decoder count, the 2nd
+batch of undeclared variables), re-ran the same live test that had
+previously returned `resultsLen: 0` on every cycle. Tuned to 20m
+(14074000 Hz, USB, 3000 Hz BW — same settings as every earlier failed
+test), enabled FT8 INTERNAL decode, and captured two consecutive real 15s
+cycles via direct worker-message instrumentation:
+
+- Cycle 1 (boundary 09:49:15Z): **5 decodes** — `<...> UA3PAB KO84`,
+  `EA5IH TF5B -05`, `YO8CNA HB9SDO JN37`, `DL6PCS DL1UDO R+04`,
+  `UT7UJ F4LQJ R-09` — SNRs -10 to -20 dB, all plausible.
+- Cycle 2 (boundary 09:49:30Z): **5 more decodes** — `R9IT HB9TIH JN36`,
+  `EA1KCN OK1UOZ JO70`, `OE5GTE DK7ZT -04`, `OZ5ADW/P R2AL 73`,
+  `TF5B EA5IH R-19`.
+
+Both cycles' results also rendered correctly in the actual decode-list UI
+(`#ft8DecodeList`), and `DS._activeDecoders` correctly showed
+`{"ft8":true}` throughout — confirming the whole pipeline end to end, not
+just the worker in isolation.
+
+No single smoking gun isolates which fix tipped this over — the most
+likely candidate is the `sendCmd` adapter fix (below): before it, every
+3-arg `sendCmd()` call from the FT8-ported code silently sent malformed
+JSON, which plausibly means earlier "confirmed correct via `get_state`"
+checks were reading stale/default SDRConnect state rather than state this
+code had actually, successfully requested. Combined with the earlier
+Int16Array-alignment and `ft8NextBoundaryMs` timing fixes (which could
+each have quietly corrupted or misaligned every decode window before this
+session), it's plausible no prior test ever actually reached the decoder
+with a valid, correctly-configured, correctly-aligned window at all. Not
+re-litigating further since it's now demonstrably working; flagging the
+uncertainty rather than claiming a single root cause we can't fully prove.
+
+---
+
+### Fixed (live-tested): "Active decoders" stuck at 0, and FT8 quicktune buttons non-functional
+Two separate bugs reported together, both in the FT8 INTERNAL path:
+
+- **Active decoders showed 0**: `toggleFT8Decode()` flipped `ft8DecodeEnabled`
+  and started/stopped the audio feed and cycle timer, but never touched
+  `DS._activeDecoders` — the object that actually drives the top status
+  bar's "Active decoders: N" count and pill list. Only the older
+  bridge-mode `ft8Enable()` path did that (same `'ft8'` slug). Fixed by
+  adding `_decoderUpdateUI('ft8', ft8DecodeEnabled);` as the last line of
+  `toggleFT8Decode()` — `_decoderUpdateUI()` already null-guards every DOM
+  lookup inside it, so it's safe even for a source (INTERNAL) that has no
+  dedicated `dec-start-ft8`/`dec-stop-ft8`/`dec-badge-ft8` elements of its
+  own. Live-tested: `DS._activeDecoders` now correctly flips
+  `{} → {"ft8":true} → {}` across an on/off toggle.
+
+- **Quicktune buttons did nothing**: two compounding bugs, both found via
+  live instrumentation (wrapping `sendCmd` to log real calls, then calling
+  `setFTband()` directly in the browser console):
+  1. The `sendCmd` **adapter was defined but never wired in**. The
+     ft8ts-ported code (from the original `WebsocketFT48_v1.html` reference
+     tool) calls `sendCmd(eventType, property, value)` — three string
+     args — but NEXUS's own `sendCmd(obj)` takes a single object. An
+     adapter function (`_ft8SendCmd`) existed to translate between the two
+     conventions, but nothing ever pointed the real `sendCmd` identifier at
+     it, so every 3-arg call in the ~10 ft8-ported call sites (including
+     `setFTband`, hop-mode band switching, mode/bandwidth changes) was
+     silently sending malformed JSON instead of a real command. Fixed by
+     reassigning the actual `sendCmd` global to a small dispatcher that
+     detects both calling conventions and forwards to the original
+     object-based `sendCmd`.
+  2. Once real commands started firing, `setFTband()` immediately threw
+     `TypeError: Cannot read properties of null (reading 'value')` at
+     `document.getElementById('filterBWInput').value` —  `filterBWInput`
+     is a DOM id from the original reference tool's own standalone UI and
+     does not exist anywhere in NEXUS (confirmed via DOM query, zero
+     matches; NEXUS's real bandwidth control is the `bw-btn`/`bw-panel`
+     click-driven widget, not a plain `<input>`). Fixed both occurrences
+     (`setFTband()` and the hop-mode band-switch handler) to read
+     `DS.vfos.a.bw`, the same Hz-valued store `tuneVFO()`/`_tuneTo()`
+     already read/write elsewhere in this file.
+  3. Also part of the same bug class: a second batch of undeclared
+     variables beyond the first sweep (which only caught `ft8`-prefixed
+     names) — `BAND_COLORS`, `BAND_COLOR_DEFAULT`, `HOP_BAND_NAMES`,
+     `HOP_BAND_NUMS`, `hopActive`, `hopCurrentIdx`, `hopCyclesDone`,
+     `hopRows`, `sessionCalls`, `sessionDXCC`, `sessionDecodes`,
+     `stationMap`, `stationMapInstance`, `stationMapLoading`,
+     `stationMapPopup`, `stationMapReady`. `HOP_BAND_NAMES` in particular
+     was the first thing `setFTband()` touched, so its missing declaration
+     was the actual, literal cause of the button doing "nothing" (silent
+     `ReferenceError` before any `sendCmd()` could run at all). Declared
+     all of them alongside the first FT8 state-variable batch, with values
+     inferred from how each is read/written elsewhere (e.g. `hopRows`
+     defaults to `[]`, since `loadHopConfig()` already populates it for
+     real at startup from localStorage or its own 20m/17m/15m default).
+
+  Live-tested end to end after all three fixes: `setFTband(9)` now fires
+  five correct `sendCmd` object calls (`device_sample_rate`,
+  `device_center_frequency`, `device_vfo_frequency`, `demodulator`,
+  `filter_bandwidth`) with real, correctly-computed values (e.g. 12m →
+  24905000/24915000 Hz), no exceptions, and `ft8CurrentBandName` matches
+  the frequency actually sent.
+
+Note: `calculateGain()` (ported verbatim from the reference tool) and its
+`audioVolumePercent` variable are still dead/orphaned — never called
+anywhere, and would throw on a missing `volumeSlider` DOM element if they
+were. Left as-is for now since it's unreachable, not something a user can
+trigger; flagged here in case it turns out to matter for the still-open
+zero-decode investigation below.
+
+---
+
+## Inherited history (from ../w026/CHANGELOG.md)
+
+## w0.0.5 — DSP performance pass (no feature changes)
+- OPT-1: All IIR filters converted to SOS form (sosfilt) with persistent zi state across batches — stable Butterworth, no batch-edge glitch.
+- OPT-2: AM DC-block Python loop replaced with vectorised sosfilt.
+- OPT-3: np.exp tone correlator replaced with cached Goertzel dot-product in MorseDecoder, AutoCWDetector, RttyDecoder, PocsagDecoder (~4×).
+- OPT-4: Decimation anti-alias filter cached; only recomputed on SR change.
+- OPT-5: WefaxDecoder buffer changed from Python list to numpy array; PNG zlib compression level 1 (3× faster encode, ~10% larger).
+- OPT-6: All decoders gain process_iq(complex64) — RTL bridge passes decimated IQ directly, eliminating float32→int16→bytes→float32 round-trip. process(bytes) shim retained for SDRConnect path.
+
+## w0.0.6 — Band framing fix
+Debounced frequency updates (150ms) to prevent VFO/LO display jitter when SDRConnect band framing rapidly changes center freq. Reduced sample_rate re-query spam (was firing on every center change).
+
+## w0.0.7 — VFO-only tuning fix
+Server now respects vfo_only=true flag, preventing waterfall pan when user clicks to tune within visible span. Browser-side _updateBandTuned() fix: band button label now updates correctly when selecting different bands. UI enhancements: axis contrast (+93% brightness), marker visibility (+87% opacity on dashed lines), frequency axis grid darker background. Improved readability across all zoom levels.
+
+## w0.0.8
+Reserved for debugging iteration (never released).
+
+## w0.0.9 — VFO-only waterfall lock
+Complete fix for SDRConnect path. Backend no longer sends device_center_frequency when vfo_only=true, keeping hardware LO locked while VFO marker moves. Waterfall stays anchored to original center frequency during VFO-only clicks. VFO persists and does not revert. Fixed variable scoping bug in SDRConnect tune handler.
+
+## w0.1.0 — DARKSKY NEXUS frontend rewrite
+Ring buffer waterfall, digit VFO display, five-column HF intelligence panel, EIBI/AOKI lookup, DX spots, NCDXF beacons, space weather, SigIDWiki, VOLMET/reference channels, band condition matrix with propagation reachability scoring, numbers stations, frequency list importer. Spectrum ring buffer enables instant floor/range/palette recolour without re-render.
+
+## w0.1.1 — Signal intelligence expansion
+BUILTIN_SIGNALS database (60 utility/military/maritime/aviation/digital signal entries) merged into lookup() alongside EIBI — returns results for non-broadcast frequencies. OurAirports.com integration: get_air_freqs command downloads and caches airports.csv + airport-frequencies.csv, returns nearby VHF airport frequencies sorted by distance. EIBI auto-download on startup when files missing. lookup command accepts freq_mhz override parameter. Space weather via bridge (get_space_weather command) bypasses browser CORS restrictions on NOAA SWPC endpoints.
+
+## w0.1.2 — Tuning architecture overhaul
+_tuneTo() helper with inSpan/forceMoveLO logic centralises all tuning paths. setMode() gains silent flag to prevent race condition with tuneVFO(). VFO/LO display swapped to match SDRConnect convention. Tune line recoloured red (#ff2244) for visibility. WebSocket ping_interval=None disables keepalive disconnect on browser background. Bookmark persistence via bridge bm_save/bm_delete/bm_list. Spectrum markers (bookmarks + EIBI ghost markers) drawn on sp-canvas. PEAK hold, dB GRID, LABEL toggle replace TSM/AI/Noise stubs.
+
+## w0.1.3 — RDS display
+Inline brand-bar strip shows PS name, PTY, radiotext when WFM tuned with RDS lock. SNR colour-coded (+green/yellow/orange) with signal power readout. BW preset dropdown with mode-aware presets. Bands button moved alongside BW below mode group. Enhanced cinematic mode: live spectrum horizon mirror, station name resolution (RDS/EIBI/bookmark), SNR signal bar, space weather panel, signal-reactive particles, smart floating labels from bookmarks. SIG INTEL dedicated tab with three-column layout. Signal Intel tab wires lookup results across EIBI + SigDB sources with SigIDWiki article lookup.
+
+## w0.1.4
+(frontend iteration — see DARKSKY_NEXUS.html changelog)
+
+## w0.1.5 — nRSP-ST / IQ-Lite groundwork
+- Device detection — active_device and valid_devices queried on connect. nRSP-ST detected by device name; state gains device_type and iq_lite_capable. device_caps broadcast to frontend on connect.
+- Binary router fix: type 1 (PCM audio 48kHz) was silently dropped on RSPdx — now downmixed to mono complex64 and fed to decoders via process_iq(), restoring decoder operation on the standard audio path.
+- IQ-Lite type 2 handler: branches on iq_lite_capable; applies 5-pole Butterworth LPF then decimates 4× (192kHz→48kHz) before decoders.
+- ADS-B: removed duplicate adsb_poller stub and duplicate create_task. Added readsb (brew) probe URLs; frontend notices updated for macOS.
+- HFDL/VDL2 auto-launch infrastructure added: _find_dumphfdl/vdl2, _launch_dumphfdl/vdl2, process watchdog in UDP server loops. hfdl_start/vdl2_start accept device/freqs/sample_rate overrides.
+- Frontend notice panels updated with accurate macOS build instructions.
+
+## w0.1.6 — nRSP-ST connection architecture clarified
+WebSocket API (port 5454) lives in SDRConnect desktop, not nRSP-ST firmware. nRSP-ST exposes port 9001 (browser UI) and port 50000 (SDRConnect client protocol). _is_nrsp_st now set solely by active_device name (not --sdr host). Stream mode parsed from active_device suffix e.g. "(IQ Lite)" — authoritative on every property_changed, handles Compact/IQ Lite/Full IQ correctly including mode switches from the frontend button strip. set_stream_mode selects exact entry from valid_devices list (base name matched) — fixes previous bug where mode suffix was appended to the already-suffixed active_device name, producing an invalid selector.
+
+sample_rate reported as 192000 when iq_lite_capable; hw_sample_rate preserved for mode switches. Frontend applyState forces liveSR=192000 in IQ Lite. center_hz processed before vfo_hz in applyState — fixes stale liveCenter when SDRConnect auto-changes sample rate.
+
+Click-to-tune LO lock fix: spectrum and waterfall click handlers pass forceMoveLO=true; _wfClick/_spClick updated to match; duplicate addEventListener calls removed (were double-firing every click). Demodulator re-assertion 350ms after LO move — fixes audio drop on nRSP-ST when SDRConnect resets pipeline on device_center_frequency. Startup LO re-centre: _recentre_lo_on_vfo task fires 1.5s after connect; rebroadcasts state without moving hardware (moving LO caused SDRConnect to cascade VFO offset, changing tuned frequency).
+
+fldigi frequency sync: full LO tunes now call set_frequency() on fldigi. VFO-only micro-tunes do not spam fldigi. fldigi toast: transition guard (false→true only); silent flag on browser_handler and fldigi_tune status responses.
+
+Spectrum colour panel: BASIC row deduplicated (8 distinct hues); WATERFALL row replaced with one swatch per palette pulled from each palette's actual signal peak stop — no duplicates across either row.
+
+Version string broadcast to frontend (server_version); mismatch toast added to catch stale cached HTML (Cmd+Shift+R prompt). All version strings updated from w0_1_4 → w0_1_5.
+
+## w0.1.7 — SSH Launcher integrated (Connection Wizard modal)
+On startup, a full-screen wizard modal blocks the main UI and offers two modes: SDRConnect Server (SSH) or nRSP-ST / Local.
+
+SSH mode: paramiko connects to remote Linux host, starts sdrconnect --server, waits startup_delay seconds, launches local SDRConnect.app via open -a. All SSH I/O runs in daemon threads; results streamed to browser via existing broadcast_json channel.
+
+Stop sequence preserved exactly from app.py (critical order):
+1. Close local SDRConnect (pkill -TERM -x \<appname\>)
+2. Wait device_release_wait seconds for RSPdx handle release
+3. Kill remote server (pkill via fresh SSH connection)
+4. Close original SSH channel and connection
+
+Device release wait is mandatory — skipping it causes SIGSEGV in swig_bindings.dylib on next SDRConnect launch.
+
+SSH config persisted to ~/.darksky_nexus/ssh_config.json. Passwords never written to disk (session-only). ssh_get_config, ssh_get_status, ssh_test, ssh_launch, ssh_stop, ssh_reset commands handled in browser_handler via _handle_ssh_cmd(). SSH status and last 50 log lines replayed to late-joining browsers. Brand bar: ssh-strip with ⬡ SSH badge and Stop button appears when SSH session is running; turns amber during device release wait.
+
+PyInstaller packaging: _resource_path() helper added for frozen bundle compatibility; spec file, build scripts, requirements.txt, and README_BETA.md produced for macOS and Windows release builds. New dependency: paramiko (pip install paramiko).
+
+## w0.1.8 — Performance optimisation pass (no feature changes)
+**Python (PY-01–PY-23):**
+- PY-01: _UI_FRAME_DT constant replaces 1.0/MAX_UI_FPS division per frame.
+- PY-02: Pre-allocated bytearray frame buffer — no per-frame byte concat.
+- PY-04: FFT accumulator averaged into pre-allocated _fft_avg buffer.
+- PY-05: fftshift applied once per display frame (was once per FFT chunk).
+- PY-06: log1p + normalise in-place; single np.multiply, no temp arrays.
+- PY-07: IQ float conversion (uint8→float32) in-place with np.subtract/multiply — eliminates two intermediate arrays per RTL batch.
+- PY-09: broadcast_json caches last serialised state; skips json.dumps when state dict is unchanged (fired on every property change).
+- PY-13: Hot-path regex patterns (APRS weather, callsign, course, alt) compiled once at module level, not per-call.
+- PY-14: Dead import (numpy.lib.stride_tricks.as_strided) removed from RttyDecoder.analyse().
+- PY-17: asyncio.get_event_loop() replaced with get_running_loop() throughout (10 sites) — correct modern API, avoids deprecation.
+- PY-19: _adsb_fetch closure hoisted above adsb_poller while-loop — no new function object created on every 1s iteration.
+- PY-20: rigctld dump_state response hoisted to module-level bytes constant — no per-connection string build/encode.
+- PY-22: WSJTX UDP helpers (struct packs, socket, helper fns) hoisted to module level — no per-ft8_tune import/def/pack.
+- PY-23: SDRConnect catch-all property/event log calls downgraded from log.info to log.debug — f-strings not built at INFO level.
+
+**JavaScript (JS-01–JS-11):**
+- JS-01: Waterfall inner loop uses wfColormap LUT for colour lookup — 3 array reads replaces per-pixel gradient interpolation loop.
+- JS-02: Five frequently-queried static DOM elements cached at init.
+- JS-04: Nine frequency digit elements cached after initDigits(); no getElementById on every animLoop frame (60fps).
+- JS-05: _drawBandplan gated on _bpDirty flag; only redraws when liveCenter or liveSR changes.
+- JS-06: updateLiveFreqAxis() skips redraw when center/SR/zoom key unchanged since last paint.
+- JS-08: _wfBufInterp (Catmull-Rom) inlined into waterfall pixel loop — eliminates one function call per pixel.
+- JS-09: Math.pow skipped in waterfall loop when wfGamma === 1.0.
+- JS-11: applyState coalesces axis/tune-line flushes to a single RAF per message instead of firing up to twice per state update.
+
+## w0.1.9 — Critical fixes and new features
+- iq_stream_enable gated — was sent unconditionally, crashing RSPdx in Compact mode. Now only sent for nRSP-ST in IQ Lite/Full IQ mode.
+- WSPR decoder: wsprd integration with live decode table, SNR/drift display, callsign/grid/power columns. Two-minute cycle tracking.
+- WSPRnet propagation map: replaced blocked iframe with self-hosted Leaflet map (CartoDB Dark tiles). Spots plotted as colour-coded circle markers with dashed great-circle arc lines from RX home. SNR colour coding: green >−10, amber >−20, blue otherwise.
+- Freq axis cache fix: canvas.width|height included in cache key so initCanvases() blank does not suppress redraw on resize.
+- Waterfall click fix: explicit withinSpan check gates forceMoveLO — in-span clicks move VFO only; out-of-span clicks recentre & flush.
+- BW dropdown lazy init: _elBwPanel assigned on first click, not at parse time (element defined later in document).
+- BW panel compact: reduced padding; removed "OTHER" section; 160px.
+- Bands panel: 40m moved to first position in second row (spacer div).
+
+## w0.2.0 — fldigi embedded control surface
+- Live fldigi waterfall canvas in each decoder tab right column, polled via wf.get_data() XML-RPC at 5 fps, rendered onto \<canvas\>.
+- Carrier line overlay drawn on waterfall; draggable to retune decoder.
+- Click on waterfall sets modem carrier via modem.set_carrier().
+- BW bracket handles for PSK/RTTY/Olivia — drag to set modem.set_bandwidth().
+- Per-mode controls: AFC toggle, squelch on/off + level, CW WPM slider.
+- Backend: wf_poller() asyncio task polls wf.get_data()+wf.get_size() and broadcasts fldigi_wf WS messages.
+- New WS commands: fldigi_set_carrier, fldigi_set_bw, fldigi_set_wpm, fldigi_set_afc, fldigi_set_squelch — map directly to XML-RPC calls.
+- fldigi runs hidden in background; NEXUS is sole user interface.
+
+## w0.2.1 — Custom frequency list integration (forked from w0.2.0)
+- Imported frequency lists (Frequency Lists drop zone, HF_CUSTOM_LISTS) now participate in frequency lookup, not just storage.
+- hfCustomListLookup() matches imported list entries against the tuned frequency (±5 kHz HF / ±25 kHz VHF+, same tolerance as EIBI/SigID) and injects them into the shared results array used by SW SCHEDULE, the freq-intel bar, and the SIG INTEL tab.
+- New 'CUSTOM' source tag/colour wired into siRenderSWL, the SIG INTEL broadcast column, and the freq-intel bar chip rendering.
+- No backend changes — matching is entirely client-side against already-imported lists; existing EIBI/AOKI/SigID lookups unaffected.
+
+## w0.2.2 — New decoder capability fork (forked from w0.2.1)
+- Rivet-derived numbers-station/spy-HF decoder: Baudot, CIS-36-50, CCIR 493-4, CROWD-36, FSK200/500, FSK200/1000, XPA/XPA2.
+- FreeDV HF digital voice decoding (Codec2-based), filling the gap left by DSD+ (VHF/UHF trunked voice only, no HF SSB digital voice).
+- SigDigger-inspired signal-analysis aids under evaluation (phase-plane/constellation display, SNR estimation) — GPLv3 licensing implications to be assessed before any direct porting.
+
+## w0.2.3 — IQ Lite myth-busting (forked from w0.2.2)
+- Confirmed via SDRplay's own RawIqWriter reference client + decoded packet capture + direct SDRplay support confirmation: IQ Lite and Compact modes NEVER deliver binary type-2 IQ frames on the nRSP-ST. They exist only for demodulated/decoder-rate audio streaming at low bandwidth — not raw IQ. The w0.1.5 "IQ-Lite type 2 handler" groundwork was speculative (built from API spec inference) and was never actually confirmed working; it has never decoded a real signal. iq_lite_capable is now hardcoded False — the dead 192kHz decode branch is left in place but permanently unreachable.
+- preferred_stream_mode default changed from 'IQ Lite' to 'Full IQ'. Bandwidth re-tested directly: nRSP-ST → Mac over Wi-Fi sustained 2 MSps Full IQ (~64 Mbps) cleanly for 30+ seconds via RawIqWriter, zero dropped/irregular frames. The original "bandwidth too limited for Full IQ" conclusion was wrong when tested in isolation — however Jon separately observed a real "fulliq stopped due to insufficient bandwidth" failure with NEXUS AND SDRConnect BOTH running simultaneously. This was NOT reproduced by today's isolated RawIqWriter test and needs validation with the full NEXUS pipeline live before Full IQ is trusted as default for real use.
+- _check_iq_mode warning previously fired only for Compact mode and trusted SDRConnect's self-reported iq_streaming/full_iq/streaming_mode property rather than counting actual type-2 frames. Now also warns for IQ Lite, and is frame-count based (no type-2 frame for 3+ seconds = warn), matching the actual failure mode diagnosed rather than trusting a property that may not reflect reality.
+
+## w0.2.3.1
+Built .app: erratic/jumping spectrum (smooth in SDRConnect itself). Root cause: the .tobytes() fix made the Full-IQ self-computed FFT broadcast finally succeed (previously crashed every frame, silently caught) — but it broadcasts as a competing 0x01 spectrum frame alongside SDRConnect's own native type-3 spectrum, which was ALSO broadcasting all along. Two independent spectra (512-bin native vs 1024-bin self-computed, different scaling) interleaving on the same canvas looks exactly like erratic jumping. Confirmed via rotating log file (~/Library/Logs/DARKSKY NEXUS/darksky_nexus.log) showing zero errors and steady climbing frame counts — backend was healthy, this was a frontend display collision, not a crash or data problem.
+
+Fix: disabled the Full-IQ FFT recompute + broadcast entirely — native type-3 already covers Full IQ correctly. Decoders unaffected (they read raw bytes directly, not the FFT output). Old code kept commented for reference.
+
+## w0.2.4 — Decoder tab UI audit + RTTY scope refinements (forked from w0.2.3)
+- RTTY tone scope: narrowed scope canvas, added a dedicated decoded-text column beside it; refined waterfall colour LUT, added EMA smoothing + curve-smoothed line rendering + Hz gridlines.
+- RTTY zoom/pan: replaced fixed [0,hi] zoom levels with an independent width+pan model (500 Hz – 5000 Hz widths, clamped to the backend's real -1500..4500 Hz audio_fft span); added click-and-drag panning of the scope view and a "centre on tones" button.
+- Olivia/Contestia/MFSK/Hell/DominoEX: added a dedicated Start button (previously only Stop existed; starting relied entirely on clicking a mode button).
+- CW (NEXUS engine): was leaving most of the panel blank — the 260px stats/sliders column had no decoded-text output at all, and the fldigi column (the only place text appeared) is hidden in NEXUS mode. Added a decoded-text box to the NEXUS column.
+- PSK31 / NAVTEX: these are fldigi-only decoders with no real NEXUS decode path, yet exposed a NEXUS/FLDIGI engine toggle that just showed an empty gap in NEXUS mode. Removed the toggle.
+- FreeDV: the panel was almost entirely empty space around a small 320x48 VU meter. Added a fuller live signal scope.
+- ACARS: added a live map (Leaflet, matching the WSPR/FT8/AIS pattern) showing aircraft positions when lat/lon is present in decoded messages — previously table + static text only, no positional display at all.
+
+## w0.2.6 — Re-synced from w0.2.4 (2026-06-23)
+The original w0.2.4→w0.2.6 fork was taken before several w0.2.4 fixes landed, leaving w0.2.6 stale. Replaced w0_2_6_NEXUS.py and DARKSKY_NEXUS_w0_2_6.html wholesale with current w0.2.4 content (self-references renamed; historical changelog entries above preserved as-is). Pulls in, among other w0.2.4-era fixes: the CW/RTTY engine-toggle-stuck-on-fldigi fix (with toast warning), and the AIS speed/course/heading/status/destination field-name fix. Docs (md + docx) and build/packaging scripts (macOS/Windows spec + build scripts, BUILD_NOTES.md) synced to match.
+
+**Fixed (2026-06-23):** CW Skimmer "active but no signals" bug — the main CW Start button (decoderStart('cw') -> skStart('monitor')) only changed a badge label and sent a no-op probe; it never set skDetectOn or started _skDetectLoop(), the loop that scans the spectrum for candidate signals and feeds them to the backend's CWSkimmerPool via skimmer_set_channels. Result: the header/footer showed "CW Skimmer active" and the decoder itself was genuinely running, but the Skimmer waterfall and decoded-text panels stayed on placeholder text indefinitely unless the user separately clicked "Start Detection" in the Skimmer Channels panel. skStart() now mirrors skToggleDetect()'s logic for monitor mode so the main Start button drives detection directly (HTML/JS only — no backend change needed).
+
+**Added (2026-07-09):** Light/dark theme toggle. New 🌙/☀ button next to the UI-scale control in the brand bar; persisted via `localStorage('nexus_theme')`, same pattern as the existing UI-scale control (`_uiScaleInit`/`_uiScaleSet`). Structural chrome colours that were hardcoded hex scattered across the stylesheet's three `<style>` blocks (brand bar, modal overlays, waterfall info popups, input fields) were pulled into new CSS variables (`--bar-bg`, `--scrim-67`, `--scrim-80`, `--tag-bg`, `--input-bg`) so a new `:root[data-theme="light"]` override block can retheme them in one place. The wide semantic/decorative colour palette (`--green`/`--yellow`/`--red`/`--orange`/`--purple`/`--teal`/`--violet`/`--amber`/`--cyan`/`--lime`, used for per-decoder/per-signal-type colour coding) is left unchanged in both themes — meaningful data colours, not chrome. The spectrum/waterfall canvas, the Signal Radar/DSP-graph scope canvases, and Cinematic Mode's dark theatrical overlay are also deliberately left dark in both themes: every SDR app keeps its RF display dark regardless of UI theme, and Cinematic Mode is its own intentionally theatrical dark viewing mode.
+
+**Fixed (2026-07-09):** Northsound 1 misidentified in the RDS strip as "ALL FM 96.9 · Independent". `UK_FM_DB`'s Northsound 1 entries (96.9/97.6/103.0 — its local relay frequencies) all listed `ps:'NS1'`, but the station's real on-air RDS PS code is `N'Sound1` — confirmed via a live capture on w028. `_ukFmEnhance()` matches by exact PS string, so the mismatch always fell through to the generic "unidentified station on this shared frequency" placeholder. Corrected to `ps:"N'Sound1"` in all three occurrences (same table, same fix applied to w027 and w028). This is a single confirmed data-quality fix, not a full audit of the table.
+
+**Added (2026-07-12):** FT8 INTERNAL audio clip protection + gain compensation, ported from `WebsocketFT48_v1.html`'s proven design (user-reported: "if its too high in nexus i hear distortion"). Two things were missing entirely:
+
+1. **Auto-reduce on clip.** `ft8HandleAudioFrame()` now scans every raw incoming audio packet's int16 samples for clipping (`> 0.99` full-scale) before any gain is applied — clipping originates at SDRConnect's own device-side `audio_volume_percent`, not from anything client-side. The instant a clipped sample is found (and a 1s cooldown has elapsed, to avoid a burst of clipped packets firing a flurry of commands), it steps `DS.volume` down by 4 and sends `set_property audio_volume_percent` back to SDRConnect through the same path the main toolbar's VOL nudge buttons use, and updates the `vol-val` display + a toast so it's visible when it happens. Live-tested with a synthetic clipped frame (76% → 76 sent as 72... confirmed exact -4 step and correct `sendCmd` payload), confirmed the cooldown blocks an immediate repeat, and confirmed a quiet frame never touches volume.
+2. **Gain compensation.** Cross-checked against the reference tool's own reverse-engineered SDRConnect volume-response curve (`0.8070 / (0.0301 * 10**(0.034*pct))`, 1.0 above 42%) — applied to the mono samples before they reach both the decoder and playback, so reducing volume to fix clipping doesn't leave things sounding too quiet. NEXUS has no separate local-only playback slider (the reference tool's extra `slider` factor), so this is just the correction term on its own.
+
+Also found and fixed a related contributing cause while tracing this: NEXUS's main toolbar VOL control (`adjustVolume()`, default 80%) sends `audio_volume_percent` completely independently of the FT8-specific connect-time value, with no clip protection of its own — so any manual VOL nudge could silently override a safe level with zero feedback. The new auto-reduce logic now catches that in real time regardless of how the volume got high, so it self-corrects going forward. Backend default (`w030_NEXUS.py`) also dropped from 45 to 25 on connect, matching the reference tool's own proven-safe starting point — live-tested afterward: 398 real audio frames over 8 seconds at the new default, zero clipping, zero reductions needed.
+
+**Fixed (2026-07-12):** FT8 INTERNAL spectrum/waterfall left a growing block of dead black space on the right after the column was widened 340px→440px (user-reported, screenshot). `FT8_DISPLAY_BINS` (~284 bins, fixed by the 3320 Hz passband and FFT size — independent of canvas width) was being drawn with a fixed 1-bin-per-pixel mapping (`FT8_BINS_PER_PX = 1`) baked in when the column was still 340px wide, close enough to 284 that the ~56px shortfall wasn't obvious. At 440px the shortfall grew to ~156px: every x beyond ~284 read past the end of the `ft8FftMag`/`ft8FftCumSum` arrays (`undefined`), which the `-999`-initialized fallback then drew as "no signal." `ft8DisplayFrame()` now computes bins-per-pixel from the real canvas width every frame (`binsPerPx = bins / W`) and handles both directions — stretch (nearest-bin lookup) when the canvas is wider than the available bins, the original compress-and-take-max behavior when it isn't — so the trace and waterfall always fill the actual column width.
+
+**Fixed (2026-07-12):** FT8 INTERNAL decode-list rows (UTC/dB/DT/Hz/Message columns) were unreadable in the light theme — user-reported, screenshot. `appendFT8Decode()` hardcoded row text color as `#c9d1d9`, a near-white light grey chosen to read well against NEXUS's dark background, `#3fb950` for CQ rows — literal hex instead of the theme-aware `var(--text)`/`var(--green)` this app already uses everywhere else (see the `:root[data-theme="light"]` override block; light/dark toggle added 2026-07-09). Near-white text on the light theme's near-white background was effectively invisible. Swapped both to `var(--text)`/`var(--green)`, which resolve correctly in both themes — live-tested in light mode, rows now render as dark, readable text with the CQ row still clearly green. The Country column's separate `#8b949e` (mid-grey, already legible against both light and dark backgrounds) was left as-is — not part of what was reported.
+
+**Fixed (2026-07-12):** RTTY (NEXUS engine) decoded noise into plausible-looking garbage text with zero indication anything was wrong — user-reported ("im currently tuned to ddw on 30m ... check") while trying to decode DWD Pinneberg weather RTTY. Live-verified two ways: tuned to a frequency confirmed via a zoomed waterfall screenshot to have no visible carrier at all, and the decoder still produced continuous uppercase text ("ZBAKDEIVKJDGUTWK" etc.); separately, correctly-tuned DDK9 reception (real signal confirmed present, 8.2dB SNR, autodetect independently found a genuine 50-baud 2-tone pair at 85% confidence) *still* produced unreadable text with no recognisable synoptic groups, ruling out mistuning as the sole cause.
+
+Root cause, in `RttyDecoder._process_bit_block()` (`w030_NEXUS.py`): the bit decision (`bit = 1 if s_p > m_p else 0`) only ever compared mark-tone power to space-tone power *against each other* — there was no check anywhere that either tone actually cleared the noise floor. Two independent noise-power readings are still "greater than" each other roughly half the time, which is enough for the Baudot start/stop framing check to pass by chance often enough to keep grinding out characters indefinitely. The CW decoder (`MorseDecoder`) in the same file has exactly this kind of gate (`threshold_db`/live `snr`, trailing-minimum noise floor); RTTY never got one.
+
+`MorseDecoder`'s trailing-minimum-power-over-time technique doesn't transfer to RTTY: CW has genuine on/off keying, so its floor naturally tracks the quiet gaps between dits/dahs, but RTTY has no gaps — mark or space is continuously transmitted for the whole duration of a real signal, so total (mark+space) power stays roughly constant whether it's real signal or just band noise. Fix: added a third Goertzel reading at `mark + 2.5*shift` (a patch of passband that should be empty during a real signal) as a live *spectral* noise reference each sub-block, computed an SNR (`self._snr_db`, default `squelch_db = 6.0`), and gated new start-bit acquisition on `self._locked` — an already-in-flight frame is left alone (the existing stop-bit check still discards it if it's genuinely bad), this only blocks *starting* new frames on pure noise. Backend broadcasts the live lock state/SNR (`rtty_signal`, throttled to 2/s) so the frontend can show it honestly instead of only ever showing scrolling text with no way to tell "no signal" from "confidently decoding noise" apart — new Signal: LOCKED/NO SIGNAL badge + dB readout in the RTTY Parameters panel, wired via `rttyHandleSignal()`.
+
+Also fixed while investigating: the "Auto-detect baud & shift" status label got permanently stuck on "Capturing…" whenever a capture reply was correctly discarded as stale (e.g. right after unchecking the box mid-capture) — nothing ever reset the text back to idle. `rttyApplyParams()` now resets it to `—` at the point it bumps the generation counter.
+
+Note: the DDK9/DDK2/DDH7/DDH47 preset frequencies were re-examined during this investigation (following a live retune that briefly suggested a ~900Hz preset error) and found to already be correctly calibrated — DDK9 specifically carries a June 2026 code comment documenting a real 30.8s IQ-capture calibration (204/204 chars, 0% stop-bit failure) at its current mark=1022Hz/shift=446Hz/dial=10.100MHz values. No preset changes were made; the earlier live "fix" during investigation (retuning to 10099.103 MHz) was based on a transcription slip (used mark=1922Hz instead of the preset's actual 1022Hz) and was reverted.
+
+**Added (2026-07-12):** RTTY live sync-health diagnostics, to keep chasing the "still unreadable even while LOCKED" question above without needing server console access. `RttyDecoder` now tracks a second, never-reset set of counters (`_ui_start_armed`/`_ui_stop_ok`/`_ui_stop_fail`/`_ui_margin_sum`/`_ui_margin_n`, mirroring the existing `_diag_*` fields used by the server-side 5s log but kept independent so reading them doesn't race with that log's own reset cycle) and includes them in the `rtty_signal` broadcast's `diag` field; frontend stashes the raw message on `window._rttyLastSignal` for inspection. Live capture against a genuinely LOCKED DDK9 signal (10.4dB SNR): mark/space margin 0.508 (healthy — rules out a tone/frequency mismatch), stop-bit failure 20.9% (much improved vs. the historical 45-100% that characterized the pre-PLL-fix state, but nonzero), yet the actual decoded text still had zero recognisable synoptic-bulletin structure. Conclusion: most likely genuinely marginal real-world HF propagation on 30m at the time of testing rather than a remaining software bug — the moderate SNR and mid-range margin are consistent with a real but weak signal, and bit-level errors inside frames that still pass the coarse stop-bit check wouldn't show up in `stop_fail_pct` at all. Left open rather than guessing further; a longer raw recording (NEXUS's existing REC button) during a stronger propagation window, brute-force-analysed offline the same way the original PLL/bit-polarity bugs were actually proven, would be the next concrete step if this needs revisiting.
+
+**Fixed (2026-07-12):** FT8/WSPR bridge panel (`#tab-ft8`, the WSJT-X-source panel — a different, older panel than the FT8 INTERNAL tab fixed earlier in this session) had a neon lime (`#c8ff00`) color clash in the light theme — user-reported, screenshot. The FT8 mode tab, Start button, mode-selector buttons, and all 11 quick-tune frequency chips (plus their "FT8" label, which was a stray inline-style duplicate of the already-existing-but-unused `.ft8-freq` class) rendered in bright lime-yellow, which reads as harsh and low-contrast against the light theme's white panels — this whole panel's neon-glow scheme was designed for the dark theme and was never touched by the 2026-07-09 light-theme pass (which only covered app chrome, not this panel's per-mode decorative palette). Added a `:root[data-theme="light"]` override for `.tab.t-ft8.active`, `.ft8-btn.go`, `.ft8-mode-btn.active`, `.ft8-freq`, `.ft8-freq-btn` (+ hover/active states), `.map-toggle-btn.active`, and `#rtty-mark-label` (the RTTY tone-scope's "M" marker, same lime, same problem, fixed proactively while the override pattern was already in hand) — darkened to an olive/chartreuse (`#6f8f00`) that keeps the same hue identity but is actually legible on white. The other 6 quick-tune-row accent colors (teal/orange/violet/blue/pink/green, one per mode) were deliberately left untouched: those are cooler, mid-toned hues that already contrast fine against white, unlike lime — the same reasoning already applied to `.ais-freq-btn`'s cyan chips earlier in the file. Live-verified via zoomed screenshot in light mode.
+
+**Fixed (2026-07-13):** FT8 INTERNAL's "Decode On"/"Decode Off" toggle button was hard to read in *both* themes, and inconsistent with every other decoder in the app — user-reported, two screenshots (light + dark). Root cause wasn't theme-specific: `toggleFT8Decode()`'s ON state set hardcoded inline `background:'#0F6E56'`/`borderColor:'#1D9E75'` but never touched the button's text color away from `var(--muted)` — a deliberately low-contrast, secondary-looking tone by design — so muted grey-blue text sat on a fixed dark teal background regardless of theme. A `.ft8-ctrl-btn.decode-on` CSS class already existed with the correct green-on-tinted-green styling but was dead code, never applied. Rather than just fix the color, converted the single toggle into a `▶ Start` (green) / `■ Stop` (red) button pair — matching the convention every other decoder in the app already uses (RTTY, CW, and the WSJT-X FT8 bridge panel directly above this one in the same tab). `toggleFT8Decode()` now shows/hides the pair instead of relabeling one button; added idempotent `ft8NativeStart()`/`ft8NativeStop()` wrappers so the two buttons can't double-toggle state; updated `resetFT8()` and `toggleHopping()`'s button-locking logic for the new two-button structure. Live-verified: Start (green) ↔ Stop (red) swap correctly on click.
+
+**Added (2026-07-13):** Drag-to-resize handle between FT8 INTERNAL's decode-list and propagation-map columns — user-reported (fullscreen screenshots): the map was fixed at 340px while the Message column had unused whitespace on wide displays. Added a 6px `#ft8MapResizeHandle` splitter (col-resize cursor, highlights on hover/drag) that adjusts `#ft8MapCol`'s width live via mousemove, calls `stationMapInstance.resize()` during the drag so the map repaints instead of going blank/clipped (MapLibre caches its canvas size), and persists the final width to `localStorage['nexus_ft8_map_w']` (clamped 220–900px) so it's remembered across reloads. Live-verified: dragged 340px→440px, map/decode-list columns resized correctly, survived a full page reload.
+
+**Fixed (2026-07-13):** FT8 INTERNAL's propagation map wiped every station marker and decode-list row the instant you clicked a different band button — user raised this after the HamDash comparison ("persistence of 'spots' during a session, if i have decodes from multiple bands on the map"). `setFTband()` (the manual band quick-tune handler) called `clearFT8Decodes()` on every switch, which does a full `stationMap.clear()` + list wipe — Hop mode's own band-advance path (`advanceHop()`) never did this (it only appends a separator row), so a Hop session already accumulated multi-band spots for free while manual band-switching didn't. Brought manual switching in line with Hop mode: `setFTband()` now appends a `'{BAND} ({MODE})'` separator into the decode list instead of clearing it, and leaves `stationMap` alone, so markers from every band visited this session stay on the map — already distinguishable by the existing per-band `BAND_COLORS` marker coloring and the map's band-color legend. `clearFT8Display()` (spectrum/waterfall canvas reset — unrelated to decodes/map, just stale-bin cleanup for the new band's frequencies) is still called, and the explicit "Clear" button still does a full wipe via unchanged `clearFT8Decodes()`. `toggleFT8Mode()` (FT8⇄FT4 switch) still clears everything too, deliberately left alone — the two modes' decodes aren't really comparable on one map.
+
+**Added (2026-07-13):** Map style picker for the FT8 INTERNAL propagation map, following on from the persistence fix above (user asked "be able to select different opensource maps?"). New dropdown in the map column header, next to "PROPAGATION MAP", switching between 5 no-API-key raster providers: CARTO Dark (existing default, unchanged), CARTO Light, CARTO Voyager, OpenStreetMap Standard, and Esri World Imagery (satellite). Implementation: `initStationMapInstance()`'s hardcoded CARTO-only raster source/layer (`carto-dark`/`carto-dark-layer`) was generalised to `basemap`/`basemap-layer`, driven by a new `MAP_PROVIDERS` table; `changeStationMapProvider(key)` removes and re-adds that source+layer (inserted below the `station-circles` marker layer so pins stay on top) rather than using the raster source's `setTiles()` method, since each provider needs its own attribution string too, not just new tile URLs. Selection persists to `localStorage['nexus_ft8_map_provider']` and is restored on next load. Live-verified all 5 providers render correctly (Esri satellite imagery over the Alps, OSM/Voyager label tiles over Europe); two providers briefly *appeared* blank in screenshots taken immediately after switching, but MapLibre's own tile-cache state (`loaded`) and a direct pixel-content check both confirmed the tiles were actually present — the same screenshot-capture lag already seen and worked around earlier this session, not a real rendering bug.
+
+**Added (2026-07-13):** 3D globe view with home-QTH propagation arcs for the FT8 INTERNAL map, following the HamDash comparison earlier in this session. New "🌐 Globe" button next to the map-style dropdown toggles the existing MapLibre instance between the flat 2D map and a rotatable 3D globe (`map.setProjection({type:'globe'})`), which required bumping the loaded MapLibre GL JS version from 4.7.1 → 5.1.0 (cdnjs) — globe projection doesn't exist at all in v4.x. Checked v5's breaking-changes list against everything this file actually calls; nothing used here is affected.
+
+Deliberately built as its own toggle rather than folded into the app's existing "Cinematic Mode" (🎬) — that's a generic full-screen ambient FFT-bin visualizer (5 abstract scenes: nexus/retro/bars/phosphor/polar) that works from any tab and has nothing to do with FT8 or maps; reusing it here would mean feeding it completely unrelated data and would surprise anyone who already knows what 🎬 does elsewhere in the app. The name collision with HamDash's own "Cinema Mode" branding is coincidental.
+
+Arcs: `greatCircleLine()` (standard spherical slerp, 64 segments) draws a proper curved geodesic — a straight 2-point line would cut through the globe rather than follow its surface — from `HF_LOC` (the existing HF Utility "your location" setting, already lat/lon with its own geocode-search UI; no new Maidenhead-locator input needed) to every entry in `stationMap`, colored by the station's band via the existing `BAND_COLORS` table. Necessarily home-centric (spokes from one point), not HamDash's many-to-many "cloud" — NEXUS only has its own receiver's decodes, not PSK Reporter's aggregated network (a separate reporting feature, not yet built — see below). A distinct home-QTH marker (white fill, cyan ring) sits at `HF_LOC` regardless of globe/flat mode; arcs themselves are hidden in flat mode (a `visibility` layout toggle, not removed) since they're only really legible on the globe. Globe/flat state and the arc geometry both refresh live if the user changes their saved location via the HF Utility "Change" link. Live-verified with synthetic station data (US/Australia/South Africa entries): arcs rendered with correct great-circle curvature and per-band legend colors, home marker positioned correctly over the UK, and toggling back to flat mode correctly hid the arcs layer while leaving station markers visible.
+
+Not built yet, flagged as a separate follow-up: reporting NEXUS's own FT8 decodes out to PSK Reporter (WSJT-X-style spot upload) — backend work, needs PSK Reporter's actual ingestion protocol confirmed before implementation.
+
+**Fixed (2026-07-13):** Globe arcs were invisible whenever a non-default map style was selected — user-reported, screenshot showing 20 real decodes and an active Globe toggle with no visible arcs. Root cause: `changeStationMapProvider()` re-inserts `basemap-layer` using `stationMapInstance.addLayer(layer, 'station-circles')` — which places the new layer *immediately below* `station-circles`, i.e. **above** `station-arcs-layer` and `home-qth-layer`, both added earlier in the original layer stack. Switching away from the default CARTO Dark style (added the day before) silently painted opaque basemap tiles right over the arcs and home marker on every subsequent redraw — they were still being drawn, just hidden underneath. Fixed by choosing the `beforeId` from the lowest overlay layer that actually exists (`station-arcs-layer` → `home-qth-layer` → `station-circles`, in that preference order) so the swapped-in basemap always lands at the very bottom of the stack regardless of which layers have been added. Live-verified: switched to CARTO Light with real decodes on the map, confirmed layer order via `getStyle().layers` (`basemap-layer, station-arcs-layer, home-qth-layer, station-circles`), and visually confirmed both arcs render on top of the new basemap.
+
+**Added (2026-07-13):** Maidenhead grid locator input for the "set your location" modal (HF Utility tab) — user asked "where do i put my location (IO87WC)" after the globe/arcs work made home-QTH accuracy more visible. The location modal previously only accepted a city-name search (geocoded via Nominatim) or raw `lat,lon`; it now also recognises a 4- or 6-character Maidenhead grid (e.g. `IO87` or `IO87wc`) typed directly, converted via the same `gridToLatLon()` the FT8 propagation map already uses to plot decoded stations' grid squares. That function was extended to optionally use 6-char subsquare precision when present (falls back to the existing 4-char-square-center behavior otherwise, so FT8's own always-4-char grid lookups are unaffected). Placeholder text and status hints updated to mention grid locators. Live-verified: typing "IO87WC" shows a single "IO87WC (grid locator)" result (57.10°, -2.13°), and pressing Enter updates `HF_LOC` and the HF Utility location display correctly.
+
+**Added (2026-07-13):** Callsign field in the HF Utility location bar — user asked "WHERE DO I PUT IN MY CALLSIGN?"; there was no such field anywhere in NEXUS. Confirmed with the user this is specifically prep for the not-yet-built PSK Reporter spot-upload feature (see the follow-up noted above), so kept deliberately minimal: a new `MY_CALL` global (mirrors `HF_LOC`'s own localStorage-backed pattern, key `my_callsign`), a "📻 Your callsign" row next to "Your location" with its own small Change modal (reuses the location modal's CSS classes/overlay pattern rather than duplicating them, own IDs so the two modals don't collide), and a loose shape check (letters/digits/slash, 3–12 chars — not a real per-country ITU validator, just enough to reject empty/garbage input). Not wired into the map or sent anywhere yet — purely a settings field ready for the reporting feature once that's built. Live-verified: saving "g0abc" uppercases to G0ABC, persists to localStorage, and updates the display; invalid input ("@@") is rejected with the modal staying open and the previous value untouched.
+
+**Added (2026-07-13):** Map style picker for the FT8/WSPR bridge panel's Leaflet map too (`ft8-map`/`ft8Map`) — user asked for this right after the FT8 INTERNAL map got its picker the day before ("add map picker to wstjx mode"). Same 5 no-API-key providers (CARTO Dark/Light/Voyager, OpenStreetMap, Esri Satellite), reimplemented against Leaflet's `L.tileLayer()` API in a new `FT8_BRIDGE_MAP_PROVIDERS` table — a separate table from the FT8 INTERNAL map's `MAP_PROVIDERS` rather than a shared one, since Leaflet wants a single `{s}/{r}` URL template + a `subdomains` option while MapLibre's raster sources want an array of already-expanded URLs; same 5 providers, different shape per library. `changeFt8BridgeMapProvider(key)` swaps the tile layer via `removeLayer()`/`addLayer()` and calls `bringToBack()` on the new layer — applying the exact z-order lesson from the same-day MapLibre arcs-hidden-under-basemap bug preemptively, so a freshly-added tile layer can never cover the home marker or station dots here either. Selection persists to `localStorage['nexus_ft8_bridge_map_provider']`, independent of the FT8 INTERNAL map's own saved provider (each panel remembers its own style choice). Not yet live-tested in a browser (Chrome extension was disconnected at the time of this change) — syntax-checked only; flagged for a live pass next session.
+
+**Removed (2026-07-13):** The 🌐 Globe view (great-circle arcs from home QTH, added earlier the same day) — removed after user asked directly "does the globe really add anything useful?" and, on reflection together, the honest answer was: less than it looked. It's a real capability a flat 2D projection genuinely cannot show correctly (true bearing/long-path vs short-path — a straight line on a flat map lies about direction for anything far from the equator), but that's a narrower use case than the "band conditions at a glance" motivation that prompted it, the arcs always draw the geometrically shorter great-circle path with no way to know if a signal actually took the long path, and it's still one-to-many from a single station rather than the aggregated many-to-many view that actually shows band-opening activity — the flat map's per-band marker colouring already covers most of that ground with less interaction cost (no rotating a small embedded panel). Removed: the Globe button (HTML+CSS), `toggleStationMapGlobe()`/`applyStationMapGlobeMode()`/`greatCircleLine()`/`buildArcsGeoJSON()`/`buildHomeQthGeoJSON()`, the `station-arcs`/`home-qth` sources and layers, the arc/home-marker refresh hooks in `pushStationData()` and `hfApplyLocation()`, and the `stationMapGlobeMode` state + its localStorage key. Also reverted the MapLibre GL JS version bump (5.1.0 → back to 4.7.1) and simplified `changeStationMapProvider()`'s layer-insertion point back to its pre-Globe form, since both existed solely to support the feature that's now gone — no reason to carry the extra dependency version or z-order complexity for nothing. The map style picker and per-band station markers (not Globe-specific) are unaffected and stay. UserManual/Troubleshooting docs and the `w030_NEXUS.py` build-history docstring updated to match — documented as added-then-removed rather than silently erased, for the same reason the DDK9 preset mistake earlier this session was documented rather than quietly reverted.
+
+**Added (2026-07-14):** Real screenshots embedded in QuickStart.docx and UserManual.docx, replacing the dashed-border placeholder boxes both docs had shipped with since their creation. User captured and saved 7 PNGs (`01a`/`01b_connection_wizard.png` — the Connection Setup modal's two source modes; `02_main_dashboard.png`; `03a`/`03b_decoders_dropdown.png` — the DECODERS dropdown's COMPACT vs Full IQ/External category views; `04_airband_tab.png`; `05_ft8_wspr_panel.png`) into a new `docs/_docx_build/images/` folder. Added `_pngSize()`/`image()` helpers to `helpers.js` (a raw PNG IHDR-chunk parser gets real width/height without a heavier image-decoding dependency, then scales to a max 620px width — the docx page's content width at 96 DPI — preserving aspect ratio; falls back to the existing `imagePlaceholder()` if a named file is missing, so a partial screenshot set never breaks the build). Every `H.imagePlaceholder(...)` call in `build_quickstart.js` (3) and `build_usermanual.js` (4) swapped for `H.image(...)` (spread, since it returns an array of 1-2 paragraph nodes rather than a single node). Also fixed a stale "3D globe view" mention in `build_quickstart.js`'s FT8-INTERNAL bullet, left over from before the Globe feature was removed above — that doc had not been rebuilt since the removal.
+
+**Fixed (2026-07-14):** UserManual.docx audited against the actual current app (not just against its own prior version) after the user asked directly whether the manual covers everything — it didn't. Full pass comparing every tab/panel/button in `DARKSKY_NEXUS_w030.html` against the manual's table of contents turned up real gaps, not just wording drift:
+- **RDS decode** (FM broadcast Program Service/Radiotext/Program Type, shown inline in the top bar in WFM and feeding the HF Utility "Broadcast Matches" column plus auto-bookmarking) had no documentation anywhere — added as new Section 3.1b.
+- **Section 4 (HF Utility Tab)** described a stale 5-column layout from an earlier build. Rewritten to match the real current columns (Broadcast Matches, Live DX Spots, Beacons, Reference, Signal Intel), plus the Numbers Stations reference panel, the Live Decode mirror panel, and the location/callsign bar (including the callsign field and grid-locator input added earlier this week) — none of which were previously documented at all.
+- **Three entire decoders had no section**: WEFAX, DAB/DAB+, and Trunked P25/DMR/NXDN (OP25/trunk-recorder) all exist as full tabs with their own quick-tune lists, setup instructions, and status displays, visible right there in the Decoders dropdown screenshot, but the manual's decoder list jumped straight from AIS to HFDL without mentioning any of them. Added as new Sections 6.16–6.18.
+- **WSPR Beacons** turned out to be its own separate tab (its own Decoders-menu entry, band buttons 630m–10m, `wsprd` status bar, WSPRnet link, capture indicator) rather than a feature of the FT8/WSPR tab as the manual's four one-line WSPR bullets implied — expanded in place within Section 6.6 with a note clarifying it's a separate tab.
+- **Waterfall colour palette** was only namechecked ("colour swatches — palette selector") with no list of what's actually available — added the real 8-palette list (Classic SDR, Heat, Viridis, Greyscale, Midnight Blue, Solar, Inferno, DARKSKY Neon) to Section 3.4.
+- **Pro Mode** (an entire DSP-controls strip — noise reduction, squelch, AGC, low-cut filter, NFM de-emphasis, WFM stereo, audio limiter — plus a DSP Graph visual chain view) had no documentation despite being a full top-bar toggle — added as new Section 3.4a.
+- **Band Plan strip** (the ITU region strip above the waterfall, with region-cycling) — added as new Section 3.4b.
+- **Cinematic Mode** (full-screen ambient visualisation, 5 scenes, number-key scene switching) and the **theme toggle**/**Bookmark quick-button** were present as top-bar buttons but absent from Section 3.1's button list — added.
+Nothing was removed or renumbered to make room — all additions use sub-letters (3.1b, 3.4a, 3.4b) or slot into the existing 6.x decoder numbering (6.16–6.18) so no existing cross-reference in the other two docs breaks. Rebuilt via `node build_usermanual.js`; verified via `unzip -l` that all 5 embedded images survived the rebuild.
+
+**Added (2026-07-14):** Appendix C — Credits & Acknowledgments, in UserManual.docx — user asked for a compiled credits section naming SDRplay and Claude specifically. Previously the only credit anywhere was a one-line footer copyright ("© 2025 Jon Nicol & Claude / Anthropic"); there was no section crediting the actual third-party hardware, decoder binaries, libraries, or data sources NEXUS depends on or auto-launches. Compiled from every external tool/source actually referenced in `DARKSKY_NEXUS_w030.html` (cross-checked against the same audit pass used for the gaps above, not written from memory): Development (Jon Nicol, Claude/Anthropic); Hardware & Core Platform (SDRplay — RSPdx/nRSP-ST/SDRConnect, the primary supported platform; RTL-SDR); Decoder Engines & External Tools (WSJT-X, wsprd, ft8ts/Roger Need, fldigi/W1HKJ, dump1090-fa/readsb, dumpvdl2/szpajder, dumphfdl, DSD+/szechyjs, dab-cmdline/JvanKatwijk, OP25/boatbod, trunk-recorder/robotastic, codec2/freedv_rx, multimon-ng); Mapping & Visualization (MapLibre GL JS, Leaflet, CARTO/OpenStreetMap/Esri); Data Sources (NOAA SWPC, EIBI, AOKI, SigIDWiki, OurAirports, radio-browser.info, NCDXF, the DX cluster network). Each entry cross-references the manual section it powers. Added as new Appendix C, after the existing Appendix B, so no existing section numbering shifts. Rebuilt via `node build_usermanual.js`; verified all 5 embedded images survived.
+
+**Fixed (2026-07-14):** FT8 INTERNAL's Band Hopping feature was completely non-functional — user reported "it doesn't work" right after the feature was explained. Root cause: the "Hop Off"/"Hop On" button on the main FT8 panel only calls `openHopModal()`, which opens the band-hopping config table (add/remove rows, set band/mode/cycles per row) — but the actual state toggle, `toggleHopping()`, was never wired to anything clickable anywhere in the UI. It's a complete, correct function (locks Start/Stop/mode/band while active, kicks off `advanceHop()`, etc.) and is referenced by `document.getElementById('hopStartBtn')` inside itself, but no element with that id existed anywhere — `_ensureHopModal()`'s modal template only had "+ Row", "Reset Stats", and "Close" buttons. Same story for three status readouts (`hopCurBand`, `hopCyclePos`, `hopNextHop`) that `renderHopModal()` already updates every render — the elements those ids point to were also never added to the modal template, so those updates silently no-op'd (each is guarded by `if (el)`). In short: the entire hop-scheduling engine was fully wired and working, just missing its own "on" switch and status display in the modal HTML. Fixed by adding a status/control row to `_ensureHopModal()`'s template (between the "Band Hopping" heading and the row table): **Current** / **Cycle** / **Next** readouts plus a **Start** button (`id="hopStartBtn"`, `onclick="toggleHopping()"`) that `toggleHopping()`'s existing logic already knows how to relabel to "Stop" (red) when active. No JS logic changed — this was purely a missing piece of HTML that the working JS had been reaching for all along. Verified via `node --check` on the extracted inline scripts; not yet live-tested in a browser this session — flagged for a live click-through next time NEXUS is running. Also added a "Band Hopping (FT8 INTERNAL)" subsection to UserManual.docx (Section 6.6) documenting the feature for the first time — it existed in code but was never in the manual either, alongside the same modal-vs-JS gap above. Rebuilt via `node build_usermanual.js`; verified all 5 embedded images survived.
+
+**Fixed (2026-07-14):** Band plan strip, waterfall, and spectrum all went stale/blank together after changing bands — user-reported ("something strange happening with bandplan, waterfall and spectrum" when changing bands), live-diagnosed in Chrome. Root cause: `_zoomFreqRange()` (the single function every one of these — band plan strip, spectrum trace, waterfall, frequency axis — calls to work out what frequency span is currently visible) prefers `DS.zoomCenter` over `DS.liveCenter` whenever `zoomCenter` is set. `zoomCenter` gets set by the **CTR** button (or by zooming in past 1×) as a deliberate, documented "recenter the display on my signal" convenience — but nothing ever cleared it again on a genuine band change. Reproduced live: clicked **CTR** at 25.200 MHz (sets `zoomCenter = 25.2e6`), then changed band to 6m via the Bands panel — the VFO correctly retuned to 50.150 MHz (confirmed in the digit readout and status bar), but the band plan strip, frequency axis, spectrum trace, and waterfall all stayed frozen on the old ~25 MHz span, since `_zoomFreqRange()` kept returning a range centered on the stale `zoomCenter` instead of the new `liveCenter`. Fixed in `_tuneTo()`: added `DS.zoomCenter = null;` alongside the existing `DS.liveCenter = hz;` inside the `if (!inSpan)` block — this block already runs for exactly the right cases (every genuine LO-moving retune: band-plan strip clicks, the Bands panel, every quick-tune chip across the app, since they all call `_tuneTo(freq, mode, bw, true)`), so a deliberate band change now always drops back to centering the display on the real new frequency, while **CTR** remains available afterward to recenter on whatever's now being looked at. Live-verified after the fix: repeated the exact CTR→band-change repro at 500 kSPS (14 MHz→50.15 MHz) and again at 2 MSPS (14.2 MHz→156.8 MHz, VHF Marine) — band plan label, frequency axis, and spectrum trace all updated correctly and immediately in both cases, zero console errors either time.
+
+**Added (2026-07-14):** Automated DMG creation in `build/build_macOS.sh` — user asked how to turn the built `.app` into a DMG, then asked to have it automated. Noticed while looking into this that the current `build/dist/` output on this machine was a bare PyInstaller onedir folder (executable + `_internal/`), not the `.app` bundle the `.spec`'s `BUNDLE()` stage is supposed to produce — flagged to the user as worth re-running the build to confirm before relying on this, since a DMG step can't do anything with a missing `.app`. New Step 7/7 added after the existing post-processing step: builds `dist/DARKSKY_NEXUS_w030_macOS.dmg` from the `.app` automatically. Prefers `create-dmg` (Homebrew) for a real "drag to Applications" layout (app icon + Applications shortcut, positioned window) if installed; falls back to a plain `hdiutil create -format UDZO` DMG otherwise, so the script still completes on a machine without `create-dmg`. `create-dmg` is invoked with `|| true` since it's known to sometimes exit non-zero on harmless Finder/AppleScript timing warnings even when the DMG was produced correctly — the script checks for the actual output file afterward rather than trusting the exit code, and only falls back to `hdiutil` if the DMG genuinely wasn't created. Step numbering in the script's echo output updated from `[n/6]` to `[n/7]` throughout; final summary now reports the DMG path/size alongside the `.app`, and the old "here's the command to run yourself" echo block was replaced with real notarization instructions (unchanged from before, just no longer needed for the DMG step itself). `BUILD_NOTES.md` updated to match: manual `hdiutil`/`create-dmg` commands moved under a new "only needed if not using build_macOS.sh" heading rather than presented as the primary path. Verified via `bash -n` that the updated script is syntactically valid; not yet run end-to-end on an actual Mac (this session has no macOS/PyInstaller environment to test against) — flagged for a live run next time the app is actually built.

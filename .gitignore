@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Local runtime state / secrets — never commit these
+.aisstream_key.json
+.vesselapi_key.json
+.vesselapi_call_count.json
+darksky_logbook.json
+darksky_bookmarks.json
+fm_stations_cache.json
+
+# PyInstaller build output (regenerate via build/build_macOS.sh / build_Windows.bat)
+build/dist/
+build/work/
+build/build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~

@@ -1,0 +1,14853 @@
+#!/usr/bin/env python3
+"""
+DARKSKY w033 — SDRConnect Companion
+================================================================================
+WebSocket bridge and signal intelligence companion for SDRplay RSPdx and
+compatible SDRplay receivers. Interfaces with SDRConnect via WebSocket.
+Also supports RTL-SDR USB dongles via rtl_tcp (direct, no SDRConnect needed).
+© 2025 Jon Nicol & Claude / Anthropic — Freeware, personal & educational use.
+================================================================================
+Full build history (w0.0.5 -> present): see CHANGELOG.md in this folder.
+
+CURRENT VERSION — w033:
+w033      Forked from w032 (2026-07-19) to merge in an experimental
+          Dire Wolf-derived AIS decoder (multi-slicer interpolated PLL,
+          rate-scaled AGC, resample-to-48kHz-before-filter) running in
+          parallel with the existing rtl-ais-derived AisDecoder. Vessel
+          updates from both are merged by MMSI so either decoder can
+          catch a frame the other misses. See CHANGELOG.md for the full
+          research background (Gemini-generated decoder evaluation,
+          Dire Wolf port, ground-truth bit-level diagnostics, per-bug
+          fixes). w032 is unchanged and remains a separate release.
+          Also added: a native REPORTING/Logbook tab (manual entries +
+          FT8 auto-populate, ADIF/CSV export, JSON persistence) and a
+          native SSTV decoder + rtl_433 ISM-sensor engine.
+          FT8 INTERNAL Full IQ fix, take two (2026-07-20): the 2026-07-19
+          fix (below) removed Full IQ's own FT8 audio broadcast entirely,
+          assuming SDRConnect's Compact-mode broadcast always supplies the
+          FT8 buffer regardless of display mode — true only for networked
+          nRSP-ST units. A directly-connected RSPdx never gets a
+          Compact-mode broadcast at all, so that "fix" left it with zero
+          audio path to the FT8 decoder in its only available mode. Fixed
+          by restoring the Full IQ broadcast, this time mixing `_fiq_c`
+          down by the VFO-to-hardware-centre offset before taking the real
+          part, instead of the earlier version's un-shifted (and thus
+          wrong-frequency) `_fiq_c.real`. See CHANGELOG.md.
+          FT8 INTERNAL Full IQ fix, take one (2026-07-19): removed the Full
+          IQ branch's FT8 audio broadcast after finding it was sending
+          hardware-LO-centred wideband IQ, not VFO-centred demodulated
+          audio — superseded by the take-two fix above, kept here for
+          history. See CHANGELOG.md.
+          Status badge reworded (2026-07-20): "Full IQ (USB direct)" implied
+          a verified local USB connection that was never actually checked —
+          relabeled "Full IQ (only mode)" to state only the fact that IS
+          checked (this device type has no Compact/IQ-Lite mode selector).
+          RTTY auto-detect fake-confidence fix (2026-07-20): auto-detect
+          could confidently report "85% / GOOD / Signal locked" on pure
+          noise — the backend never actually measured a confidence value
+          and the frontend silently defaulted to a hardcoded 85% on every
+          reply. Added a real SNR gate to the detector and wired a genuine,
+          measured confidence score through end to end. See CHANGELOG.md.
+          RTTY tone scope "jumping" fix, three takes (2026-07-20): after the
+          confidence fix above, the live tone scope visibly jumped. Take
+          one gated auto-detect's retune on the new confidence value instead
+          of applying every reply unconditionally. Take two found a second,
+          independent bug — the Full-IQ audio_fft broadcaster only ever
+          re-centred its output for CW, never RTTY. Take three found that
+          even after both agreed on where to centre, they were still two
+          separately-computed sources at different native resolutions
+          racing for one display; the Full-IQ broadcaster is now suppressed
+          entirely on networked (nRSP-ST) units, which already get a
+          correct, single feed from the always-on Compact-mode broadcast.
+          See CHANGELOG.md for the full three-part diagnosis.
+          Build scripts fixed (2026-07-20): the entire build/ folder was
+          never updated when w033 was forked — build_macOS.sh,
+          build_Windows.bat, both .spec files, the .iss installer,
+          BUILD_NOTES.md and version_info.txt all still referenced
+          w032_NEXUS.py/DARKSKY_NEXUS_w032.html, which don't exist in this
+          folder, breaking `build_macOS.sh` immediately. All seven files
+          now reference w033; the .iss was renamed to match.
+
+PRIOR VERSION — w032:
+w032      Forked from w031 (2026-07-16) to implement a CW decoder/UI
+          overhaul: fixed the Skimmer candidate-detection pipeline (was
+          gated on display-only spectrum bins, not real SNR), added an
+          error placeholder for unmatched Morse symbol patterns instead of
+          silently dropping them, and reworked the CW tab layout — no more
+          hard SKIMMER/SINGLE exclusivity, Skimmer channel markers overlaid
+          directly on the mini-waterfall, consolidated waterfall toolbar,
+          and a larger waterfall. Also fixed the audio_fft broadcast
+          discarding half its real frequency resolution in an unnecessary
+          server-side resample step, and turned the mini-waterfall's zoom
+          control into a genuine higher-resolution "zoom FFT" (server-side
+          FFT size scales with zoom level) instead of a client-side crop of
+          the same fixed-resolution bins. Also fixed the FT8 INTERNAL band
+          quick-tune/Hop mode never actually retuning the SDR, and added a
+          DC/CFO tracker to the native AIS GMSK decoder (zero-crossing bit
+          slicer had no compensation for real-world carrier offset, so
+          genuine on-channel AIS bursts never produced a CRC-OK frame).
+          Fixed the Marine tab's own vessel list never rendering (only the
+          standalone AIS tab's table was ever wired up). Added GUI
+          VesselAPI key entry in the AIS tab so distributed builds never
+          need a developer's personal key baked in — each user pastes
+          their own free-tier key. See CHANGELOG.md for the itemised list.
+
+CURRENT VERSION (inherited) — w031:
+w031      Forked from w030 (2026-07-15) as the working branch for a live,
+          in-Chrome decoder testing pass (WSPR Beacons, CW native engine,
+          Marine/VHF, Multimon, Rivet numbers-station, FreeDV) plus the new
+          PSK Reporter spot-upload feature. Bugs found by static review and/
+          or live testing are fixed here, not in w030; see CHANGELOG.md for
+          the itemised list as each is closed out.
+
+CURRENT VERSION (inherited) — w030:
+w030      Forked from w026 (2026-07-11) — NOT from w029. w029 turned out to
+          be forked from the ancient w0.1.2 HTML snapshot by mistake, losing
+          most of w026's decoders/UI (HFDL, VDL2, RIVET, Trunk, full RTTY,
+          etc.); w026 is the actually-deployed baseline, so w030 starts
+          there instead. Ported w029's one genuinely new piece of work — a
+          client-side native FT8/FT4 decoder (ft8ts, GPL v3, runs in a Web
+          Worker, no WSJT-X needed) — onto this w026 base, alongside the
+          existing WSJT-X ALL.txt-bridge FT8 mode. See CHANGELOG.md for full
+          detail, including a pre-existing bug fixed along the way: enabling
+          FT8 previously called ft8_dec.process()/process_iq(), methods that
+          don't exist on FT8Decoder (an ALL.txt tailer, not a per-packet
+          decoder) — this threw on the next audio frame and crashed/
+          reconnected the SDRConnect bridge every time, silently, since
+          whenever this class was introduced.
+          Fixed (2026-07-12/13): RttyDecoder had no way to tell real signal
+          from band noise — mark/space tone power were only ever compared to
+          each other, never checked against an actual noise floor, so a dead
+          frequency could decode plausible-looking garbage indefinitely. Added
+          a spectral squelch (third Goertzel reference bin, live SNR, gates new
+          frame acquisition on an actual lock) — backend (this file) plus a
+          Signal: LOCKED/NO SIGNAL + dB badge on the frontend. Also fixed the
+          FT8 INTERNAL Decode toggle's contrast bug by converting it to a
+          Start/Stop button pair matching every other decoder, added a
+          drag-resize handle for the propagation map column, stopped manual
+          band-switching from wiping the map/decode list (now matches Hop
+          mode's already-correct behaviour), and added a 5-provider map style
+          picker to both FT8 maps (INTERNAL and the WSJT-X bridge). A 🌐 Globe
+          view (great-circle propagation arcs from the user's saved location)
+          was built, evaluated, and then removed the same day after an honest
+          look at what it actually added over the flat map — see CHANGELOG.md.
+          Added a Maidenhead grid-locator input and a callsign field (frontend/
+          localStorage only, prep for a planned PSK Reporter spot-upload
+          feature — not yet implemented) to the HF Utility location bar. All
+          frontend/HTML+JS except the RTTY squelch gate, which is this file.
+          See CHANGELOG.md for full detail on each of the above.
+
+CURRENT VERSION (inherited) — w0.2.6:
+w0.2.6    Re-synced from w0.2.4 (2026-06-23): the original w0.2.4→w0.2.6 fork
+          was taken before several w0.2.4 fixes landed, leaving w0.2.6 stale.
+          Replaced w0_2_6_NEXUS.py and DARKSKY_NEXUS_w0_2_6.html wholesale
+          with current w0.2.4 content (self-references renamed; historical
+          changelog entries above preserved as-is). Pulls in, among other
+          w0.2.4-era fixes: the CW/RTTY engine-toggle-stuck-on-fldigi fix
+          (with toast warning), and the AIS speed/course/heading/status/
+          destination field-name fix. Docs (md + docx) and build/ packaging
+          scripts (macOS/Windows spec + build scripts, BUILD_NOTES.md) synced
+          to match.
+          Fixed (2026-06-23): CW Skimmer "active but no signals" bug — the
+          main CW Start button (decoderStart('cw') -> skStart('monitor'))
+          only changed a badge label and sent a no-op probe; it never set
+          skDetectOn or started _skDetectLoop(), the loop that scans the
+          spectrum for candidate signals and feeds them to the backend's
+          CWSkimmerPool via skimmer_set_channels. Result: the header/footer
+          showed "CW Skimmer active" and the decoder itself was genuinely
+          running, but the Skimmer waterfall and decoded-text panels stayed
+          on placeholder text indefinitely unless the user separately
+          clicked "Start Detection" in the Skimmer Channels panel. skStart()
+          now mirrors skToggleDetect()'s logic for monitor mode so the main
+          Start button drives detection directly (HTML/JS only — no backend
+          change needed).
+          Added (2026-07-09): Light/dark theme toggle (HTML/JS/CSS only —
+          no backend change). See CHANGELOG.md for details.
+================================================================================
+"""
+
+import sys, asyncio, json, logging, struct, threading, time, urllib.request, os, socket, glob, collections, multiprocessing, re, subprocess, base64, traceback, signal, shutil, random
+try:
+    from scipy import signal as _scipy_signal
+    _HAVE_SCIPY = True
+except ImportError:
+    _HAVE_SCIPY = False
+
+try:
+    import sounddevice as _sounddevice
+    _HAVE_SOUNDDEVICE = True
+except (ImportError, OSError):
+    _HAVE_SOUNDDEVICE = False
+
+
+def _rtl_demod_worker(host, port, sample_rate, mode_queue, pcm_queue, stop_evt):
+    """Separate process: read IQ from rtl_tcp, demodulate, put PCM in queue.
+    Own GIL — asyncio in main process cannot starve this."""
+    import socket, numpy as np, time
+    try:
+        from scipy import signal as ss
+        dec_r = max(1, sample_rate // 48_000)
+        # OPT-1: Use SOS form — numerically stable, stateful across batches.
+        sos_wfm = ss.butter(5, 15e3 / (sample_rate / 2), btype='low',  output='sos')
+        sos_nfm = ss.butter(5,  5e3 / (sample_rate / 2), btype='low',  output='sos')
+        sos_am  = ss.butter(6,  5e3 / (sample_rate / 2), btype='low',  output='sos')
+        alpha   = 0.7578
+        sos_de  = ss.butter(1, (1 - alpha) / 2, btype='high', output='sos')
+        # Persistent filter states — eliminates batch-boundary glitches
+        zi_wfm  = ss.sosfilt_zi(sos_wfm) * 0.0
+        zi_nfm  = ss.sosfilt_zi(sos_nfm) * 0.0
+        zi_am   = ss.sosfilt_zi(sos_am)  * 0.0
+        zi_de   = ss.sosfilt_zi(sos_de)  * 0.0
+        # OPT-2: DC-block for AM — 1-pole IIR in SOS form, vectorised
+        sos_dc  = np.array([[1.0, -1.0, 0.0, 1.0, -0.999, 0.0]], dtype=np.float64)
+        zi_dc   = ss.sosfilt_zi(sos_dc) * 0.0
+        have_scipy = True
+    except ImportError:
+        have_scipy = False
+        dec_r = max(1, sample_rate // 48_000)
+
+    NEED = 16384  # bytes per batch (8192 IQ samples)
+    mode = 'WFM'
+    buf  = bytearray()
+
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((host, port))
+        # Read and discard the 12-byte rtl_tcp header
+        hdr = b''
+        while len(hdr) < 12:
+            hdr += sock.recv(12 - len(hdr))
+    except Exception as e:
+        # FD-leak fix: sock may have been created (and even connected)
+        # before the failure — close it instead of letting it leak.
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
+        pcm_queue.put(None)  # signal failure
+        return
+
+    while not stop_evt.is_set():
+        # Check for mode change (non-blocking)
+        try:
+            while not mode_queue.empty():
+                mode = mode_queue.get_nowait()
+        except Exception:
+            pass
+
+        # Read IQ
+        try:
+            data = sock.recv(65536)
+            if not data:
+                break
+        except Exception:
+            break
+        buf.extend(data)
+
+        while len(buf) >= NEED:
+            raw = bytes(buf[:NEED])
+            del buf[:NEED]
+
+            iq_u8 = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
+            iq_f  = (iq_u8 - 127.5) / 127.5
+            iq_c  = (iq_f[0::2] + 1j * iq_f[1::2]).astype(np.complex64)
+
+            prod = iq_c[1:] * np.conj(iq_c[:-1])
+            disc = (0.5 * np.angle(prod)).astype(np.float32)
+
+            if have_scipy:
+                if mode in ('WFM', 'FM', 'AUTO'):
+                    # OPT-1: sosfilt with persistent state — no batch-edge glitch
+                    filt, zi_wfm = ss.sosfilt(sos_wfm, disc, zi=zi_wfm)
+                    audio = filt[::dec_r].astype(np.float32)
+                    out64, zi_de = ss.sosfilt(sos_de, audio.astype(np.float64), zi=zi_de)
+                    pcm   = np.clip(out64.astype(np.float32) * 5.0, -1.0, 1.0)
+                elif mode == 'NFM':
+                    filt, zi_nfm = ss.sosfilt(sos_nfm, disc, zi=zi_nfm)
+                    pcm   = np.clip(filt[::dec_r].astype(np.float32) * 15.0, -1.0, 1.0)
+                elif mode == 'AM':
+                    env   = np.abs(iq_c).astype(np.float32)
+                    filt, zi_am = ss.sosfilt(sos_am, env, zi=zi_am)
+                    audio = filt[::dec_r].astype(np.float32)
+                    # OPT-2: vectorised DC-block — replaces Python loop
+                    out64, zi_dc = ss.sosfilt(sos_dc, audio.astype(np.float64), zi=zi_dc)
+                    pcm = np.clip(out64.astype(np.float32) * 3.0, -1.0, 1.0)
+                else:
+                    pcm = np.clip(disc[::dec_r] * 5.0, -1.0, 1.0)
+            else:
+                pcm = np.clip(disc[::dec_r] * 5.0, -1.0, 1.0)
+
+            try:
+                pcm_queue.put_nowait(pcm)
+            except Exception:
+                pass  # queue full — drop
+
+    try: sock.close()
+    except Exception: pass
+    pcm_queue.put(None)  # signal done
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
+
+try:
+    import numpy as np
+except ImportError:
+    print("ERROR: numpy required. Run: pip install numpy")
+    sys.exit(1)
+
+# Stage 1 skeleton decoders
+try:
+    from decoders import DECODERS as DECODERS
+except Exception:
+    DECODERS = []
+
+# --- MASTER CONFIG ---
+VERSION      = "w033"
+
+# --- BUILD HISTORY ---
+# w0.1.9 — nRSP-ST Full Support
+#   • nRSP-ST IQ Lite (192 kHz) + Full IQ FFT/waterfall pipeline
+#   • Full IQ path: hardware sample-rate spectrum & waterfall
+#   • Auto stream-mode: nRSP-ST auto-selects preferred_stream_mode on detect
+#   • _auto_set_stream_mode: async helper, valid_devices lookup, 1.5 s settle
+#   • Decoder gating: toast + opacity dim for incompatible stream mode
+#   • SSH_DEFAULT_CONFIG: preferred_stream_mode key (default "IQ Lite")
+# w0.1.8 — Performance Optimisations (PY-01…23, JS-01…11)
+#   • Pre-allocated FFT buffers; in-place log1p/normalise; fftshift moved to display path
+#   • Waterfall LUT (wfColormap); inlined Catmull-Rom; gamma via LUT index
+#   • Cached DOM refs; _bpDirty gate; freq-axis key guard; _schedAxFlush RAF coalescer
+#   • asyncio.get_running_loop() throughout; broadcast_json state cache
+#   • Module-level: _UI_FRAME_DT, _frame_buf, DUMP_STATE bytes, WSJTX helpers, regexes
+# w0.1.7 — Initial public release
+
+# SDRConnect WebSocket address — override with --sdr HOST or --sdr HOST:PORT
+#
+# Connection architecture:
+#   nRSP-ST hardware (:50000) ← SDRConnect desktop → WebSocket API (:5454) ← NEXUS
+#
+# The WebSocket API (port 5454) is part of SDRConnect desktop, NOT the nRSP-ST firmware.
+# The nRSP-ST exposes port 9001 (browser UI) and port 50000 (SDRConnect client protocol)
+# — neither is the WebSocket API. SDRConnect must always be running to use NEXUS.
+#
+# Usage:
+#   Local SDRConnect (default):            python3 w033_NEXUS.py
+#   Remote SDRConnect on another machine:  python3 w033_NEXUS.py --sdr 192.168.1.xx
+#   Remote SDRConnect custom port:         python3 w033_NEXUS.py --sdr 192.168.1.xx:5454
+_sdr_host = "127.0.0.1"
+_sdr_port = 5454
+for _i, _a in enumerate(sys.argv[1:]):
+    if _a == "--sdr" and _i + 1 < len(sys.argv) - 1:
+        _val = sys.argv[_i + 2]
+        if ":" in _val:
+            _sdr_host, _p = _val.rsplit(":", 1)
+            _sdr_port = int(_p)
+        else:
+            _sdr_host = _val
+SDRCONNECT_WS = f"ws://{_sdr_host}:{_sdr_port}"
+
+# nRSP-ST detection — set solely by active_device property_changed from SDRConnect.
+# Never set based on host address: the WebSocket API always runs in SDRConnect desktop,
+# regardless of whether SDRConnect is connected to a local RSPdx or a remote nRSP-ST.
+_is_nrsp_st = False
+
+# RTL-SDR live writer handle — set by rtl_bridge() so other coroutines can send commands
+_rtl_writer    = None
+_rtl_streaming = False
+_rtl_sock      = None   # raw socket — set by rtl_bridge(), used by gain handler   # True while a pipeline is actively running
+_rtl_write_lock = None  # asyncio.Lock — prevents concurrent writes to rtl_tcp socket
+
+# RTL-SDR / rtl_tcp config — override with --rtl HOST or --rtl HOST:PORT
+_rtl_host = "127.0.0.1"
+_rtl_port = 1234   # back to default port
+for _i, _a in enumerate(sys.argv[1:]):
+    if _a == "--rtl" and _i + 1 < len(sys.argv) - 1:
+        _val = sys.argv[_i + 2]
+        if ":" in _val:
+            _rtl_host, _p = _val.rsplit(":", 1)
+            _rtl_port = int(_p)
+        else:
+            _rtl_host = _val
+RTL_TCP_HOST = _rtl_host
+RTL_TCP_PORT = _rtl_port
+
+
+# ── HTML file resolver ────────────────────────────────────────────────
+# Tries every reasonable naming variant. Handles folder name, script stem,
+# glob patterns, and spaces-in-name. Picks newest file if multiple match.
+def _find_html() -> Path:
+    # PyInstaller frozen: bundled files live in sys._MEIPASS
+    if getattr(sys, 'frozen', False):
+        meipass = Path(sys._MEIPASS)
+        # Bundled HTML has the same stem as the .py entry point
+        stem_html = meipass / (Path(sys.argv[0]).stem + '.html')
+        if stem_html.exists():
+            return stem_html
+        # Fallback: any DARKSKY*.html in the bundle
+        candidates = list(meipass.glob('DARKSKY*.html'))
+        if candidates:
+            return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+        # Final fallback path (will show "not found" page)
+        return meipass / 'DARKSKY_NEXUS_w033.html'
+
+    here = Path(__file__).resolve().parent
+
+    # 1. HTML with same stem as this .py file (most reliable match)
+    same_stem = here / (Path(__file__).stem + ".html")
+    if same_stem.exists():
+        return same_stem
+
+    # 2. Fallback: newest DARKSKY*w033*.html in the same folder
+    matches = glob.glob(str(here / "DARKSKY*w033*.html"))
+    if matches:
+        matches.sort(key=lambda p: Path(p).stat().st_mtime, reverse=True)
+        return Path(matches[0])
+
+    # 3. Hard fallback — will trigger "not found" page with the correct path shown
+    return here / "DARKSKY_NEXUS_w033.html"
+
+DARKSKY_HTML = _find_html()
+HTTP_PORT     = 8888
+WS_PORT       = 8889
+MAX_UI_FPS    = 60
+_UI_FRAME_DT  = 1.0 / MAX_UI_FPS  # PY-01: pre-computed frame interval
+
+def _free_stale_port(port: int, label: str = "") -> None:
+    """
+    Self-heal for 'Address already in use' on restart.
+
+    If a previous NEXUS process didn't shut down cleanly (closed terminal,
+    crash, killed parent shell, Task Manager "End Task", double-launching the
+    app before the first instance finished starting, etc.) it can leave
+    HTTP_PORT/WS_PORT bound, causing the next launch to fail with OSError 48
+    (macOS/Linux) or WinError 10048 (Windows). This checks whether the port
+    is already taken and, if the process holding it looks like a stale
+    NEXUS/python instance, kills it before we try to bind. Best-effort only —
+    any failure here just falls through to the normal bind (and its error).
+
+    BUGFIX (2026-07-16, w031): this used to shell out to lsof/ps/os.kill
+    unconditionally — all Unix-only. On Windows, lsof doesn't exist, so this
+    silently hit the `except FileNotFoundError: pass` branch and did
+    nothing, meaning Windows never actually got the self-heal the docstring
+    above describes — a stale process just crashed the next launch outright
+    with a raw WinError 10048 traceback (reported via the Community Wall by
+    a user on a pre-w030 build, back before this function even existed).
+    Added a Windows branch using netstat/tasklist/taskkill, mirroring the
+    same "only kill things that look like NEXUS/python" safety check the
+    Unix path already had.
+    """
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.settimeout(0.3)
+        in_use = probe.connect_ex(("127.0.0.1", port)) == 0
+        probe.close()
+        if not in_use:
+            return
+
+        my_pid = str(os.getpid())
+        killed = []
+
+        if sys.platform == "win32":
+            # netstat -ano's PID column is the last whitespace-separated
+            # field; local-address is host:port (IPv4) or [host]:port (IPv6)
+            # — match on the ':<port>' suffix rather than parsing strictly,
+            # since column widths aren't fixed-width/locale-stable enough to
+            # rely on for parsing. Only LISTENING rows are candidates.
+            out = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True, text=True, timeout=2.0
+            ).stdout
+            pids = set()
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 5 and parts[0].upper() == "TCP" \
+                        and parts[-1].isdigit() and parts[-2].upper() == "LISTENING" \
+                        and parts[1].endswith(f":{port}"):
+                    pids.add(parts[-1])
+            for pid in pids:
+                if pid == my_pid:
+                    continue
+                try:
+                    # /FO CSV /NH gives one quoted-CSV line with no header,
+                    # e.g. "python.exe","1234","Console","1","12,345 K" —
+                    # image name is the first field, which is all we need.
+                    tl = subprocess.run(
+                        ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                        capture_output=True, text=True, timeout=2.0
+                    ).stdout
+                except Exception:
+                    tl = ""
+                if "nexus" in tl.lower() or "python" in tl.lower():
+                    try:
+                        subprocess.run(["taskkill", "/F", "/PID", pid],
+                                        capture_output=True, timeout=2.0)
+                        killed.append(pid)
+                    except Exception:
+                        pass
+        else:
+            pids = subprocess.run(
+                ["lsof", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
+                capture_output=True, text=True, timeout=2.0
+            ).stdout.split()
+            for pid in pids:
+                if pid == my_pid:
+                    continue
+                try:
+                    cmdline = subprocess.run(
+                        ["ps", "-p", pid, "-o", "command="],
+                        capture_output=True, text=True, timeout=2.0
+                    ).stdout.strip()
+                except Exception:
+                    cmdline = ""
+                # Only auto-kill processes that look like a previous NEXUS run —
+                # never touch something unrelated that happens to be on the port.
+                if "NEXUS" in cmdline or "python" in cmdline.lower():
+                    try:
+                        os.kill(int(pid), 9)
+                        killed.append(pid)
+                    except Exception:
+                        pass
+
+        if killed:
+            log.warning(f"Port {port} ({label}) was held by stale process(es) {killed} — killed and retrying bind")
+            time.sleep(0.5)
+        else:
+            if sys.platform == "win32":
+                log.warning(f"Port {port} ({label}) is in use by a process that doesn't look like NEXUS — not auto-killing. "
+                            f"Run: netstat -ano | findstr :{port}")
+            else:
+                log.warning(f"Port {port} ({label}) is in use by a process that doesn't look like NEXUS — not auto-killing. "
+                            f"Run: lsof -nP -iTCP:{port} -sTCP:LISTEN")
+    except FileNotFoundError:
+        # netstat/tasklist/taskkill (Windows) or lsof/ps (macOS/Linux) not
+        # available — skip self-heal silently, normal bind error will surface
+        pass
+    except Exception as e:
+        log.warning(f"Stale-port check for {port} failed (non-fatal): {e}")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+log = logging.getLogger("DARKSKY")
+
+# Standalone build: console=False means stdout/stderr are suppressed.
+# Add a rotating log file so errors are visible after the fact.
+if getattr(sys, 'frozen', False):
+    try:
+        import logging.handlers as _lh
+        _log_dir = Path.home() / 'Library' / 'Logs' / 'DARKSKY NEXUS' \
+                   if sys.platform == 'darwin' \
+                   else Path(os.environ.get('APPDATA', Path.home())) / 'DARKSKY NEXUS' / 'logs'
+        _log_dir.mkdir(parents=True, exist_ok=True)
+        _fh = _lh.RotatingFileHandler(
+            _log_dir / 'darksky_nexus.log',
+            maxBytes=2 * 1024 * 1024,  # 2 MB per file
+            backupCount=3,
+            encoding='utf-8',
+        )
+        _fh.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+        logging.getLogger().addHandler(_fh)
+    except Exception:
+        pass  # never crash the app over logging setup
+
+# PY-20: dump_state bytes hoisted to module level — built once, reused per connection.
+_RIGCTLD_DUMP_STATE = (
+    b'1\n'                                   # protocol version 1
+    b'1\n'                                   # rig model 1 (dummy)
+    b'2\n'                                   # ITU region 2
+    b'100000 500000000 0x2f -1 -1 0x1 0\n'  # RX: 100kHz-500MHz
+    b'0 0 0 0 0 0 0\n'                      # end RX ranges
+    b'0 0 0 0 0 0 0\n'                      # TX ranges (none)
+    b'0x2f 100\n'                            # tuning step 100Hz
+    b'0 0\n'                                 # end tuning steps
+    b'0x4 3000\n'                            # filter: USB 3kHz
+    b'0 0\n'                                 # end filters
+    b'0\n'                                   # max_rit
+    b'0\n'                                   # max_xit
+    b'0\n'                                   # max_ifshift
+    b'0\n'                                   # announces
+    b'0\n'                                   # end preamp list
+    b'0\n'                                   # end attenuator list
+    b'0x0\n'                                 # has_get_func
+    b'0x0\n'                                 # has_set_func
+    b'0x0\n'                                 # has_get_level
+    b'0x0\n'                                 # has_set_level
+    b'0x0\n'                                 # has_get_parm
+    b'0x0\n'                                 # has_set_parm
+    b'ptt_type=0\n'                          # no PTT capability
+    b'targetable_vfo=0\n'                    # no targetable VFO
+    b'has_set_freq=1\n'                      # we support set_freq
+    b'has_get_freq=1\n'                      # we support get_freq
+    b'has_set_vfo=1\n'                       # we support set_vfo
+    b'has_get_vfo=1\n'                       # we support get_vfo
+    b'rigctld_version=DarkSky-1.9.0\n'       # identify ourselves
+    b'done\n'                                 # terminates the loop -> RIG_OK
+)
+
+# PY-22: WSJTX UDP helpers hoisted to module level — no per-call import/def/pack.
+import struct as _wsjtx_struct
+import socket as _wsjtx_sock_mod
+
+_WSJTX_MAGIC    = 0xADBCCBDA
+_WSJTX_ADDR     = ('127.0.0.1', 2237)
+_WSJTX_ID       = b'DarkSky'
+# Pre-packed constant fragments
+_WSJTX_QBA_ID   = _wsjtx_struct.pack('>I', len(_WSJTX_ID)) + _WSJTX_ID
+_WSJTX_QS_NONE  = _wsjtx_struct.pack('>I', 0xFFFFFFFF)
+_WSJTX_QS_DS    = _wsjtx_struct.pack('>I', len('DarkSky'.encode('utf-16-be'))) + 'DarkSky'.encode('utf-16-be')
+_WSJTX_MAX_SCHEMA = _wsjtx_struct.pack('>I', 3)
+# Heartbeat header (schema=3, type=0): magic + schema + type + id + MaxSchema + version + revision
+_WSJTX_HB_PREFIX = (
+    _wsjtx_struct.pack('>III', _WSJTX_MAGIC, 3, 0)  # schema=3, type=0 (heartbeat)
+    + _WSJTX_QBA_ID
+    + _WSJTX_MAX_SCHEMA
+    + _WSJTX_QS_DS
+    + _WSJTX_QS_NONE
+)
+# DialFreq header prefix (schema=3, type=16): magic + schema + type + id
+_WSJTX_DF_PREFIX = (
+    _wsjtx_struct.pack('>III', _WSJTX_MAGIC, 3, 16)  # schema=3, type=16 (DialFrequency)
+    + _WSJTX_QBA_ID
+)
+
+def _wsjtx_send_freq(freq_hz: int) -> None:
+    """Send WSJT-X UDP Heartbeat + DialFrequency packets (PY-22 helper)."""
+    df = _WSJTX_DF_PREFIX + _wsjtx_struct.pack('>Q', freq_hz)
+    s = _wsjtx_sock_mod.socket(_wsjtx_sock_mod.AF_INET, _wsjtx_sock_mod.SOCK_DGRAM)
+    try:
+        s.sendto(_WSJTX_HB_PREFIX, _WSJTX_ADDR)
+        s.sendto(df, _WSJTX_ADDR)
+    finally:
+        s.close()
+
+# ── GLOBALS ───────────────────────────────────────────────────────────
+loop         = None
+clients      = set()
+_chrome_proc = None   # Popen handle for the launched browser window, if any
+_http_server = None   # ThreadingHTTPServer instance, for clean shutdown
+_shutting_down = False  # guard so the quit path only runs once
+# w030: main() awaits this instead of a bare `await asyncio.Future()`, so
+# _graceful_shutdown() can end the run by *setting* it rather than calling
+# loop.stop() directly. Calling loop.stop() while main()'s task is still
+# suspended on an unresolvable Future left it permanently "not done" from
+# asyncio.run()'s point of view, so its own internal cleanup raised
+# "RuntimeError: Event loop stopped before Future completed." on every
+# shutdown (browser-close, Ctrl+C, SIGTERM) — cosmetic (NEXUS had already
+# logged "shutdown complete" and torn everything down by that point), but
+# noisy, and inherited from w026 rather than introduced by any w030 change.
+_shutdown_event = asyncio.Event()
+_main_task      = None  # set at the top of main() — excluded from the shutdown cancel sweep so it can return normally instead of being cancelled
+sdr_queue    = asyncio.Queue()
+last_ui_update = 0
+_sr_set_time   = 0.0   # timestamp of last set_sample_rate command (snap-back guard)
+_last_iq2_frame_time = 0.0   # w0.2.3: timestamp of last real type-2 IQ frame seen
+                              # (frame-count based IQ availability check, see _check_iq_mode)
+state        = {
+    "vfo_hz":       96_900_000,   # default to FM broadcast range
+    "wsjtx_hz":     14_074_000,   # WSJTX rigctld freq — starts on 20m FT8, tracks quick-tune buttons
+    "center_hz":    10_000_000,
+    "sample_rate":   2_000_000,
+    "engine":       "SDRCONNECT",
+    "gain_lna":     0,
+    "mode":         "",
+    "bandwidth_hz": 3000,
+    "rds_ps":       "",
+    "rds_radiotext": "",
+    "rds_pi":       "",
+    "rds_pty":      "",
+    "ais_active":   False,
+    "ais_port":     10110,
+    "rtl_fft_size": 1024,       # dynamic FFT size for RTL-SDR; scales with vizZoom
+    "fldigi_active":    False,
+    "fldigi_mode":      "PSK31",
+    "fldigi_sideband":  "USB",   # cached from poller — used by LO-sync to avoid await race
+    "aprs_active":      False,
+    "aprs_source":      "internet",   # "internet" or "direwolf"
+    "aprs_lat":         51.5,
+    "aprs_lon":         -0.1,
+    "aprs_radius":      150,
+    "aprs_kiss_host":   "127.0.0.1",
+    "aprs_kiss_port":   8001,
+    # Tier-1 external decoders
+    "adsb_active":      False,
+    "hfdl_active":      False,
+    "hfdl_device":      "sdrplay",   # SoapySDR driver name
+    "hfdl_freqs":       [2998, 4681, 5547, 6532, 8825, 10081, 11384, 13270, 17922, 21949],
+    "hfdl_sample_rate": 250000,
+    "vdl2_active":      False,
+    "vdl2_device":      "sdrplay",
+    "vdl2_freqs":       [136900000, 136925000, 136975000],
+    "vdl2_sample_rate": 2100000,
+    "dsd_active":       False,
+    "dsd_audio_device": "",
+    # rtl_433 (w033 fork, 2026-07-19) — ISM-band sensor decoder (TPMS,
+    # weather stations, smart meters, etc.), same subprocess+UDP-JSON
+    # pattern as HFDL/VDL2 above.
+    "rtl433_active":    False,
+    # "auto" (2026-07-20, user asked "can device be autodetected from
+    # nexus?"): _launch_rtl433() resolves this at launch time via
+    # _detect_rtl433_device() -- a real plugged-in RTL-SDR dongle wins if
+    # found (rtl_test), otherwise falls back to whatever SDRplay unit NEXUS
+    # itself is already connected to (state['active_device']), otherwise
+    # 'rtlsdr' (old hardcoded default). Still explicitly overridable via
+    # the 'device' field on the rtl433_start command ("rtlsdr" or a
+    # SoapySDR driver name like "sdrplay") -- 'auto' only applies when
+    # nothing more specific has been set.
+    "rtl433_device":    "auto",
+    "rtl433_freq_mhz":  433.92,     # common EU/US ISM band; 315/915 also common in the US
+    # Device capabilities — populated on connect via active_device query
+    "active_device":    "",
+    "valid_devices":    "",
+    "device_type":      "RSPdx",   # default until nRSP-ST detected
+    "iq_lite_capable":  False,
+    "can_control":      False,     # set True when exclusive control granted
+    "stream_mode":      None,      # nRSP-ST only: 'Compact' | 'IQ Lite' | 'Full IQ'
+    "hw_sample_rate":   0,         # hardware sample rate — preserved across mode switches
+    "valid_antennas":   "",        # comma-delimited list from SDRConnect, e.g. "Antenna A,Antenna B,Antenna C"
+    "active_antenna":   "",        # currently selected antenna name
+}
+
+# ── RECORDING (REC button: AUD/IQ modes) ────────────────────────────────
+# BUGFIX (2026-07-17, user request: "add a select toggle for demodulated/IQ
+# when Rec is pressed"): the REC button existed in the UI for a long time
+# but toggleRecord() (frontend) was a pure stub -- it never sent anything to
+# the backend, and there was no backend recording code at all, for either
+# mode. This is the real implementation, added as part of the same request:
+#   'audio' mode -> WAV file, tapped from the demodulated 'mono' audio the
+#     t==1 PCM branch already computes (see the SDRConnect rx loop) --
+#     works in any stream mode (Compact/IQ Lite/Full IQ), since SDRConnect
+#     sends type-1 PCM audio frames independent of which device mode is
+#     also streaming IQ.
+#   'iq' mode -> raw CF32 file (interleaved float32 I/Q, no header --
+#     np.complex64.tobytes() *is* CF32), tapped from _fiq_i/_fiq_q at the
+#     earliest point in the Full IQ branch, before any of NEXUS's own
+#     anti-alias/decimation filtering -- i.e. genuinely the same raw
+#     hardware-rate samples SDRConnect delivered. CF32 is one of
+#     AIS-catcher's native raw-file formats (`-ga FORMAT CF32`), so a
+#     capture from here can be replayed directly through AIS-catcher (or
+#     any other SDR software) for an apples-to-apples decode comparison
+#     against NEXUS's own native decoders, without fighting over exclusive
+#     access to the live SDR hardware.
+#   BUGFIX (2026-07-17, user report: "files should be saved to user
+#   documents"): this was previously os.path.dirname(__file__), which in a
+#   packaged .app/.exe resolves inside the frozen bundle's read-only temp
+#   extraction dir (PyInstaller's sys._MEIPASS on macOS) or an
+#   Program-Files-style install folder on Windows -- not user-writable, and
+#   not somewhere a user would ever look for their own recordings. Now
+#   always resolves to the OS-standard Documents folder, regardless of
+#   whether NEXUS is frozen or run from source.
+def _rec_base_dir() -> str:
+    docs = Path.home() / 'Documents' / 'DARKSKY NEXUS' / 'Recordings'
+    docs.mkdir(parents=True, exist_ok=True)
+    return str(docs)
+
+REC_DIR          = _rec_base_dir()
+_rec_active      = False
+_rec_mode        = 'audio'   # 'audio' | 'iq'
+_rec_wav         = None      # wave.Wave_write handle, audio mode only
+_rec_iq_file     = None      # raw binary file handle, iq mode only
+_rec_path        = None
+_rec_started_at  = 0.0
+_rec_bytes       = 0
+_rec_sr          = 0
+
+
+def _rec_new_path(mode: str) -> str:
+    os.makedirs(REC_DIR, exist_ok=True)
+    ts = time.strftime('%Y%m%d_%H%M%S')
+    ext = 'wav' if mode == 'audio' else 'cf32'
+    return os.path.join(REC_DIR, f'darksky_rec_{mode}_{ts}.{ext}')
+
+
+def _rec_write_audio(mono: np.ndarray, sr: int = 48000):
+    """Tap point: called from the t==1 PCM-audio branch with the same
+    demodulated 'mono' float32 buffer already fed to CW/RTTY/FAX/etc."""
+    global _rec_wav, _rec_bytes, _rec_sr
+    if not _rec_active or _rec_mode != 'audio' or mono is None or len(mono) == 0:
+        return
+    if _rec_wav is None:
+        _rec_sr = sr
+        _rec_wav = _wave.open(_rec_path, 'wb')
+        _rec_wav.setnchannels(1)
+        _rec_wav.setsampwidth(2)
+        _rec_wav.setframerate(int(sr))
+    s16 = (mono * 32767.0).clip(-32768, 32767).astype(np.int16)
+    _rec_wav.writeframes(s16.tobytes())
+    _rec_bytes += s16.nbytes
+
+
+def _rec_write_iq(iq_c: np.ndarray, sr: float):
+    """Tap point: called from the Full IQ branch with raw, unfiltered
+    complex64 samples at the actual hardware sample rate."""
+    global _rec_iq_file, _rec_bytes, _rec_sr
+    if not _rec_active or _rec_mode != 'iq' or iq_c is None or len(iq_c) == 0:
+        return
+    if _rec_iq_file is None:
+        _rec_sr = sr
+        _rec_iq_file = open(_rec_path, 'wb')
+    data = iq_c.astype(np.complex64).tobytes()
+    _rec_iq_file.write(data)
+    _rec_bytes += len(data)
+
+
+async def _rec_stop_and_report():
+    """Closes whichever file is open (if any) and broadcasts the final
+    rec_stopped status. Safe to call even if nothing was actually written
+    yet (e.g. IQ mode started but Full IQ never delivered a single packet
+    before Stop was pressed) -- reports size_bytes=0 rather than erroring."""
+    global _rec_active, _rec_wav, _rec_iq_file, _rec_path, _rec_bytes, _rec_sr, _rec_started_at
+    path, mode, nbytes, sr = _rec_path, _rec_mode, _rec_bytes, _rec_sr
+    duration = time.time() - _rec_started_at if _rec_started_at else 0.0
+    if _rec_wav is not None:
+        try:
+            _rec_wav.close()
+        except Exception:
+            pass
+        _rec_wav = None
+    if _rec_iq_file is not None:
+        try:
+            _rec_iq_file.close()
+        except Exception:
+            pass
+        _rec_iq_file = None
+    _rec_active = False
+    _rec_path = None
+    _rec_bytes = 0
+    _rec_sr = 0
+    _rec_started_at = 0.0
+    await broadcast_json({
+        "type": "rec_stopped", "mode": mode, "path": path,
+        "duration_s": round(duration, 1), "size_bytes": nbytes, "sample_rate": sr,
+    })
+
+
+# ── AIS GLOBALS ────────────────────────────────────────────────────────
+AIS_UDP_PORT      = 10110
+AIS_EXPIRE_SECS   = 1800            # 30 minutes
+ais_vessels: dict = {}              # {mmsi_str: vessel_dict}
+_ais_udp_server   = None            # asyncio DatagramTransport, or None
+_ais_fragments: dict = {}           # reassembly {(msg_id,channel): {seq:(payload,fill)}}
+
+# ── AIS: aisstream.io live feed (added 2026-07-17, user request) ────────
+# NEXUS's own RF reception here mostly hearing types 8/10/12 (no name/
+# position by spec -- see AisDecoder REWORK notes) means many vessels sit
+# at "MMSI only" indefinitely if left to RF decode alone. aisstream.io is
+# a free (beta) WebSocket feed aggregating live AIS traffic from thousands
+# of contributed receivers worldwide, with no lifetime call cap --
+# subscribing with FiltersShipMMSI for the MMSIs NEXUS has already heard
+# (even if only via 8/10/12) can pull real position/name/callsign data
+# from OTHER receivers that heard the same vessel's 1/2/3/5/18 broadcasts,
+# entirely independent of what NEXUS's own antenna catches.
+#
+# REMOVED (2026-07-18, user request -- "as we are not using vesselapi
+# anymore, it should be removed"): this file previously also had a
+# VesselAPI per-MMSI REST lookup integration (free tier, 150-call lifetime
+# budget) as a second/earlier enrichment source. It's gone -- key load/
+# save helpers, the persistent MMSI store, the call-budget tracker, the
+# background lookup poller, and its three GUI key-management WS commands
+# have all been deleted, along with the matching UI in the HTML. aisstream.io
+# below is now the only online vessel-enrichment source.
+AIS_AISSTREAM_URL       = 'wss://stream.aisstream.io/v0/stream'
+AIS_AISSTREAM_KEYFILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.aisstream_key.json')
+AIS_AISSTREAM_MAX_MMSI  = 50    # aisstream.io's own FiltersShipMMSI hard limit
+AIS_AISSTREAM_RESUB_SECS = 30   # how often to refresh the subscribed MMSI list
+
+# TEMPORARY DIAGNOSTIC (2026-07-18, "40+ vessels tracked, still zero data
+# received/matched after connection+subscription both confirmed working") --
+# a known always-active real MMSI from aisstream.io's own documentation
+# example (a US-flagged vessel), added to every subscription purely to prove
+# whether the receive pipeline can get *any* real traffic through at all,
+# independent of whether the user's own RF-decoded MMSIs happen to be quiet
+# or non-standard. Logged distinctly in _aisstream_client()'s receive loop
+# (search 'AIS-DIAG-TEST') -- does NOT get added to ais_vessels or displayed,
+# since _aisstream_apply_message() already ignores any MMSI not already
+# tracked. Remove this constant and its one use-site once the pipeline is
+# confirmed (or refuted).
+AIS_AISSTREAM_DIAG_TEST_MMSI = '368207620'
+
+def _ais_aisstream_load_key():
+    """DARKSKY_AISSTREAM_KEY env var first, then the local keyfile, so the
+    key never has to live in this source file. Returns just the key string
+    -- aisstream.io keys are free/unlimited (no expiry to track)."""
+    env_key = os.environ.get('DARKSKY_AISSTREAM_KEY', '')
+    if env_key:
+        return env_key
+    try:
+        with open(AIS_AISSTREAM_KEYFILE, 'r') as f:
+            return json.load(f).get('key', '')
+    except Exception:
+        return ''
+
+def _ais_aisstream_save_key(key: str):
+    with open(AIS_AISSTREAM_KEYFILE, 'w') as f:
+        json.dump({'key': key, 'configured_at': time.time()}, f)
+    os.chmod(AIS_AISSTREAM_KEYFILE, 0o600)
+
+AIS_AISSTREAM_KEY = _ais_aisstream_load_key()
+if AIS_AISSTREAM_KEY:
+    log.info(f"AIS: aisstream.io live feed ENABLED (key ends '...{AIS_AISSTREAM_KEY[-4:]}') "
+             f"-- will cross-reference tracked MMSIs against the global feed")
+else:
+    log.info("AIS: aisstream.io live feed DISABLED -- no DARKSKY_AISSTREAM_KEY env var or "
+              ".aisstream_key.json found.")
+
+# ── AIS: persistent store for aisstream.io-resolved identity data ───────
+# (added 2026-07-18, user question: "is the data persistent, so eventually
+# it will only have to check for vessels that are new") -- plain JSON on
+# disk keyed by MMSI, load/save-atomic. Only FIXED/durable fields
+# belong in a store that outlives the session (name, callsign, ship type,
+# destination -- a ship's name doesn't change between sightings). A moving
+# vessel's lat/lon/speed/course goes stale within minutes and must never be
+# replayed from a cache days later as if it were current -- so those never
+# get written here at all (see _aisstream_persist_durable() below), even
+# though the live in-memory ais_vessels dict does hold them for as long as
+# the vessel stays actively tracked *this session*.
+# Base stations and aids-to-navigation are the one exception: their
+# position IS fixed infrastructure, not a moving target, so it's persisted
+# alongside their name for those two station_types specifically.
+AIS_AISSTREAM_STORE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ais_aisstream_store.json')
+_ais_aisstream_store_lock = threading.Lock()
+_AISSTREAM_DURABLE_FIELDS = ('name', 'callsign', 'ship_type', 'destination')
+
+def _ais_aisstream_store_load():
+    try:
+        with open(AIS_AISSTREAM_STORE_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _ais_aisstream_store_save(store: dict):
+    tmp = AIS_AISSTREAM_STORE_FILE + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(store, f)
+    os.replace(tmp, AIS_AISSTREAM_STORE_FILE)
+
+def _ais_aisstream_store_get(mmsi: str):
+    with _ais_aisstream_store_lock:
+        return _ais_aisstream_store_load().get(mmsi)
+
+def _ais_aisstream_store_put(mmsi: str, fields: dict):
+    with _ais_aisstream_store_lock:
+        store = _ais_aisstream_store_load()
+        store[mmsi] = dict(fields, resolved_at=time.time())
+        _ais_aisstream_store_save(store)
+
+# ── FLDIGI GLOBALS ────────────────────────────────────────────────────
+_fldigi_xmlrpc   = None    # xmlrpc.client.ServerProxy, created on demand
+_fldigi_rx_offset = 0       # byte offset into fldigi RX text buffer
+_fldigi_carrier_hz = 1000   # last known modem carrier offset (Hz); default 1000
+
+def _audio_fft_center_hz(dc_is_vfo=False):
+    """Where should the audio_fft waterfall be centred, in Hz relative to
+    DC of the FFT it's computed from?
+
+    BUGFIX (CW waterfall/drag-tune, June 2026): the audio_fft broadcast
+    previously always fell back to a flat 1500 Hz when fldigi wasn't
+    connected, regardless of which decoder was actually running. That's a
+    reasonable default for RTTY (which has no fldigi-independent NEXUS
+    waterfall), but wrong for the CW NEXUS engine: CW's own carrier
+    position isn't at a fixed audio offset at all — it's wherever
+    (vfo_hz - center_hz) lands, exactly the quantity process_iq() now
+    mixes down by to actually decode (see MorseDecoder.process_iq()).
+    That offset can be several kHz when the user fine-tunes within the
+    current span (vfo_only jogs leave the LO put — see _tuneTo() in the
+    frontend and the 'tune' command handler below), so showing the CW
+    waterfall at a fixed 1500 Hz would just show empty band, not the
+    signal. When the CW NEXUS decoder is the one active (and fldigi is
+    not driving it), centre on the real VFO/LO offset instead.
+
+    BUGFIX (RTTY mark/space handle alignment, June 2026): the same problem
+    above applies just as much to RTTY. RttyDecoder.process_iq() Goertzels
+    self.mark / (self.mark - self.shift) directly against iq_c with no VFO
+    term of its own (see process_iq() docstring) — so, exactly like CW,
+    those Hz values are only meaningful relative to wherever iq_c's DC
+    actually sits. The old flat-1500 fallback assumed RTTY is always tuned
+    dial-center, which broke down for real Full IQ use: fine-tuning within
+    the passband moves the true signal's audio offset, but the waterfall
+    kept reporting carrier_hz=1500 regardless — so the mark/space handles
+    (placed from preset/autodetect Hz values, themselves assumed relative
+    to dial-center) never matched the actual rendered spectrum, forcing
+    the user to drag them into place by hand every time. Track RTTY's VFO
+    offset the same way CW does instead of assuming a fixed dial-center.
+
+    dc_is_vfo: pass True from the IQ Lite block, where the decimated IQ
+    (iq_c) is already centred on the VFO/dial frequency (DC == vfo_hz),
+    per that block's own comment ("IQ Lite LO = dial_hz"). In that case
+    the carrier sits at audio 0 Hz already — no extra offset needed.
+    Pass False (default) from the Full IQ block, where DC == the
+    hardware center/LO frequency and the VFO offset still needs adding.
+    """
+    # BUGFIX (CW waterfall not starting on Full IQ, June 2026): this used to
+    # check `_fldigi_xmlrpc is not None` FIRST, unconditionally, before ever
+    # looking at which NEXUS decoder is active. But _fldigi_xmlrpc just means
+    # "fldigi's XML-RPC proxy object exists" — it gets created as soon as
+    # fldigi is launched for CAT control (rigctld on port 4532), regardless
+    # of whether fldigi is actually driving the displayed decoder. So once
+    # fldigi was launched even once in a session, every later audio_fft
+    # broadcast permanently took the fldigi branch — even while CW NEXUS
+    # was the active decoder — centering the waterfall on
+    # _fldigi_carrier_hz instead of the real VFO/LO offset CW needs. Check
+    # the NEXUS-decoder-active case first; only fall back to fldigi's
+    # carrier when fldigi is connected AND neither NEXUS decoder owns the
+    # display.
+    if (active_decoder_slug == 'cw' and cw_dec.active) or \
+       (active_decoder_slug == 'rtty' and rtty_dec.active):
+        if dc_is_vfo:
+            return 0
+        return state.get('vfo_hz', 0) - state.get('center_hz', 0)
+    if _fldigi_xmlrpc is not None:
+        return _fldigi_carrier_hz
+    return 1500
+
+# ── APRS GLOBALS ──────────────────────────────────────────────────────
+import re as _re
+aprs_stations: dict = {}     # callsign → station dict
+_APRS_EXPIRE_SECS = 3600     # 1 hour
+_APRS_POS_RE = _re.compile(
+    r'(\d{2})(\d{2}\.\d+)([NS])(.)(\d{3})(\d{2}\.\d+)([EW])')
+_APRS_WX_RE  = _re.compile(
+    r'(\d{3})/(\d{3})g(\d{3})t(-?\d{3})r(\d{3})p(\d{3})h(\d{2})b(\d{5})')
+
+# ── DSP ENGINE: MORSE ─────────────────────────────────────────────────
+# ITU callsign pattern: 1-3 prefix chars, digit, 1-4 suffix chars, optional /portable
+_CALLSIGN_RE = re.compile(
+    r'\b([A-Z0-9]{1,3}[0-9][A-Z]{1,4}(?:/[A-Z0-9]{1,4})?)\b'
+)
+
+# PY-13: compile hot-path regexes once at module level.
+_DE_CALL_RE     = re.compile(r'DE\s+([A-Z0-9]{1,3}[0-9][A-Z]{1,4}(?:/[A-Z0-9]{1,4})?)\b')
+_WX_WIND_RE     = _re.compile(r'(\d{3})/(\d{3})')
+_WX_TEMP_RE     = _re.compile(r't(-?\d{3})')
+_WX_HUMID_RE    = _re.compile(r'h(\d{2})')
+_WX_BARO_RE     = _re.compile(r'b(\d{5})')
+_WX_RAIN_RE     = _re.compile(r'r(\d{3})')
+_APRS_COURSE_RE = _re.compile(r'(\d{3})/(\d{3})')
+_APRS_ALT_RE    = _re.compile(r'/A=(\d{6})')
+
+# OPT-3: Vectorised Goertzel — single-bin DFT power, ~4× faster than np.exp correlator.
+# Pre-computes sin/cos once per (freq, N) pair; inner product is one np.dot each.
+def _goertzel_power(iq_c: 'np.ndarray', freq_hz: float, sr: float) -> float:
+    """Return normalised power at freq_hz in the complex IQ block iq_c."""
+    N = len(iq_c)
+    if N == 0:
+        return 0.0
+    omega = 2.0 * np.pi * freq_hz / sr
+    n     = np.arange(N, dtype=np.float32)
+    ref   = np.exp(-1j * omega * n)           # one allocation per tone change, not per call
+    val   = np.dot(iq_c, ref)
+    return float(np.abs(val)) / N
+
+
+class MorseDecoder:
+    def __init__(self, channel_tag=None):
+        self.active        = False
+        self.threshold_db  = 8.0
+        self.tone_hz       = 700.0
+        self.noise_floor   = 0.001
+        self.auto_threshold = False  # True → threshold_db is derived live, slider ignored
+        self.channel_tag   = channel_tag   # None → main CW UI; float → skimmer pool freq_mhz
+        self.morse_table   = {
+            # Letters
+            '.-':'A','-...':'B','-.-.':'C','-..':'D','.':'E','..-.':'F',
+            '--.':'G','....':'H','..':'I','.---':'J','-.-':'K','.-..':'L',
+            '--':'M','-.':'N','---':'O','.--.':'P','--.-':'Q','.-.':'R',
+            '...':'S','-':'T','..-':'U','...-':'V','.--':'W','-..-':'X',
+            '-.--':'Y','--..':'Z',
+            # Digits
+            '-----':'0','.----':'1','..---':'2','...--':'3','....-':'4',
+            '.....':'5','-....':'6','--...':'7','---..':'8','----.':'9',
+            # Punctuation
+            '.-.-.-':'.',  '--..--':',',  '..--..':'?',  '.----.':'\'',
+            '-.-.--':'!',  '-..-.':'/',   '-.--.':'(',   '-.--.-':')',
+            '.-...':'&',   '---...':':',  '-.-.-.':';',  '-...-':'=',
+            '.-.-.':'+',   '-....-':'-',  '..--.-':'_',  '.-..-.':'"',
+            '...-..-':'$', '.--.-.':'@',
+            # Common prosigns (rendered as readable tokens)
+            '.-.-.' :'<AR>', '...-.-':'<SK>', '-...-':'<BT>',
+            '-.--.':'<KN>',  '-.--.' :'<KN>', '...-.':'<AS>',
+            '........':'<HH>',
+        }
+        self.reset()
+
+    def reset(self):
+        self.buffer               = ""
+        self.text                 = ""
+        self.dot_len              = 0.12
+        self.last_state           = False
+        self.state_time           = time.perf_counter()
+        self.key_down             = False
+        self._last_broadcast_text = ""
+        # BUGFIX (noise floor drifts up during sustained keying, June 2026):
+        # see process_iq() for full explanation. _floor_hist holds recent
+        # (timestamp, pwr) samples so the floor can be the true minimum
+        # over a trailing window, instead of an IIR that creeps toward
+        # whatever it's fed — including long key-down stretches.
+        self._floor_hist = collections.deque()
+        # AUTO-THRESHOLD (June 2026): mirrors _floor_hist but tracks the
+        # trailing *maximum* power over a longer window (signal/key-down
+        # peaks come and go much slower than the 1.5s floor window needs,
+        # since dots/dashes at low WPM can hold "on" for hundreds of ms —
+        # a window that's too short would clip the ceiling mid-character).
+        # When auto_threshold is on, process_iq() sets threshold_db each
+        # frame from (floor, ceiling) instead of using the fixed slider
+        # value, so the cutoff tracks actual signal strength instead of
+        # requiring the user to manually re-tune it per-band/per-signal.
+        self._ceil_hist = collections.deque()
+        # BUGFIX (no decode on real signals despite envelope detection,
+        # June 2026): see process_iq() for full explanation. _mix_phase
+        # carries the running mixdown phase (so retuning starts clean
+        # instead of phase-jumping mid-tone), and _lp_zi/_lp_state carry
+        # the narrowband lowpass filter state across calls. Reset on
+        # every decoder (re)start/retune so stale state from a previous
+        # frequency/offset never bleeds into the new one.
+        self._mix_phase = 0.0
+        self._lp_zi      = None
+        self._lp_state   = None
+
+    def _extract_callsign(self):
+        """Return the most recently decoded callsign (DE <CALL> pattern first, then bare ITU)."""
+        tail = self.text[-80:]
+        m = _DE_CALL_RE.search(tail)  # PY-13
+        if m:
+            return m.group(1)
+        m = _CALLSIGN_RE.search(tail[-30:])
+        return m.group(1) if m else None
+
+    def set_tone(self, hz):
+        self.tone_hz = float(hz)
+        self._ref = None  # invalidate cached reference vector
+
+    def set_threshold(self, v):
+        self.threshold_db = float(v)
+
+    def set_auto_threshold(self, on):
+        self.auto_threshold = bool(on)
+        if self.auto_threshold:
+            self._ceil_hist.clear()
+
+    def process(self, iq):
+        """Bytes shim — used by SDRConnect path which delivers full-rate int16 IQ."""
+        sr   = state.get('sample_rate', 2_000_000)
+        data = np.frombuffer(iq, dtype='<i2').astype(np.float32) / 32768.0
+        self.process_iq(data[0::2] + 1j * data[1::2], sr=sr)
+
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
+        """Core decode — accepts complex64 directly (OPT-6: no int16 round-trip).
+
+        BUGFIX (CW never decoding, reported June 2026): every call site
+        feeds this method raw, un-demodulated complex baseband I/Q. NEXUS
+        tunes the hardware LO/VFO exactly to the dial (signal) frequency
+        for every mode, including CW — there is no BFO offset applied
+        anywhere upstream. That means a CW carrier always sits at ~0 Hz
+        (DC) in iq_c, never at self.tone_hz (700 Hz default). The Goertzel
+        reference here used to be built at +self.tone_hz, which correlates
+        against a frequency where there is never any signal — so detected
+        power never crossed the threshold and CW never decoded, no matter
+        how tone/threshold were tuned in the UI.
+
+        Fix: detect on/off keying directly from envelope power at DC
+        (mean |iq_c|^2 over the block) instead of correlating against
+        self.tone_hz. self.tone_hz / set_tone() are kept as UI/cosmetic
+        values only — the real carrier never moves off DC, so there is
+        nothing for that control to tune against any more.
+
+        An earlier version of this fix subtracted a slowly-adapting
+        complex DC baseline before measuring power, to guard against a
+        static LO-leakage spur being mistaken for a held-down key. That
+        approach was wrong: on/off-keyed power is a unipolar (always >=0)
+        square wave, and subtracting its own running mean does not give
+        a clean high/low split — both the "on" and "off" segments end up
+        deviating from the mean, so abs(x - mean) stays elevated even
+        during gaps and the keying envelope is destroyed. Verified via a
+        synthetic on/off-keyed test signal: SNR never dropped during the
+        "off" segments with mean-subtraction, so no symbol was ever
+        registered.
+
+        Correct approach (used below): track noise_floor as a one-sided
+        (ratchet-down-fast / creep-up-slow) estimate of the *minimum*
+        envelope power seen recently. Earlier wording of this fix gated
+        adaptation on "pwr < noise_floor * 2.5" — but noise_floor starts
+        at an arbitrary constant (0.001) that has no relation to the
+        real receiver's actual off-state power, so that gate could end
+        up permanently false (real off-state power sitting above 2.5x
+        an unrealistically-low seed) and the floor would never adapt at
+        all, leaving every block — on or off — reading as "key down".
+        Fixed by always ratcheting the floor down immediately toward any
+        lower reading (so it can escape a bad seed in one block), and
+        only creeping it upward slowly otherwise (so a momentary loud
+        block, i.e. real keying, can't drag the floor up and mask the
+        next off-gap).
+
+        BUGFIX ("no decode" despite active CW signal, June 2026): the
+        "momentary loud block" assumption above breaks down for any
+        *sustained* key-down — a long dash, or a fast run of dits/dahs
+        with short gaps relative to the block rate. Every single block
+        during that stretch has pwr >= noise_floor, so the 0.995/0.005
+        IIR creeps the floor upward on every one of them, second after
+        second, with nothing to pull it back until the next key-up gap
+        happens to be long enough for pwr to dip below the now-elevated
+        floor. In practice the floor chases the carrier itself, SNR
+        collapses toward 0 dB, and decoding stalls completely after the
+        first second or two of real CW — exactly the symptom reported
+        (SNR sitting at ~0 dB with threshold at 8 dB, no decoded text).
+
+        Fix: track the floor as the true minimum power seen over a
+        trailing ~1.5s window (held in _floor_hist), not an IIR that
+        drifts toward whatever it's fed. Off-state (key-up) blocks will
+        always be at or near the bottom of that window as long as the
+        window spans at least one inter-element gap — true for any WPM
+        from a few up to very fast — so the floor tracks the receiver's
+        actual noise level and is immune to being dragged up by long
+        on-state stretches.
+
+        BUGFIX ("no decode" with SNR pinned at ~0 dB on a real signal,
+        June 2026): the two fixes above were both correct but incomplete.
+        Both assumed the carrier sits at DC (LO == VFO) so measuring power
+        over the *entire* iq_c block measures the CW signal. That's true
+        for IQ Lite (which is decimated down around the tuned VFO), but
+        Full IQ / Compact deliver raw, un-mixed hardware-rate IQ spanning
+        the *whole* received span (tens of kHz to MHz) — and the hardware
+        LO is frequently NOT at the VFO frequency: _tuneTo() in the
+        frontend only moves the LO on a full retune (band change); a
+        small in-span jog (e.g. zero-beating a CW signal with the kHz
+        digit) sends vfo_only=true and leaves the LO exactly where it
+        was, per the backend 'tune' handler. So the real carrier sits at
+        (vfo_hz - center_hz) Hz away from DC, not at DC — and summing
+        |iq_c|^2 over the *whole* wideband block barely responds to a
+        ~100 Hz-wide CW carrier keying on/off against everything else
+        present in that span (other signals, broadband noise), which is
+        exactly the symptom reported: SNR pinned near 0 dB and a flat
+        activity bar even with a strong, visibly-keying signal on the
+        waterfall.
+
+        Fix: before measuring envelope power, mix the block down by the
+        known VFO/LO offset (so the CW carrier lands at DC) and apply a
+        cheap single-pole IIR lowpass (~150 Hz corner) to reject
+        everything else in the wideband capture. IQ Lite already arrives
+        centred on the VFO (offset ~0), so this mixdown is a no-op there
+        and the narrowband filter only sharpens an already-correct
+        signal — safe for both paths.
+        """
+        now_t = time.perf_counter()
+        n_samp = len(iq_c)
+        if n_samp:
+            # Mix the known offset down to DC. Full IQ/Compact can have
+            # center_hz != vfo_hz (vfo_only in-span jogs leave the LO put);
+            # IQ Lite is already centred on the VFO so offset_hz ~ 0 and
+            # this is a no-op beyond the lowpass below.
+            #
+            # BUGFIX (Skimmer pool channels never decoding, June 2026):
+            # this used to always use vfo_hz - center_hz, which is only
+            # correct for the single main CW decoder (channel_tag is None),
+            # whose "channel" *is* the dial frequency. Skimmer pool
+            # channels (channel_tag = a specific RF freq_mhz) sit at a
+            # DIFFERENT frequency than the dial — CWSkimmerPool.process_iq
+            # already computes the correct per-channel offset and stores
+            # it in self.tone_hz = (channel_freq_mhz - vfo_mhz) * 1e6
+            # before calling here, but this method ignored it entirely and
+            # mixed every channel down to the *dial* frequency instead of
+            # its own. Every skimmer channel ended up narrowband-filtering
+            # around the same (wrong, for them) spot, so none of them ever
+            # saw an isolated carrier at DC and pwr/snr never responded to
+            # real keying — exactly the symptom (dec.text/buffer always
+            # empty for every channel, confirmed via live diagnostic log).
+            if self.channel_tag is not None:
+                offset_hz = self.tone_hz
+            else:
+                offset_hz = state.get('vfo_hz', 0) - state.get('center_hz', 0)
+            if offset_hz:
+                ph = self._mix_phase if hasattr(self, '_mix_phase') else 0.0
+                step = -2.0 * np.pi * offset_hz / sr
+                ang  = ph + step * np.arange(n_samp, dtype=np.float64)
+                iq_c = iq_c * np.exp(1j * ang).astype(np.complex64)
+                self._mix_phase = float((ang[-1] + step) % (2.0 * np.pi))
+            # Narrowband lowpass (~150 Hz corner) — rejects everything else
+            # in a wideband Full IQ capture so power actually tracks the CW
+            # carrier's on/off keying instead of the whole received span's
+            # broadband energy. Vectorised: a per-sample Python IIR loop
+            # would be far too slow against Full IQ's hardware-rate blocks
+            # (tens of thousands of samples per call). Use scipy's lfilter
+            # with carried-over state when available (exact single-pole
+            # IIR); otherwise fall back to a vectorised block-boxcar
+            # average, which is a coarser but still numpy-vectorised
+            # narrowband estimate.
+            if _HAVE_SCIPY:
+                if not hasattr(self, '_lp_zi') or self._lp_zi is None:
+                    self._lp_zi = np.zeros(1, dtype=np.complex128)
+                alpha = min(1.0, 2.0 * np.pi * 150.0 / sr)
+                filt, self._lp_zi = _scipy_signal.lfilter(
+                    [alpha], [1.0, -(1.0 - alpha)],
+                    iq_c.astype(np.complex128), zi=self._lp_zi)
+                pwr = float(np.mean(np.abs(filt) ** 2)) ** 0.5
+            else:
+                # No scipy: cascade 3 moving-average stages (each via
+                # cumsum, fully vectorised — no per-sample Python loop)
+                # sized to the ~150 Hz corner. A single boxcar has weak
+                # stopband rejection (its frequency response is a sinc,
+                # with significant ripple/leakage between nulls) — three
+                # cascaded stages multiply that response together and
+                # give a much steeper, more lowpass-like rolloff, close
+                # to the scipy IIR branch above. Verified against a
+                # synthetic wideband capture with an out-of-band
+                # interferer: a single boxcar barely rejected it, three
+                # cascaded stages rejected it by >25 dB.
+                win = max(1, int(sr / 150.0))
+                x = iq_c
+                for _ in range(3):
+                    if len(x) < win:
+                        break
+                    c  = np.cumsum(np.insert(x, 0, 0))
+                    x  = (c[win:] - c[:-win]) / win
+                pwr = float(np.mean(np.abs(x) ** 2)) ** 0.5
+        else:
+            pwr = 0.0
+        hist = self._floor_hist
+        hist.append((now_t, pwr))
+        cutoff = now_t - 1.5
+        while hist and hist[0][0] < cutoff:
+            hist.popleft()
+        self.noise_floor = max(min(p for _, p in hist), 1e-6)
+        snr     = 10 * np.log10(pwr / (self.noise_floor + 1e-9))
+        self._diag_pwr = pwr
+        self._diag_snr = snr
+        if self.auto_threshold:
+            # AUTO-THRESHOLD: derive the cutoff from the live spread between
+            # the trailing floor (above) and a trailing *ceiling* (peak "key
+            # down" power), instead of trusting a fixed slider value that
+            # has to be hand-tuned per band/signal. Window is longer than
+            # the floor's 1.5s — at low WPM a single dash can hold "on" for
+            # several hundred ms, and the ceiling estimate needs to span at
+            # least one full dot/dash/gap cycle to actually see a peak
+            # rather than clipping mid-character.
+            chist = self._ceil_hist
+            chist.append((now_t, pwr))
+            ccutoff = now_t - 4.0
+            while chist and chist[0][0] < ccutoff:
+                chist.popleft()
+            ceiling = max(p for _, p in chist)
+            ceil_snr = 10 * np.log10(ceiling / (self.noise_floor + 1e-9))
+            if ceil_snr > 1.0:
+                # Sit in the valley between floor and ceiling, biased
+                # toward the floor side (1/3 of the way up in dB) — on/off
+                # keying spends more time "off" than "on" for typical text,
+                # and a low cutoff is more robust to a weak/fading signal
+                # than a cutoff sitting right at the midpoint.
+                self.threshold_db = max(2.0, ceil_snr / 3.0)
+            # else: no usable peak seen yet (e.g. decoder just (re)started,
+            # or genuinely no signal) — keep whatever threshold_db already
+            # had rather than collapsing to a near-zero/noisy value.
+        is_down = snr > self.threshold_db
+        now     = time.perf_counter()
+        dur     = now - self.state_time
+        if is_down != self.last_state and dur > 0.025:
+            if self.last_state:
+                sym = "." if dur < self.dot_len * 2.5 else "-"
+                self.buffer += sym
+                ref = dur if sym == "." else dur / 3
+                if 0.3 * self.dot_len < ref < 3.0 * self.dot_len:
+                    self.dot_len = self.dot_len * 0.8 + ref * 0.2
+            else:
+                if dur > self.dot_len * 2.5:
+                    # BUGFIX (2026-07-16, w032 — CW decoder evaluation): a
+                    # symbol buffer that doesn't exactly match morse_table
+                    # used to silently vanish via .get(self.buffer, "") —
+                    # any timing error (QSB-distorted dash, keyer weighting,
+                    # a dropped dit) just ate the character with no trace,
+                    # which looks identical to "nothing was sent" and gives
+                    # no signal that the decoder mistimed something. Only an
+                    # empty buffer (a long trailing gap with nothing typed —
+                    # not an error) should stay silent; a genuinely non-empty,
+                    # unmatched buffer now renders '#' instead, so a run of
+                    # timing errors is visible as a run of '#'s rather than
+                    # invisible gaps in the text.
+                    if self.buffer:
+                        self.text += self.morse_table.get(self.buffer, '#')
+                    if len(self.text) > 10000:
+                        self.text = self.text[-5000:]
+                    self.buffer = ""
+                if dur > self.dot_len * 6:
+                    self.text += " "
+            self.last_state = is_down
+            self.key_down   = is_down
+            self.state_time = now
+        wpm = round(1.2 / self.dot_len) if self.dot_len > 0 else 0
+        power_norm = max(0.0, min(1.0, snr / 30.0))
+        if self.channel_tag is None:
+            # Main CW decoder: broadcast every frame so the UI stays responsive.
+            # BUGFIX (June 2026): the "TONE Hz" HUD field on the CW tab (id
+            # cw-tone-hz) read msg.audio_hz from this message, a field that
+            # was never sent — only text/power/key_down/wpm/morse/snr were —
+            # so the readout stayed stuck at "—" even while everything else
+            # (WPM, SNR, decoded text) updated normally. self.tone_hz is the
+            # UI/cosmetic tone value already tracked by set_tone(); include
+            # it here under the name the frontend now reads (tone_hz).
+            #
+            # BUGFIX (June 2026, RTTY-pattern): this used to send
+            # self.text[-100:] (a trailing slice of the WHOLE buffer)
+            # unconditionally on every frame. The frontend's cwHandleFrame()
+            # appends msg.text as a brand-new <span> each call with no
+            # dedup (_cwAppendText), so re-sending the same growing slice
+            # many times/sec produced duplicated/repeating decoded text —
+            # the exact bug found and fixed in the RTTY decoder. Telemetry
+            # (power/wpm/snr/tone_hz/threshold) still needs to go out every
+            # frame for live HUD responsiveness, so only the text field is
+            # now gated on actually having changed.
+            text_changed = self.text != self._last_broadcast_text
+            if text_changed:
+                self._last_broadcast_text = self.text
+            asyncio.run_coroutine_threadsafe(
+                broadcast_json({
+                    "type":     "cw_frame",
+                    "text":     self.text[-100:] if text_changed else "",
+                    "power":    round(float(power_norm), 3),
+                    "key_down": self.key_down,
+                    "wpm":      wpm,
+                    "morse":    self.buffer,
+                    "snr":      round(float(snr), 1),
+                    "tone_hz":  self.tone_hz,
+                    # AUTO-THRESHOLD: report the live (possibly auto-derived)
+                    # cutoff each frame so the UI slider can mirror it when
+                    # auto mode is on, instead of going stale at whatever
+                    # value the user last dragged it to.
+                    "threshold_db":   round(float(self.threshold_db), 1),
+                    "auto_threshold": self.auto_threshold,
+                }), loop)
+        else:
+            # Skimmer pool channel: only broadcast when decoded text actually changes
+            if self.text != self._last_broadcast_text:
+                self._last_broadcast_text = self.text
+                _sk_callsign = self._extract_callsign()
+                if _sk_callsign:
+                    # PSK Reporter spot upload (2026-07-15) — no-ops if
+                    # uploading isn't enabled.
+                    psk_uploader.spot(_sk_callsign, self.channel_tag * 1e6, 'CW', snr=snr)
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_json({
+                        "type":      "skimmer_decode",
+                        "freq_mhz":  self.channel_tag,
+                        "text":      self.text[-80:],
+                        "wpm":       wpm,
+                        "snr":       round(float(snr), 1),
+                        "callsign":  _sk_callsign,
+                    }), loop)
+
+
+class AutoCWDetector:
+    """Lightweight automatic CW detector to enable/disable CW decoding without user input."""
+    def __init__(self, tone_hz=700.0, threshold_db=8.0, sr=48000):
+        self.tone_hz = tone_hz
+        self.threshold_db = float(threshold_db)
+        self.sr = sr
+        self.active = False
+        self.auto_enabled = True
+        self.noise_floor = 0.001
+        self.last_seen = 0.0
+
+    def process(self, iq):
+        """Bytes shim — used by SDRConnect path."""
+        sr   = state.get('sample_rate', 2_000_000)
+        data = np.frombuffer(iq, dtype='<i2').astype(np.float32) / 32768.0
+        self.process_iq(data[0::2] + 1j * data[1::2], sr=sr)
+
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
+        """Core detect — accepts complex64 directly (OPT-6)."""
+        # OPT-3: Goertzel via cached reference vector
+        ref = getattr(self, '_ref', None)
+        if ref is None or len(ref) != len(iq_c) or getattr(self, '_ref_sr', None) != sr:
+            n = np.arange(len(iq_c), dtype=np.float32)
+            self._ref    = np.exp(-1j * 2.0 * np.pi * self.tone_hz / sr * n)
+            self._ref_sr = sr
+            ref = self._ref
+        pwr = float(np.abs(np.dot(iq_c, ref))) / max(len(iq_c), 1)
+        if pwr > self.noise_floor * 2:
+            self.noise_floor = self.noise_floor * 0.98 + pwr * 0.02
+        snr = 10 * np.log10(pwr / (self.noise_floor + 1e-9))
+        now = time.perf_counter()
+        if not self.auto_enabled:
+            return
+        if snr > self.threshold_db:
+            self.last_seen = now
+            if not self.active:
+                self.active = True
+                log.info("AutoCWDetector: CW activity detected, enabling CW decoding")
+        else:
+            if self.active and (now - self.last_seen) > 0.6:
+                self.active = False
+                log.info("AutoCWDetector: CW inactivity detected, disabling CW decoding")
+        try:
+            if self.active:
+                if not cw_dec.active:
+                    cw_dec.active = True
+                    log.info("AutoCWDetector: auto-enable CW decoding (cw_dec active)")
+            else:
+                if cw_dec.active and (now - self.last_seen) > 1.0:
+                    cw_dec.active = False
+                    log.info("AutoCWDetector: auto-disable CW decoding (cw_dec paused)")
+        except Exception:
+            pass
+
+# Global auto-detect instance
+auto_cw_detector = AutoCWDetector()
+
+
+# ── CW SKIMMER POOL ──────────────────────────────────────────────────
+class CWSkimmerPool:
+    """Runs up to MAX_CH parallel MorseDecoder instances across the passband.
+    Each channel is keyed by its RF frequency (MHz) and has its tone_hz set
+    to the audio offset from the current VFO so the coherent correlator finds
+    the right signal in the decimated IQ stream."""
+
+    MAX_CH = 20
+
+    def __init__(self):
+        self.channels = {}   # freq_mhz (rounded 4dp) -> MorseDecoder
+        self.active      = False
+        self._start_time = None   # time.monotonic() when process started
+        self._diag_call_count = 0
+
+    def set_channels(self, freq_list_mhz, vfo_mhz):
+        """Update the pool to match the supplied list of RF frequencies."""
+        active_set = set(round(f, 4) for f in freq_list_mhz[:self.MAX_CH])
+        # Remove channels no longer in the list
+        for f in list(self.channels):
+            if f not in active_set:
+                del self.channels[f]
+        # Add new channels
+        for f in active_set:
+            if f not in self.channels:
+                dec = MorseDecoder(channel_tag=f)
+                dec.active = True
+                self.channels[f] = dec
+        # Update tone_hz for all channels to reflect current VFO
+        for f, dec in self.channels.items():
+            dec.tone_hz = (f - vfo_mhz) * 1e6
+        self.active = bool(self.channels)
+
+    def process(self, dec_bytes, vfo_mhz):
+        """Bytes shim — used by SDRConnect path."""
+        if not self.active:
+            return
+        sr   = state.get('sample_rate', 2_000_000)
+        data = np.frombuffer(dec_bytes, dtype='<i2').astype(np.float32) / 32768.0
+        self.process_iq(data[0::2] + 1j * data[1::2], vfo_mhz, sr=sr)
+
+    def process_iq(self, iq_c: np.ndarray, vfo_mhz: float, sr: float = 48000):
+        """Core — accepts complex64 directly (OPT-6)."""
+        self._diag_call_count += 1
+        if not self.active:
+            return
+        for f, dec in self.channels.items():
+            dec.tone_hz = (f - vfo_mhz) * 1e6
+            dec.process_iq(iq_c, sr=sr)
+        # ROOT CAUSE FIX (June 2026, "candidates never decode" — part 2):
+        # _skDetectLoop() in the frontend picks candidate frequencies purely
+        # from the display spectrum (DS.liveBins), a per-frame log-compressed
+        # array that's rescaled every frame so its OWN peak bin always hits
+        # 255. Its "floor + 30" threshold is therefore an arbitrary distance
+        # in a self-normalizing display unit, not a real SNR — confirmed
+        # live: candidates promoted by that threshold sat at 0-1.5dB actual
+        # SNR (measured here, in the IQ domain, against a tracked noise
+        # floor) versus an 8dB decode threshold, explaining why dec.text/
+        # buffer stayed empty for every channel even after the tone_hz
+        # mixdown fix (which was a real, separate, necessary fix — see
+        # MorseDecoder.process_iq). Broadcasting real per-channel SNR here,
+        # unconditionally (not gated on text-change like skimmer_decode
+        # below), lets the frontend evict candidates that never show real
+        # signal instead of leaving them in the list forever looking "dead."
+        if self._diag_call_count % 10 == 1:
+            snr_map = {}
+            for f, dec in self.channels.items():
+                snr = getattr(dec, '_diag_snr', None)
+                if snr is not None:
+                    snr_map[f"{f:.4f}"] = round(float(snr), 1)
+            if snr_map:
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_json({"type": "skimmer_snr", "snr": snr_map}),
+                    loop)
+
+    def clear(self):
+        self.channels.clear()
+        self.active = False
+
+
+cw_skimmer_pool = CWSkimmerPool()
+
+# ── CW SKIMMER CANDIDATE SCANNER (2026-07-16, w032) ─────────────────────
+# REPLACES the old approach where the FRONTEND picked candidate frequencies
+# from DS.liveBins — the same per-frame, self-normalizing, log-compressed
+# array used to draw the visible spectrum/waterfall, not a stable
+# measurement. Its "floor + 30" threshold was an arbitrary distance in a
+# unit that rescales to fit the frame's own peak every time, with no fixed
+# relationship to real SNR — confirmed (see CWSkimmerPool.process_iq's own
+# diagnostic broadcast, added June 2026) that candidates it promoted often
+# sat at 0-1.5dB real SNR against the 8dB the decoder actually needs, so
+# genuinely weak-but-decodable signals could be rejected by this display-
+# only heuristic before ever reaching a real decoder that might have
+# handled them fine.
+#
+# This scanner runs server-side instead, directly on the real (fftshifted,
+# linear-magnitude, PRE-log/PRE-rescale) FFT array the nRSP-ST/IQ-Lite path
+# already computes for its own spectrum display (_nrsp_fft_avg) — zero new
+# DSP cost, just reading the same array before the display-only log1p/
+# rescale steps mutate it. Threshold and floor are computed in real dB
+# using the same trailing-window-minimum technique already proven in
+# MorseDecoder (see process_iq()'s noise_floor tracking) rather than a
+# single frame's percentile, so one loud moment can't drag the cutoff
+# around. Scoped to IQ-Lite/nRSP-ST for now — Full IQ mode currently
+# relays SDRConnect's own native spectrum for display (see the w0.2.3
+# decision in CHANGELOG.md) rather than computing its own wideband FFT, so
+# there's no equivalent real array to scan yet there; the frontend keeps
+# its old DS.liveBins-based detection as a fallback specifically for Full
+# IQ until that's built out.
+_skcand_floor_hist     = collections.deque()   # (timestamp, floor_db)
+_SKCAND_SCAN_DT        = 0.5   # seconds between scans — matches the old frontend dwell default
+_SKCAND_MIN_SNR_DB     = 8.0   # matches MorseDecoder's own default decode threshold, so a
+                                # promoted candidate is already in the range the decoder needs
+_SKCAND_FLOOR_WINDOW_S = 3.0
+
+def _cw_scan_candidates_from_mag(mag_shifted: np.ndarray, hz_per_bin: float,
+                                  center_hz: float, now_t: float):
+    """Real-SNR CW candidate scan over a genuine linear-magnitude spectrum.
+
+    `mag_shifted` must already be fftshifted (bin N//2 == center_hz) and
+    must NOT have had log1p/rescale applied yet — this needs real linear
+    magnitude to compute real dB, not a display-normalised copy.
+
+    Returns a list of dicts: {freq_hz, snr_db, width_hz}, sorted strongest
+    first, capped at 20 (matches CWSkimmerPool.MAX_CH).
+    """
+    global _skcand_floor_hist
+    n = len(mag_shifted)
+    if n < 8:
+        return []
+    db = 20.0 * np.log10(mag_shifted.astype(np.float64) + 1e-9)
+    frame_floor_db = float(np.percentile(db, 20))
+    # Trailing-window floor (same shape as MorseDecoder._floor_hist): ratchets
+    # with the true minimum over the last few seconds, so a single unusually
+    # quiet or loud frame can't swing the threshold — the floor tracks the
+    # band's real noise level, not one frame's snapshot.
+    hist = _skcand_floor_hist
+    hist.append((now_t, frame_floor_db))
+    cutoff = now_t - _SKCAND_FLOOR_WINDOW_S
+    while hist and hist[0][0] < cutoff:
+        hist.popleft()
+    floor_db = min(f for _, f in hist)
+    threshold_db = floor_db + _SKCAND_MIN_SNR_DB
+    max_width_hz = max(2000.0, hz_per_bin * 2.5)
+    found = []
+    i = 2
+    while i < n - 2:
+        v = db[i]
+        if v > threshold_db and v >= db[i - 1] and v >= db[i + 1]:
+            left = right = i
+            while left > 0 and db[left] > threshold_db:
+                left -= 1
+            while right < n - 1 and db[right] > threshold_db:
+                right += 1
+            width_bins = right - left
+            width_hz = width_bins * hz_per_bin
+            if width_hz < max_width_hz:
+                freq_hz = center_hz + (i - n // 2) * hz_per_bin
+                found.append({
+                    "freq_hz":  freq_hz,
+                    "snr_db":   round(float(v - floor_db), 1),
+                    "width_hz": round(float(width_hz), 1),
+                })
+                i += max(3, int(width_bins))
+                continue
+        i += 1
+    found.sort(key=lambda c: -c["snr_db"])
+    return found[:20]
+
+
+# ── DSP ENGINE: RTTY ─────────────────────────────────────────────────
+class RttyDecoder:
+    def __init__(self):
+        self.active = False
+        self.state  = "LTRS"
+        self.text   = ""
+        self.baud   = 45.45
+        self.mark   = 2125
+        self.shift  = 170
+        # SQUELCH (July 2026): see reset()'s comment on self._snr_db for why
+        # this can't reuse MorseDecoder's trailing-minimum-power technique.
+        # 6dB is a conservative default — low enough not to squelch a real
+        # weak/marginal signal, high enough to reject the flat noise floor
+        # that was previously being decoded into plausible-looking garbage
+        # text with 100% confidence and no indication anything was wrong.
+        self.squelch_db = 6.0
+        self.ita2   = {
+            24:"A",19:"B",14:"C",18:"D",16:"E",22:"F",11:"G",5:"H",
+            12:"I",26:"J",30:"K",9:"L",7:"M",6:"N",3:"O",13:"P",
+            29:"Q",10:"R",20:"S",1:"T",28:"U",15:"V",25:"W",23:"X",
+            21:"Y",17:"Z",4:" ",8:"\r",2:"\n",
+        }
+        self.bit_samples = 48000 / 45.45
+        self.reset()
+        # FIGS scaffolding: ready to enable Figures mode
+        self.figs_enabled = False
+        # Default FIGS 32-entry map from ITA-2 (with FIGS/LTRS tokens)
+        self.FIGS_MAP = [
+            "", "3", "", "-", "", "'", "8", "7", "", "ENC",
+            "4", "BEL", ",", "!", ":", "(", "5", "+", ")",
+            "2", "$", "6", "0", "1", "9", "?", "&", "FIGS",
+            ".", "/", ";", "LTRS"
+        ]
+        self._figs_loaded = False
+
+    def _load_figs_map(self):
+        if self._figs_loaded:
+            return
+        self._figs_loaded = True
+        import json
+        for fname in ("ita2_figs_map.json", "figs_map.json"):
+            path = SCRIPT_DIR / fname
+            if path.exists():
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    if isinstance(data, list) and len(data) >= 32:
+                        self.FIGS_MAP = data[:32]
+                    elif isinstance(data, dict):
+                        self.FIGS_MAP = [ data.get(str(i)) for i in range(32) ]
+                    else:
+                        self.FIGS_MAP = [None] * 32
+                    log.info(f"Loaded FIGS map from {fname}")
+                    return
+                except Exception:
+                    pass
+        self.FIGS_MAP = [None] * 32
+
+    def enable_figs(self, enable=True):
+        self.figs_enabled = bool(enable)
+        if self.figs_enabled:
+            self._load_figs_map()
+        log.info(f"RTTY FIGS mode {'enabled' if self.figs_enabled else 'disabled'}")
+
+    def reset(self):
+        self.text    = ""
+        self.bit_idx = -1
+        self.timer   = 0
+        self.bits    = []
+        self._start_pending = False  # debounced start-bit acquisition (BUGFIX #3)
+        self._start_timer   = 0
+        # BUGFIX (June 2026, #11): standard Baudot/ITA2 RTTY framing is
+        # 1 start + 5 data + 1.5 STOP bits, not 1.0 — confirmed against the
+        # real DDK9 capture two ways: (1) raw bit-stream run-lengths measured
+        # directly off the IQ quantize cleanly to half-integer multiples of
+        # the bit period (1.50, 2.06, 3.49, 3.99, 6.49...), the classic
+        # fingerprint of a 1.5-unit stop element; (2) a brute-force grid
+        # search over stop-bit duration only matched ground truth (204/204
+        # chars, 0 failures) at stop=1.5 — stop=1.0 produced ~45-100% stop
+        # fail no matter how the start-bit phase was offset. This counts
+        # down an extra half bit period after a frame is accepted, during
+        # which start-bit search is suppressed so we don't try to resync
+        # mid-way through the still-held mark stop element.
+        self._post_stop_skip = 0
+        # BUGFIX (RTTY chunk-boundary corruption, June 2026, #8): see
+        # process_iq() docstring — leftover sub-block samples that didn't
+        # fill a full `step`-sized window at the end of one call must be
+        # carried into the next call, not discarded, or sub-block phase
+        # resets to zero at every caller-chosen chunk boundary.
+        self._subblock_carry = np.empty(0, dtype=np.complex64)
+        # DIAGNOSTIC (RTTY live-decode instrumentation, June 2026, #9):
+        # lightweight counters to tell sync-loss apart from a thin
+        # mark/space power margin without flooding the console — only
+        # flushed to the log every _diag_interval_s seconds, not per-bit
+        # or per-character. See _diag_maybe_log() below.
+        self._diag_start_armed     = 0   # times start-bit candidate seen
+        self._diag_start_confirmed = 0   # times that candidate survived debounce
+        self._diag_stop_ok         = 0   # frames that passed stop-bit check
+        self._diag_stop_fail       = 0   # frames discarded for bad stop bit
+        self._diag_margin_sum      = 0.0 # running sum of |m_p-s_p|/(m_p+s_p)
+        self._diag_margin_n        = 0
+        self._diag_last_log        = 0.0
+        self._diag_interval_s      = 5.0
+        # UI-FACING DIAG (July 2026): the _diag_* counters above are
+        # throttled/reset on their OWN 5s cycle purely for the server log
+        # (_diag_maybe_log) — reading them from the unrelated rtty_signal
+        # broadcast (throttled independently, every 0.5s in process_iq)
+        # would race with that reset and show truncated/misleading
+        # snapshots. These are a separate, NEVER-reset cumulative set so
+        # the frontend can show live sync-health stats (armed/confirmed/
+        # stop ok/fail/margin) without touching the log's own bookkeeping —
+        # added to diagnose why decode is still unreadable even while
+        # squelch correctly reports LOCKED on a real, confirmed DDK9 signal.
+        self._ui_start_armed  = 0
+        self._ui_stop_ok      = 0
+        self._ui_stop_fail    = 0
+        self._ui_margin_sum   = 0.0
+        self._ui_margin_n     = 0
+        # PLL (June 2026, #10): early/late-gate bit-timing correction.
+        # Diagnostic #9 proved the failure mode is NOT thin mark/space
+        # margin (it stays healthy, 0.4-0.8) but persistently high
+        # stop-bit failure (45-100%) — i.e. tone detection is fine, the
+        # bit-timing clock is drifting out of phase with the real signal
+        # mid-character. Research into fldigi/SDRuno/MultiPSK confirms
+        # this is exactly why dedicated RTTY tools run a continuous
+        # digital PLL on the tone transitions instead of free-running a
+        # fixed timer that's only ever re-anchored at start-bit search.
+        # self._pll_last_bit tracks the previous sub-block's mark/space
+        # decision so a transition (edge) can be detected at sub-block
+        # (1/8-bit) resolution; on each edge, self.timer (counting down
+        # to the next expected bit boundary) tells us how far off the
+        # edge fell from where it should have been if we were perfectly
+        # locked — nudge the timer a fraction of that error every time,
+        # so small clock-rate/phase mismatches get continuously walked
+        # back instead of accumulating until a stop-bit check fails.
+        self._pll_last_bit = None
+        # SQUELCH (July 2026): the decoder previously had NO check anywhere
+        # that a real two-tone FSK signal was actually present — the bit
+        # decision (`bit = 1 if s_p > m_p else 0` in _process_bit_block)
+        # only ever compared mark power to space power against EACH OTHER,
+        # never against the local noise floor. Live-tested against a
+        # frequency confirmed (via the waterfall, zoomed) to have zero
+        # visible carrier: the decoder still produced continuous
+        # plausible-looking uppercase text ("ZBAKDEIVKJDGUTWK" etc.)
+        # because two independent noise-power readings are still "greater
+        # than" each other roughly half the time, which is enough for the
+        # Baudot start/stop framing check to pass by chance often enough to
+        # keep grinding out characters. Reported symptom: "I don't think
+        # it's decoding properly" while tuned to a real DWD frequency with
+        # no confirmable lock.
+        #   MorseDecoder's fix (trailing-minimum power over ~1.5s = noise
+        # floor) does NOT transfer here: CW has genuine on/off keying, so
+        # its floor naturally tracks the quiet gaps between dits/dahs. RTTY
+        # has NO gaps — mark or space is continuously transmitted for the
+        # whole duration of a real signal, so total (mark+space) power
+        # stays roughly constant whether it's real signal or just band
+        # noise; a temporal floor can't tell them apart.
+        #   Fix: measure a THIRD Goertzel reading at a frequency safely
+        # outside the mark/space pair (mark + 2.5*shift — a patch of
+        # passband that should be empty) as a live spectral noise
+        # reference, and require mark+space power to clear it by
+        # self.squelch_db before arming new start-bit acquisition (see the
+        # `and self._locked` added to the bit_idx==-1 branch below). An
+        # already-in-flight frame is allowed to finish normally even if SNR
+        # dips mid-frame — the existing stop-bit check still discards it if
+        # it's actually bad; this only prevents *starting* new frames on
+        # pure noise.
+        self._snr_db = 0.0
+        self._locked = False
+        self._last_signal_broadcast = 0.0
+
+    # ── Auto-detect ────────────────────────────────────────────────────
+    @staticmethod
+    def analyse(pcm_bytes, sample_rate=48000):
+        """Analyse ~500 ms of int16 LE mono PCM and return best-guess
+        (mark_hz, space_hz, baud, confidence) or None if no clear FSK
+        signal found. `confidence` is 0.0-1.0, genuinely measured (see
+        2026-07-20 fix below) — not a placeholder for the caller to
+        overwrite with its own guess.
+
+        Algorithm:
+          1. FFT the audio in the 300–3000 Hz range.
+          2. Find the two highest spectral peaks separated by at least 50 Hz.
+             Higher peak = mark, lower = space.  Difference = shift.
+          3. Goertzel-score mark vs space power over short sliding windows
+             to reconstruct the bitstream, then measure average symbol
+             duration from its transitions.
+          4. Snap to nearest standard baud rate.
+          5. Gate on absolute SNR against a spectral noise reference (same
+             technique as the live decoder's own squelch) and compute a
+             real confidence score — added 2026-07-20 after steps 1-4 alone
+             were found to confidently "detect" a filter-edge artifact with
+             no real signal present, producing scrambled decoded text.
+        """
+        # BUGFIX (RTTY autodetect crash, June 2026): sample_rate can arrive
+        # as a float here (Full IQ's decimating branch computes
+        # _fiq_afft_sr = _fiq_sr / _fiq_afft_dec via true division), and
+        # downstream integer-window-width math (e.g. np.pad's pad_width)
+        # requires an int or it raises TypeError. Normalise once, up front.
+        sample_rate = int(round(sample_rate))
+
+        data = np.frombuffer(pcm_bytes, dtype='<i2').astype(np.float32) / 32768.0
+        if len(data) < sample_rate // 4:
+            return None   # not enough data
+
+        # ── Step 1: FFT peak search ────────────────────────────────────
+        n    = len(data)
+        win  = data * np.hanning(n)
+        spec = np.abs(np.fft.rfft(win, n=max(n, 4096)))
+        freq = np.fft.rfftfreq(max(n, 4096), 1.0 / sample_rate)
+
+        # Restrict to 300–3000 Hz voice band
+        lo, hi = np.searchsorted(freq, 300), np.searchsorted(freq, 3000)
+        band_spec = spec[lo:hi]
+        band_freq = freq[lo:hi]
+
+        if len(band_spec) < 4:
+            return None
+
+        # Find first peak
+        p1_idx = int(np.argmax(band_spec))
+        p1_freq = float(band_freq[p1_idx])
+        p1_amp  = band_spec[p1_idx]
+
+        # Null out ±80 Hz around first peak and find second
+        null_lo = max(0, p1_idx - int(80 / (freq[1] - freq[0]) if freq[1] > freq[0] else 0))
+        null_hi = min(len(band_spec), p1_idx + int(80 / (freq[1] - freq[0]) if freq[1] > freq[0] else 0) + 1)
+        band_spec2 = band_spec.copy()
+        band_spec2[null_lo:null_hi] = 0
+        p2_idx = int(np.argmax(band_spec2))
+        p2_freq = float(band_freq[p2_idx])
+        p2_amp  = band_spec2[p2_idx]
+
+        # Reject if second peak is less than 20% of first (probably noise)
+        if p2_amp < p1_amp * 0.20:
+            return None
+
+        # BUGFIX (RTTY autodetect mark/space swap, June 2026): this used to
+        # assume mark = LOWER tone, space = HIGHER tone (min/max swapped in
+        # below). That's backwards from the convention used everywhere else
+        # in NEXUS — frontend _rttySpaceHz = mark - shift, RTTY_PRESETS
+        # table, and RttyDecoder._process_bit_block()'s own Goertzel compare
+        # (mark vs mark-shift) — which all define mark as the HIGHER tone
+        # and space as the LOWER tone (e.g. DDK9: mark=1615, space=1165).
+        # With the old min/max assignment, autodetect correctly found the
+        # two real spectral peaks (so "No signal" cleared and the tone
+        # scope/handles still looked plausible, since the scope just draws
+        # whatever Hz values it's given on top of real energy) but swapped
+        # which one it called mark vs space whenever the signal's actual
+        # mark tone happened to be the higher peak — which then fed
+        # rtty_dec.mark/shift backwards, inverting every bit decision in
+        # the Goertzel compare and producing exactly the reported symptom:
+        # mark/space lines visibly sitting on real energy, decode garbled.
+        mark_hz  = int(round(max(p1_freq, p2_freq)))
+        space_hz = int(round(min(p1_freq, p2_freq)))
+        shift    = mark_hz - space_hz
+
+        if shift < 50 or shift > 1000:
+            return None   # implausible shift
+
+        # ── Step 2: symbol-rate estimation ────────────────────────────
+        # BUGFIX (RTTY autodetect baud, June 2026): this used to mix the
+        # audio down to baseband at mid=(mark+space)/2 and apply a fixed
+        # 200Hz box-car lowpass, then count zero-crossings of the result
+        # as bit transitions. Mixing at mid-frequency leaves BOTH tones
+        # beating at ±shift/2 from DC (e.g. DDK9, shift=450 -> ±225Hz) —
+        # for any shift wider than ~400Hz that residual beat oscillates
+        # faster than the fixed 200Hz lowpass can suppress, so the "sign
+        # of real part" signal was actually still switching at the *tone*
+        # rate, not the *symbol* rate, producing 5-10x too many
+        # transitions and a measured baud wildly higher than the true
+        # bit rate (confirmed via direct test: true 50 baud measured as
+        # ~330 baud, also two also independently confirmed
+        # this was sample_rate-as-float-unsafe via np.pad). This also
+        # explains a previously-reported symptom: real-sounding mark/
+        # space (matching the visible spectral peaks exactly, since step
+        # 1's FFT peak-pick was always correct) but garbled decode after
+        # autodetect — a wrong baud is just as fatal to the bit-sync
+        # state machine as a wrong mark/space, even with perfect tone
+        # frequencies.
+        #
+        # Fix: reuse the same robust Goertzel mark-vs-space power compare
+        # the live decoder itself uses (_goertzel_power, _process_bit_block)
+        # instead of a fixed-cutoff FM discriminator. A Goertzel bin's
+        # frequency resolution is ~sr/N, so the window must be wide enough
+        # to actually separate mark from space (e.g. a 170Hz-shift signal
+        # needs N >~ sr/170 samples just to tell the tones apart) — a fixed
+        # 3ms window was too short at narrow shifts and high sample rates,
+        # the opposite problem from _process_bit_block (which sizes its
+        # window from the already-known baud; here baud is the unknown we
+        # are trying to measure, so size from shift instead). Pick the
+        # window from shift, floored for resolution and capped so the
+        # fastest supported baud (100 Bd, 10ms/bit) still gets several
+        # windows per bit.
+        win_samples = int(np.clip(sample_rate / max(shift, 50) * 2, 8, sample_rate * 0.004))
+        n_wins = max(1, (n - win_samples) // win_samples)
+        bit_signs = np.empty(n_wins, dtype=np.float32)
+        for wi in range(n_wins):
+            seg = data[wi * win_samples: wi * win_samples + win_samples]
+            m_p = _goertzel_power(seg.astype(np.complex64), mark_hz, sample_rate)
+            s_p = _goertzel_power(seg.astype(np.complex64), space_hz, sample_rate)
+            bit_signs[wi] = 1.0 if m_p > s_p else -1.0
+
+        # BUGFIX (RTTY autodetect baud #2, June 2026): taking np.diff() of
+        # the transition indices and then the median of those gaps double-
+        # counts — a run of N identical bits produces ONE long gap spanning
+        # N symbol periods, while genuine alternating bits produce gaps of
+        # exactly one symbol period. With real (pseudo-random-ish) traffic
+        # both populations are common, so the median of raw gaps lands
+        # somewhere between 1x and Nx a symbol period — confirmed via
+        # direct test: true 50 baud (5 windows/bit at this window size)
+        # measured as 25 baud (10-window median) because multi-bit-run
+        # gaps outnumbered single-bit gaps in the sample. Windows can also
+        # mis-flag right at a bit boundary (the Goertzel window straddles
+        # the edge), producing spurious 1-window-long runs that pollute
+        # the low end.
+        # Fix: run-length-encode bit_signs. The fundamental symbol period
+        # is the SHORTEST recurring run length — every multi-bit run is an
+        # integer multiple of it, so the population of run lengths is
+        # "1x, 1x, 2x, 1x, 3x, 1x, ..." and a plain mode over that mixture
+        # can land on whichever multiple happens to be most common rather
+        # than on 1x itself. Worse, win_samples rarely divides the true
+        # bit period evenly, so genuine single-bit runs themselves get
+        # split between two adjacent integer lengths (e.g. windows/bit =
+        # 5.5 rounds to 5 sometimes and 6 other times depending on phase),
+        # which can starve the true mode below some unrelated multi-bit
+        # value's count (confirmed via direct test at 45.45 baud/170Hz
+        # shift: true windows/bit=5.5, but the *mode* landed on 11 — a
+        # 2-bit run — because 5 and 6 split the single-bit vote two ways).
+        # BUGFIX (RTTY autodetect baud #3, June 2026): a percentile over
+        # run lengths still has to commit to one estimated windows/bit
+        # value BEFORE snapping to a standard baud — and win_samples
+        # essentially never divides the true bit period evenly, so the
+        # true windows/bit is fractional (e.g. 5.5 at 45.45 baud here)
+        # and can sit almost exactly between two standard rates' implied
+        # window counts (5.5 windows/bit is right between 50 baud's 5.0
+        # and a rounding-biased guess of 5), so ANY single fixed point
+        # estimate-then-snap risks picking the wrong neighbour (confirmed
+        # via direct test: estimate landed on 5, snapping to 50 baud
+        # instead of the true 45.45).
+        # Fix: skip the intermediate point-estimate entirely. We already
+        # know the small set of standard baud rates a real signal must be
+        # using, so for EACH candidate, compute its implied windows/bit,
+        # round every observed run length to the nearest integer multiple
+        # of that candidate, and score the candidate by total residual
+        # error. The true baud's implied windows/bit is the one every run
+        # length (1x, 2x, 3x, ... bit periods) lines up against most
+        # exactly; wrong candidates accumulate larger rounding residuals
+        # across the population. This uses the same run-length data but
+        # lets the standard-rate prior do the disambiguation instead of
+        # an intermediate rounding step that can throw the information away.
+        run_lengths = []
+        cur_val = bit_signs[0]
+        cur_len = 1
+        for v in bit_signs[1:]:
+            if v == cur_val:
+                cur_len += 1
+            else:
+                run_lengths.append(cur_len)
+                cur_val = v
+                cur_len = 1
+        run_lengths.append(cur_len)
+        run_lengths = np.array(run_lengths, dtype=np.float64)
+        # Drop singleton-window runs - too short to trust as a real symbol,
+        # almost always a boundary mis-classification.
+        run_lengths = run_lengths[run_lengths >= 2]
+        if len(run_lengths) < 5:
+            return None
+
+        standard = [45.45, 50.0, 75.0, 100.0]
+        best_baud, best_score = None, None
+        for b in standard:
+            windows_per_bit = (sample_rate / b) / win_samples
+            if windows_per_bit < 1.5:
+                continue   # window too coarse to resolve this baud at all
+            multiples = np.round(run_lengths / windows_per_bit)
+            multiples[multiples == 0] = 1
+            residual = np.abs(run_lengths - multiples * windows_per_bit)
+            # Normalise by windows_per_bit so candidates with different
+            # window counts are compared on the same (fractional-bit) scale.
+            score = float(np.mean(residual / windows_per_bit))
+            if best_score is None or score < best_score:
+                best_baud, best_score = b, score
+
+        if best_baud is None:
+            return None
+
+        # Sanity: reject if the best candidate's fit is still poor —
+        # i.e. run lengths don't cleanly line up with any standard rate
+        # (consistent with noise rather than real FSK timing).
+        if best_score > 0.35:
+            return None
+
+        # BUGFIX (RTTY autodetect false-lock on noise, 2026-07-20 — user
+        # report: "rtty internal is running, decoded text is scrambled").
+        # Everything above only ever checks RELATIVE fit — is the 2nd peak
+        # at least 20% of the 1st, do the bit-run lengths line up with some
+        # standard baud — neither ever checks whether mark_hz/space_hz
+        # actually carry real signal power above the noise floor. Live
+        # repro: with no genuine FSK signal in range, this reliably locked
+        # onto a low-frequency pair right at the 300 Hz edge of the search
+        # band (455/302 Hz here) — almost certainly a filter-edge artifact,
+        # not a real tone pair — while process_iq()'s own squelch (which
+        # DOES check absolute SNR against a spectral noise reference, see
+        # its `_snr_db`/`squelch_db` a few hundred lines below) correctly
+        # reported NO SIGNAL on the same audio. Two disagreeing "is there a
+        # signal" answers from the same decoder class is the actual bug —
+        # analyse() was answering a different, easier question ("do these
+        # two peaks and this bit timing look mutually consistent?") than
+        # "is this a real signal?" and calling that a detection anyway.
+        #
+        # Fix: apply the exact same spectral-noise-reference technique
+        # process_iq() already uses (a third Goertzel bin at
+        # mark_hz + 2.5*shift — a patch of passband that should be empty on
+        # a real, correctly filtered RTTY signal) as a hard gate here too,
+        # not just in the live decoder. A "detection" that can't clear the
+        # noise floor is not a detection.
+        sig_c   = data.astype(np.complex64)
+        m_p_all = _goertzel_power(sig_c, mark_hz, sample_rate)
+        s_p_all = _goertzel_power(sig_c, space_hz, sample_rate)
+        ref_p   = _goertzel_power(sig_c, mark_hz + 2.5 * shift, sample_rate)
+        snr_db  = 10 * np.log10((m_p_all + s_p_all + 1e-9) / (2.0 * ref_p + 1e-9))
+        SQUELCH_DB = 6.0  # matches RttyDecoder.squelch_db's live-decode default
+        if snr_db <= SQUELCH_DB:
+            return None
+
+        # Genuine confidence, not a placeholder: blends how cleanly the bit
+        # timing fit the winning baud candidate (best_score, 0=perfect fit,
+        # capped at the 0.35 rejection threshold above) with how far above
+        # the noise floor the signal actually sits (snr_db, saturating at a
+        # further +12dB past the squelch gate — comfortably strong, not an
+        # arbitrary/unreachable ceiling). Either dimension being poor pulls
+        # the overall confidence down, rather than one strong dimension
+        # masking a weak other one.
+        timing_conf = float(np.clip(1.0 - (best_score / 0.35), 0.0, 1.0))
+        snr_conf    = float(np.clip((snr_db - SQUELCH_DB) / 12.0, 0.0, 1.0))
+        confidence  = timing_conf * snr_conf
+
+        return (mark_hz, space_hz, best_baud, confidence)
+
+    def process(self, iq):
+        """Bytes shim — used by SDRConnect path which delivers full-rate
+        int16 IQ in Full IQ mode (IQ Lite instead calls process_iq directly
+        with its already-decimated 48kHz IQ and explicit sr=). Mirrors the
+        same June 2026 fix applied to MorseDecoder.process() for CW —
+        state['sample_rate'] is kept in sync with hw_sample_rate / 48000
+        for IQ Lite elsewhere, so reading it here matches every other
+        decoder's bytes-shim convention.
+
+        BUGFIX (Full IQ VFO offset, June 2026): this shim's raw IQ is
+        hardware-LO-centred, same as _fiq_c (see process_iq() docstring on
+        the vfo_offset_hz param) — only add the VFO offset when called
+        from the Full IQ fallback path (state['hw_sample_rate'] set);
+        Compact mode (t==4) also routes through this shim with audio
+        already centred at the carrier and must NOT get the offset, so
+        gate on hw_sample_rate being present rather than applying it
+        unconditionally.
+        """
+        sr   = state.get('sample_rate', 2_000_000)
+        data = np.frombuffer(iq, dtype='<i2').astype(np.float32) / 32768.0
+        vfo_off = (state.get('vfo_hz', 0) - state.get('center_hz', 0)) \
+            if state.get('hw_sample_rate') else 0.0
+        self.process_iq(data[0::2] + 1j * data[1::2], sr=sr, vfo_offset_hz=vfo_off)
+
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000, vfo_offset_hz: float = 0.0):
+        """Core decode — accepts complex64 directly (OPT-6).
+
+        BUGFIX (Full IQ mark/space VFO offset, June 2026): this method
+        Goertzels self.mark / (self.mark - self.shift) directly against
+        iq_c with no VFO term — correct ONLY when iq_c's DC already sits
+        at the VFO/dial frequency (true for IQ Lite, per that block's own
+        "IQ Lite LO = dial_hz" comment, and for the old raw-p bytes-shim
+        which derived from state['sample_rate']-centred hardware IQ that
+        happened to coincide with dial-center in the common case tested).
+        In Full IQ mode, iq_c's DC is the hardware center/LO, not the
+        VFO — exactly the same distinction _audio_fft_center_hz() already
+        had to account for to keep the scope's mark/space handles aligned
+        with the real signal (see its docstring). The handles/scope read
+        through that VFO-aware path and so always looked correctly placed
+        even while this method, with no equivalent correction, Goertzeled
+        at the wrong absolute frequency relative to iq_c — explaining the
+        reported symptom exactly: "scope mark/space line match... decode
+        is still garbled". Fix: accept the caller's VFO offset (Full IQ:
+        vfo_hz - center_hz; IQ Lite/default: 0, DC already == VFO) and
+        add it to both Goertzel target frequencies.
+
+        BUGFIX (June 2026, #1): sr was previously hardcoded to 48000 in the
+        Goertzel calls and bit_samples was only ever computed once at
+        __init__ time against 48000. That's correct for IQ Lite (which
+        decimates to exactly 48 kHz before calling this), but Full IQ
+        mode calls process()/process_iq() on raw hardware-rate IQ
+        (e.g. 1-2+ MSPS) with no decimation — so the mark/space Goertzel
+        bins and bit-timing were being measured ~20-40x off from the
+        actual sample rate, meaning RTTY could never lock or decode in
+        Full IQ. Accept sr explicitly (matching MorseDecoder/WsprDecoder)
+        and recompute bit_samples from the live sr + baud each call.
+
+        BUGFIX (June 2026, #2): this used to take ONE Goertzel reading over
+        however many samples the caller handed in (iq_c could be a whole
+        network audio packet — hundreds to thousands of samples) and
+        treated that single reading as one bit, then retired the *entire*
+        chunk's worth of bit-timer in one decrement. At 50 baud/48kHz one
+        bit is only 960 samples, so any packet bigger than that silently
+        smeared multiple real bit transitions into a single bit decision —
+        producing stable, repeating garbage instead of real text (seen on
+        DDK9/DWD decode: same block repeating over and over). Fix: process
+        iq_c in small sub-blocks (a fraction of one bit period) so the
+        state machine below sees roughly the same timing resolution
+        regardless of how the caller chunks its audio.
+
+        BUGFIX (June 2026, #8): the sub-block loop above always started
+        at `start=0` of THIS call's iq_c, discarding whatever fraction of
+        a final sub-block was left over (n % step samples) at the end of
+        the PREVIOUS call. Network packets never land on an exact
+        multiple of `step` (the live socket reader hands over whatever
+        TCP gives it — not bit-period-aligned chunks), so in production
+        this reset sub-block phase to zero at literally every packet
+        boundary. Confirmed via direct test: a 2000-char synthetic
+        message decoded with only 1 error when fed to this method in one
+        call, but produced ~90% character corruption when fed via
+        realistic ~4096-sample chunks (matching the user-reported
+        "mark/space/baud all correct, decode still garbled" symptom even
+        after the autodetect fixes) — and decoded perfectly again once
+        chunk size was forced to an exact multiple of `step`, isolating
+        the chunk boundary itself as the cause, not the algorithm.
+        Fix: carry the undersized tail sub-block over in
+        self._subblock_carry and prepend it to the next call's iq_c
+        before re-slicing, so sub-block boundaries stay continuous
+        across the whole stream regardless of how the caller chunks it.
+        """
+        self.bit_samples = sr / self.baud if self.baud else (sr / 45.45)
+        # Sub-block size: small enough to resolve bit edges at the fastest
+        # supported baud (100 Bd → 480 samples/bit @ 48kHz), large enough
+        # to keep the Goertzel measurement meaningful. 1/8 bit period, with
+        # a floor so pathological sr/baud combos can't produce a zero step.
+        step = max(8, int(self.bit_samples / 8))
+        if len(self._subblock_carry):
+            iq_c = np.concatenate([self._subblock_carry, iq_c])
+        n = len(iq_c)
+        if n == 0:
+            return
+        last_full = (n // step) * step
+        for start in range(0, last_full, step):
+            block = iq_c[start:start + step]
+            self._process_bit_block(block, sr, vfo_offset_hz)
+        # Stash whatever didn't fill a complete sub-block for next time,
+        # instead of processing a short, lower-resolution block now and
+        # losing continuity at the next call boundary.
+        self._subblock_carry = iq_c[last_full:].astype(np.complex64)
+        # SQUELCH (July 2026): let the frontend show live lock/SNR status
+        # (see reset()'s comment) instead of only ever showing decoded
+        # text with no way to tell a real lock from silence. Throttled to
+        # 2/s — this is a HUD readout, not per-bit telemetry.
+        _now_sig = time.time()
+        if _now_sig - self._last_signal_broadcast > 0.5:
+            self._last_signal_broadcast = _now_sig
+            # UI-FACING DIAG (July 2026): cumulative, never-reset — see the
+            # self._ui_* fields' comment in reset(). Lets sync health
+            # (thin margin = tone/frequency problem vs. healthy margin +
+            # high stop-fail = timing/PLL problem, per the existing
+            # #9-#12 bugfix pattern in this file) be read from the browser
+            # instead of needing server console access.
+            _ui_margin = (self._ui_margin_sum / self._ui_margin_n) if self._ui_margin_n else None
+            _ui_stop_total = self._ui_stop_ok + self._ui_stop_fail
+            _ui_stop_fail_pct = (100.0 * self._ui_stop_fail / _ui_stop_total) if _ui_stop_total else None
+            asyncio.run_coroutine_threadsafe(
+                broadcast_json({
+                    "type":   "rtty_signal",
+                    "locked": bool(self._locked),
+                    "snr":    round(float(self._snr_db), 1),
+                    "diag": {
+                        "start_armed":   self._ui_start_armed,
+                        "stop_ok":       self._ui_stop_ok,
+                        "stop_fail":     self._ui_stop_fail,
+                        "stop_fail_pct": round(_ui_stop_fail_pct, 1) if _ui_stop_fail_pct is not None else None,
+                        "margin":        round(_ui_margin, 3) if _ui_margin is not None else None,
+                        "chars":         len(self.text),
+                    },
+                }), loop)
+
+    def _diag_maybe_log(self, sr: float):
+        """DIAGNOSTIC #9: throttled summary of sync health, flushed at most
+        once every self._diag_interval_s seconds (checked at natural frame
+        boundaries — frame accept/reject — not on every sub-block, so this
+        never adds per-bit overhead). Distinguishes two failure modes that
+        look identical in the decoded text but need different fixes:
+          - thin avg margin (close to 0) -> mark/space tones are not being
+            discriminated cleanly; likely signal/noise/gain/frequency issue.
+          - healthy margin but high stop-bit failure rate / low start-bit
+            confirm rate -> tones are fine, bit-timing/phase is the problem.
+        """
+        now = time.time()
+        if now - self._diag_last_log < self._diag_interval_s:
+            return
+        self._diag_last_log = now
+        margin = (self._diag_margin_sum / self._diag_margin_n) if self._diag_margin_n else float("nan")
+        stop_total = self._diag_stop_ok + self._diag_stop_fail
+        stop_fail_pct = (100.0 * self._diag_stop_fail / stop_total) if stop_total else float("nan")
+        start_total = self._diag_start_armed
+        start_confirm_pct = (100.0 * self._diag_start_confirmed / start_total) if start_total else float("nan")
+        log.info(
+            "[RTTY diag] mark=%dHz shift=%dHz baud=%.2f sr=%.0f | "
+            "avg m/s margin=%.3f | start armed=%d confirmed=%d (%.0f%%) | "
+            "stop ok=%d fail=%d (%.0f%% fail) | chars=%d",
+            self.mark, self.shift, self.baud, sr,
+            margin,
+            start_total, self._diag_start_confirmed, start_confirm_pct,
+            self._diag_stop_ok, self._diag_stop_fail, stop_fail_pct,
+            len(self.text),
+        )
+        # Reset window counters (keep cumulative text/state untouched) so
+        # each log line reflects the last _diag_interval_s seconds, not an
+        # ever-growing all-time average that would mask recent changes.
+        self._diag_start_armed     = 0
+        self._diag_start_confirmed = 0
+        self._diag_stop_ok         = 0
+        self._diag_stop_fail       = 0
+        self._diag_margin_sum      = 0.0
+        self._diag_margin_n        = 0
+
+    def _process_bit_block(self, iq_c: np.ndarray, sr: float, vfo_offset_hz: float = 0.0):
+        """One sub-block worth of the bit-sync state machine. Called
+        repeatedly by process_iq() so timing resolution stays correct
+        regardless of how large the caller's audio chunks are.
+
+        BUGFIX (June 2026, #3): the old version accepted every character
+        unconditionally once bit_idx reached 6, then immediately re-armed
+        for a new start bit on the very next sample with no debounce.
+        Two compounding problems:
+          (a) No stop-bit check — a single noisy sample misread during the
+              stop bit (which must be mark/1) was silently accepted as a
+              valid frame, and the *next* start-bit search began from
+              whatever phase the timer happened to be at — not re-anchored
+              to the real signal. Each such slip nudges the sampling point
+              a little further from true bit-center.
+          (b) Start-bit acquisition triggered on a single space (0) sample
+              with no confirmation, so one noisy sub-block during idle/mark
+              could falsely arm a frame at the wrong phase.
+          Symptom matched exactly: clean mark/space tone lock (not a tuning
+          problem) but decoded text drifting into garbage that slowly grows
+          before occasionally "resetting" — consistent with phase slip
+          that self-corrects only when noise happens to realign it.
+        Fix: (1) confirm the start-bit candidate is still space at the
+        half-bit point before committing (debounced acquisition), and
+        (2) validate the stop bit is mark before accepting the character;
+        if not, discard the frame and immediately re-search for a fresh
+        start bit instead of chaining off the stale timer phase.
+        """
+        # OPT-3: Goertzel for mark/space — eliminates two np.exp allocations per call
+        # BUGFIX (June 2026, #7): space was computed as self.mark + self.shift,
+        # but the rest of the codebase (frontend _rttySpaceHz = mark - shift,
+        # and the RTTY_PRESETS table) defines space as the LOWER tone:
+        # space = mark - shift. For DDK9 (mark=1615, shift=450) this measured
+        # Goertzel energy at 2065Hz — where there is no signal — instead of
+        # the real space tone at 1165Hz. Comparing real mark-tone energy
+        # against noise at the wrong frequency meant `bit = 1 if m_p > s_p`
+        # was effectively meaningless, producing plausible-looking but
+        # garbled decode even though mark/space looked correctly placed on
+        # the tone scope (the scope reads the same _rttyMarkHz/_rttySpaceHz
+        # convention as the rest of the frontend, not this backend's
+        # internal mark+shift math).
+        m_p  = _goertzel_power(iq_c, self.mark              + vfo_offset_hz, sr)
+        s_p  = _goertzel_power(iq_c, self.mark - self.shift + vfo_offset_hz, sr)
+        # BUGFIX (June 2026, #11): real DDK9 Full-IQ capture proved this was
+        # backwards. Brute-force grid search against ground-truth IQ samples
+        # (ddk9_iq.npy, spectrally confirmed mark=1022Hz/space=576Hz) showed
+        # `bit = 1 if m_p > s_p` produces 100% garbled/inverted-looking text
+        # at every timing offset, while the literal logical inverse decodes
+        # 204/204 characters with ZERO stop-bit failures, including a clean
+        # RYRYRYRY... tuning preamble and CX CX CX LT callup. Tone DETECTION
+        # was always healthy (margin 0.4-0.8) — it's the polarity of the
+        # mark/space → bit mapping itself that was flipped, which explains
+        # why every previous fix (Goertzel freq #7, VFO offset #?, PLL #10)
+        # improved sync/margin diagnostics but never fixed the actual text.
+        bit  = 1 if s_p > m_p else 0
+        # SQUELCH (July 2026): see reset()'s comment for why this can't be
+        # a temporal (trailing-minimum) floor like MorseDecoder's. Sample a
+        # third Goertzel bin well clear of the mark/space pair — a patch of
+        # passband that should be empty during a real, correctly-filtered
+        # RTTY signal — and use it as a live spectral noise reference.
+        ref_p = _goertzel_power(iq_c, self.mark + 2.5 * self.shift + vfo_offset_hz, sr)
+        self._snr_db = 10 * np.log10((m_p + s_p + 1e-9) / (2.0 * ref_p + 1e-9))
+        self._locked = self._snr_db > self.squelch_db
+        # DIAGNOSTIC #9: track mark/space discrimination margin as a
+        # normalised difference (0 = tied/no info, 1 = total separation)
+        # so a thin margin (noise-driven misreads) can be told apart from
+        # a healthy margin with bad timing (pure sync/phase problem).
+        _tot = m_p + s_p
+        if _tot > 0:
+            self._diag_margin_sum += abs(m_p - s_p) / _tot
+            self._diag_margin_n   += 1
+            self._ui_margin_sum   += abs(m_p - s_p) / _tot
+            self._ui_margin_n     += 1
+        if self.bit_idx == -1:
+            # BUGFIX (June 2026, #11): suppress start-bit search during the
+            # extra 0.5-bit-period tail of the 1.5-unit stop element — see
+            # _post_stop_skip in reset(). Without this, a frame accepted
+            # right at the edge of its (still-mark) stop element could let
+            # the *next* sub-block's mark reading be misread relative to a
+            # timer phase that hasn't actually reached the true next start
+            # bit yet, re-arming acquisition half a bit early.
+            if self._post_stop_skip > 0:
+                self._post_stop_skip -= len(iq_c)
+            elif bit == 0 and not self._start_pending and self._locked:
+                # SQUELCH (July 2026): only arm a NEW frame when the
+                # spectral SNR gate says a real signal is present — see
+                # reset()'s comment. An already-armed/in-flight frame is
+                # untouched by this (this branch only gates the very first
+                # candidate of a fresh acquisition), so a brief SNR dip
+                # mid-frame can't abort a frame that already started; the
+                # existing stop-bit check still discards it if it's bad.
+                #
+                # Candidate start bit seen — don't commit yet, confirm at
+                # the half-bit point so a single noisy sample can't falsely
+                # arm acquisition at the wrong phase.
+                self._diag_start_armed += 1
+                self._ui_start_armed   += 1
+                self._start_pending = True
+                self._start_timer   = int(self.bit_samples * 0.5)
+            elif self._start_pending:
+                self._start_timer -= len(iq_c)
+                if self._start_timer <= 0:
+                    if bit == 0:
+                        # Confirmed real start bit — anchor the frame here.
+                        self._diag_start_confirmed += 1
+                        self.bit_idx = 0
+                        self.timer   = int(self.bit_samples)
+                        # PLL #10: seed with the start bit's own value (space/0)
+                        # so the *first* data bit's edge detection compares
+                        # against a real, fresh reference instead of whatever
+                        # bit happened to be last seen at the end of the
+                        # previous frame (which could falsely register as an
+                        # edge immediately and miscorrect the new frame).
+                        self._pll_last_bit = bit
+                    self._start_pending = False
+        else:
+            # PLL #10: early/late-gate timing correction.
+            # BUGFIX (June 2026, #10b): the first cut of this gated on
+            # `abs(self.timer) <= 0.3*bit_samples`, treating the *raw*
+            # countdown value as the phase error. But self.timer only
+            # reads near zero right at a boundary — mid-bit, while no
+            # edge has happened, it's some unrelated value anywhere in
+            # [0, bit_samples). A real edge can legitimately land with
+            # self.timer sitting mid-range (confirmed empirically: typical
+            # values were 80-140 out of a 160-sample bit period), so the
+            # gate almost never passed and the correction never actually
+            # ran. The real phase error is the edge's distance from the
+            # *nearest* boundary (0 or bit_samples), not the timer's literal
+            # value: an edge should occur exactly when self.timer crosses
+            # a boundary, so whichever of "samples since the last boundary"
+            # or "samples until the next one" is smaller IS the error,
+            # signed by which side it fell on (timer closer to bit_samples
+            # — i.e. fired right after a fresh reset — means the edge came
+            # EARLY relative to our clock, so we should pull the next
+            # boundary closer; timer closer to 0 means the edge came LATE,
+            # so push it out a bit). Nudge self.timer a fraction of that
+            # signed error every edge so phase drift gets walked back
+            # continuously instead of only ever being re-anchored at the
+            # next start-bit search.
+            if self._pll_last_bit is not None and bit != self._pll_last_bit:
+                _since_boundary = self.bit_samples - self.timer  # samples elapsed in this bit so far
+                _until_boundary = self.timer                     # samples left in this bit
+                if _since_boundary <= _until_boundary:
+                    _err = -_since_boundary   # edge fired early — boundary should move earlier
+                else:
+                    _err = _until_boundary    # edge fired late — boundary should move later
+                if abs(_err) <= 0.3 * self.bit_samples:
+                    self.timer += int(round(0.25 * _err))
+            self._pll_last_bit = bit
+            self.timer -= len(iq_c)
+            if self.timer <= 0:
+                if self.bit_idx < 5:
+                    self.bits.append(bit)
+                    self.bit_idx += 1
+                    self.timer   += int(self.bit_samples)
+                else:
+                    # This slot is the stop bit — must be mark (1). If it
+                    # isn't, the frame is corrupt/misaligned: discard it
+                    # and drop straight back to start-bit search rather
+                    # than accepting bad data and chaining off a stale
+                    # phase.
+                    if bit != 1:
+                        self._diag_stop_fail += 1
+                        self._ui_stop_fail   += 1
+                        self.bit_idx = -1
+                        self.bits    = []
+                        self._start_pending = False
+                        self._diag_maybe_log(sr)
+                        return
+                    self._diag_stop_ok += 1
+                    self._ui_stop_ok   += 1
+                    self.bit_idx += 1  # now 6 — fall through to character decode
+                    # BUGFIX (June 2026, #11): real stop element is 1.5 bit
+                    # periods, but the state machine above only timed 1.0 —
+                    # arm the extra half-bit skip (consumed in the bit_idx==-1
+                    # branch above) so start-bit search doesn't resume until
+                    # the true stop element has actually finished.
+                    self._post_stop_skip = int(self.bit_samples * 0.5)
+                if self.bit_idx >= 6:
+                    # BUGFIX (June 2026, #12): the FIGS/LTRS shift codes (Baudot
+                    # values 27 and 31) were only ever consulted when BOTH
+                    # self.figs_enabled was already True AND self.state was
+                    # already "FIGS" — two separate, independently-gated flags
+                    # that disagreed with each other. self.figs_enabled could
+                    # only become True via a fragile auto-enable heuristic in
+                    # the ITA2 fallback path below that fired only when a value
+                    # happened to map to a *digit or punctuation* FIGS
+                    # character — it never looked at 27/31 themselves, since
+                    # those map to the literal strings "FIGS"/"LTRS", not a
+                    # digit or punctuation char. Net effect: real FIGS-shift
+                    # (27) and LTRS-shift (31) codes in the bitstream were
+                    # silently swallowed by self.ita2.get(val, "") (which has
+                    # no entries for 27/31) and self.state never flipped via
+                    # the actual shift mechanism. Confirmed against a real
+                    # DDK9 capture: decoding raw 5-bit values while properly
+                    # tracking 27/31 shift codes (independent of figs_enabled)
+                    # revealed a genuine numeric synoptic weather bulletin
+                    # ("...25.12Z:IT-T 5-66-71.5U //PR 26.00Z:HB...") that the
+                    # old code displayed as unrelated garbled letters because
+                    # it stayed stuck in LTRS the whole time. Fix: always
+                    # check val against 27/31 first (regardless of
+                    # figs_enabled) to flip self.state, and decode data
+                    # characters from self.FIGS_MAP or self.ita2 based purely
+                    # on self.state — figs_enabled now only gates the
+                    # legacy auto-enable convenience heuristic, not the
+                    # actual shift-code handling.
+                    v = sum(b << i for i, b in enumerate(self.bits[:5]))
+                    if v == 27:
+                        self.state = "FIGS"
+                        self.enable_figs(True)
+                        ch_out = ""
+                    elif v == 31:
+                        self.state = "LTRS"
+                        ch_out = ""
+                    elif self.state == "FIGS":
+                        self._load_figs_map()
+                        ch = self.FIGS_MAP[v] if (self.FIGS_MAP and 0 <= v < len(self.FIGS_MAP)) else None
+                        suppress = {"NUL", "LF", "CR", "SP", "ENC", "BEL", None, ""}
+                        ch_out = ch if ch not in suppress else ""
+                    else:
+                        # Standard ITA2/LTRS decoding
+                        val = v
+                        ch_out = self.ita2.get(val, "")
+                        # Legacy auto-enable: if still in letters mode but the
+                        # Baudot value maps to a digit/punctuation in FIGS
+                        # table (and isn't itself a shift code, handled above),
+                        # switch automatically — kept as a convenience for
+                        # streams that start mid-message in FIGS without ever
+                        # sending an explicit shift code.
+                        if not self.figs_enabled and 0 <= val < len(self.FIGS_MAP):
+                            figs_ch = self.FIGS_MAP[val]
+                            if figs_ch and figs_ch not in {"FIGS","LTRS","NUL","LF","CR","SP","BEL","ENC"}:
+                                try:
+                                    import string
+                                    if figs_ch.isdigit() or figs_ch in string.punctuation:
+                                        self.enable_figs(True)
+                                        ch_out = figs_ch
+                                except Exception:
+                                    pass
+                    self.text += ch_out
+                    if len(self.text) > 10000:
+                        self.text = self.text[-5000:]
+                    self.bits = self.bits[5:]
+                    self.bit_idx = -1
+                    self.timer   = 0
+                    # BUGFIX (June 2026, #6): broadcast only the newly-decoded
+                    # character, not self.text[-100:] (the whole trailing
+                    # buffer) — see prior fix note; preserved here since this
+                    # branch now handles both FIGS and LTRS uniformly.
+                    if ch_out:
+                        asyncio.run_coroutine_threadsafe(
+                            broadcast_json({"type": "rtty_frame", "text": ch_out}), loop)
+                    self._diag_maybe_log(sr)
+
+
+# ── DSP ENGINE: WEFAX ────────────────────────────────────────────────
+class WefaxDecoder:
+    def __init__(self):
+        self.active     = False
+        self._buf       = np.empty(0, dtype=np.uint8)  # OPT-5: numpy ring buffer
+        self.rpm        = 120
+        self.ioc        = 576
+        self.slant      = 0.0
+        self._line_count = 0
+        # Pre-build the PNG helper once — avoids re-defining a closure every scanline
+        self._png_chunk  = None  # populated on first process() call
+        # BUGFIX (2026-07-19, w033): resample cache for process_iq()'s new
+        # `sr` parameter — see that method's docstring for why this exists.
+        self._resamp_ratio = None
+
+    def configure(self, rpm, ioc):
+        self.rpm   = int(rpm)
+        self.ioc   = int(ioc)
+        self._buf  = np.empty(0, dtype=np.uint8)       # OPT-5: reset numpy buffer
+
+    def _make_png(self, row: np.ndarray, w: int) -> bytes:
+        """Build a minimal single-row greyscale PNG. Defined on instance, not per-scanline."""
+        import zlib, struct as _struct
+        def _chunk(tag, data):
+            c = _struct.pack('>I', len(data)) + tag + data
+            return c + _struct.pack('>I', zlib.crc32(tag + data) & 0xFFFFFFFF)
+        raw  = b'\x00' + row.tobytes()
+        ihdr = _struct.pack('>IIBBBBB', w, 1, 8, 0, 0, 0, 0)
+        idat = zlib.compress(raw, 1)                   # level 1 — 3× faster, ~10% larger
+        return b'\x89PNG\r\n\x1a\n' + _chunk(b'IHDR', ihdr) + _chunk(b'IDAT', idat) + _chunk(b'IEND', b'')
+
+    def process(self, iq):
+        """Bytes shim — used by SDRConnect path."""
+        data = np.frombuffer(iq, dtype='<i2').astype(np.float32)
+        self.process_iq((data[0::2] + 1j * data[1::2]).astype(np.complex64))
+
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
+        """Core decode — accepts complex64 directly (OPT-6).
+
+        BUGFIX (2026-07-19, w033): two Full-IQ call sites
+        (`fax_dec.process_iq(iq_c, sr=48000)` / `sr=DECODER_SR`) were
+        passing a `sr=` keyword this method didn't accept at all,
+        raising TypeError -- the same "uncaught exception in the rx()
+        loop kills the whole SDRConnect bridge" crash class already
+        fixed for ft8_dec/PocsagDecoder elsewhere in this file. Both
+        call sites always pass 48000 in practice (DECODER_SR IS 48000),
+        so this was a live but latent crash risk rather than a silent
+        wrong-rate bug -- fixed properly (not just papered over) by
+        accepting `sr` and resampling to 48000 first, the same pattern
+        AisDecoder/SstvDecoder/RttyDecoder already use, so a future
+        caller passing a genuinely different rate works correctly too.
+        """
+        import base64
+        # FM discriminator: phase delta between successive samples
+        # Equivalent to original data[2::2]/data[3::2] approach but no int16 round-trip
+        angles = np.angle(iq_c[1:] * np.conj(iq_c[:-1])) * (sr / (2 * np.pi))
+        if abs(sr - 48000) > 1e-6 and _HAVE_SCIPY:
+            if self._resamp_ratio is None or self._resamp_ratio[2] != sr:
+                from fractions import Fraction
+                frac = Fraction(48000 / sr).limit_denominator(1000)
+                self._resamp_ratio = (frac.numerator, frac.denominator, sr)
+            up, down, _ = self._resamp_ratio
+            angles = _scipy_signal.resample_poly(angles, up, down)
+        pix = np.clip(
+            (angles - 1500) * (255 / 800), 0, 255
+        ).astype(np.uint8)
+        # OPT-5: np.concatenate instead of list.extend + tolist()
+        self._buf = np.concatenate((self._buf, pix))
+        lpm  = int(self.rpm * self.ioc / 60)          # pixels per line
+        l_s  = int(48000 * 60 / self.rpm + self.slant)
+        while len(self._buf) >= l_s:
+            line        = self._buf[:l_s]
+            self._buf   = self._buf[l_s:]              # slice is a view until copy needed
+            res  = np.interp(
+                np.linspace(0, l_s, lpm),
+                np.arange(l_s), line
+            ).astype(np.uint8)
+            self._line_count += 1
+            png_bytes = self._make_png(res, lpm)
+            b64 = base64.b64encode(png_bytes).decode()
+            asyncio.run_coroutine_threadsafe(
+                broadcast_json({"type": "wefax_line", "image_b64": b64,
+                                "line_count": self._line_count, "partial": True}), loop)
+
+
+# ── DSP ENGINE: SSTV (Slow-Scan Television) ───────────────────────────
+# ADDED 2026-07-19 (w033 fork) -- clean-room implementation from public
+# SSTV protocol documentation (the VIS calibration-header format and
+# per-mode scan-line timing tables published at e.g. sstv-handbook.com
+# and widely mirrored elsewhere), not ported from any existing SSTV
+# decoder's source. Uses the same FM-discriminate -> instantaneous-
+# frequency-array -> fixed-timing scan approach WefaxDecoder above
+# already uses for HF FAX, extended to (a) auto-detect the mode via the
+# VIS header instead of a fixed rpm/ioc, and (b) RGB rather than
+# greyscale output.
+#
+# VALIDATION CAVEAT: unlike AisDecoder/AisDecoderDireWolf (validated
+# this session against several real captured WAV files), this decoder
+# has NOT been validated against a real captured SSTV transmission --
+# none was available. The mode timing constants below are transcribed
+# from public specification tables as carefully as possible, but a
+# small per-mode timing error (a few percent) is plausible and would
+# show up as diagonal image skew or colour-channel misalignment rather
+# than an outright crash. Recommend capturing a real SSTV transmission
+# (a ham SSTV net, e.g. 14.230 MHz USB, or an ISS SSTV event) and
+# checking/tuning against it before relying on this for anything that
+# matters -- the same validation bar the AIS work was held to.
+_SSTV_SR = 48000
+
+# VIS code -> mode spec. Only entries with 'decode': True are actually
+# scanned; Robot 36/72 are recognised (so the user still gets an
+# informative "detected, not decoded" message instead of silence) but
+# not scanned -- their line format alternates luma/chroma with 2:1
+# vertical chroma subsampling, a fussier format that was judged too
+# easy to get subtly wrong without a real signal to validate against
+# (see caveat above). Left for a future, validated pass.
+_SSTV_MODES = {
+    44: {'name': 'Martin M1',  'width': 320, 'height': 256, 'decode': True,
+         'channels': ['G', 'B', 'R'], 'channel_ms': 146.432,
+         'sync_ms': 4.862, 'porch_ms': 0.572, 'sep_ms': 0.572, 'style': 'martin'},
+    40: {'name': 'Martin M2',  'width': 320, 'height': 256, 'decode': True,
+         'channels': ['G', 'B', 'R'], 'channel_ms': 73.216,
+         'sync_ms': 4.862, 'porch_ms': 0.572, 'sep_ms': 0.572, 'style': 'martin'},
+    60: {'name': 'Scottie S1', 'width': 320, 'height': 256, 'decode': True,
+         'channels': ['G', 'B', 'R'], 'channel_ms': 138.240,
+         'sync_ms': 9.0, 'porch_ms': 1.5, 'sep_ms': 1.5, 'style': 'scottie'},
+    56: {'name': 'Scottie S2', 'width': 320, 'height': 256, 'decode': True,
+         'channels': ['G', 'B', 'R'], 'channel_ms': 88.064,
+         'sync_ms': 9.0, 'porch_ms': 1.5, 'sep_ms': 1.5, 'style': 'scottie'},
+    76: {'name': 'Scottie DX', 'width': 320, 'height': 256, 'decode': True,
+         'channels': ['G', 'B', 'R'], 'channel_ms': 345.6,
+         'sync_ms': 9.0, 'porch_ms': 1.5, 'sep_ms': 1.5, 'style': 'scottie'},
+    8:  {'name': 'Robot 36', 'width': 320, 'height': 240, 'decode': False},
+    12: {'name': 'Robot 72', 'width': 320, 'height': 240, 'decode': False},
+}
+
+
+class SstvDecoder:
+    """
+    Native SSTV decoder. See the module-level comment above _SSTV_SR
+    for scope/validation caveats and the modes actually decoded.
+
+    Pipeline: FM-discriminate incoming audio into an instantaneous-
+    frequency array (same technique WefaxDecoder/AisDecoder use
+    elsewhere in this file), buffer it, continuously scan for the VIS
+    calibration header (1900Hz leader / 1200Hz break / 1900Hz leader /
+    7-bit VIS code + parity, each bit 1300Hz=0 / 1100Hz=1, all per the
+    SSTV standard) to auto-detect the mode, then -- for supported modes
+    -- decode fixed-duration sync/porch/separator/channel windows per
+    that mode's spec, mapping each channel window's mean frequency
+    (1500-2300Hz) linearly to a 0-255 pixel value. Rows are streamed
+    over WS one at a time as they complete (same "partial image, one
+    row at a time" pattern WefaxDecoder uses), same calling convention:
+    .active flag, .reset(), process(bytes) / process_iq(iq_c, sr=48000).
+    """
+
+    VIS_LEADER_HZ = 1900
+    VIS_BREAK_HZ  = 1200
+    VIS_BIT0_HZ   = 1300   # logic 0
+    VIS_BIT1_HZ   = 1100   # logic 1
+    VIS_LEADER_MS = 300.0
+    VIS_BREAK_MS  = 10.0
+    VIS_BIT_MS    = 30.0
+    _FREQ_TOL_HZ  = 100
+
+    def __init__(self):
+        self.active = False
+        self.reset()
+
+    def reset(self):
+        self._freq_buf     = np.empty(0, dtype=np.float32)
+        self._last_iq       = None
+        self._mode           = None   # locked _SSTV_MODES entry (copy) once VIS-decoded
+        self._segments       = None   # per-line (tag, n_samples) layout for the locked mode
+        self._line_total_samps = 0
+        self._line_count    = 0
+        self._searched_upto = 0       # index into _freq_buf already searched for a VIS header
+        self.images_decoded = 0
+        self.headers_detected = 0
+        self.last_mode_name = None
+
+    def process(self, raw_iq: bytes):
+        """Bytes shim — used by SDRConnect path."""
+        data = np.frombuffer(raw_iq, dtype='<i2').astype(np.float32) / 32768.0
+        if len(data) < 2:
+            return
+        self.process_iq((data[0::2] + 1j * data[1::2]).astype(np.complex64))
+
+    @staticmethod
+    def _find_runs(mask: np.ndarray):
+        """Return [(start, end), ...] (end exclusive) of contiguous True runs."""
+        if len(mask) == 0:
+            return []
+        d = np.diff(mask.astype(np.int8))
+        starts = list(np.where(d == 1)[0] + 1)
+        ends   = list(np.where(d == -1)[0] + 1)
+        if mask[0]:
+            starts = [0] + starts
+        if mask[-1]:
+            ends = ends + [len(mask)]
+        return list(zip(starts, ends))
+
+    def _compute_line_layout(self, mode):
+        def smp(ms_val):
+            return int(round(ms_val * _SSTV_SR / 1000.0))
+        channels = mode['channels']
+        sync_samps  = smp(mode['sync_ms'])
+        porch_samps = smp(mode['porch_ms'])
+        sep_samps   = smp(mode['sep_ms'])
+        chan_samps  = smp(mode['channel_ms'])
+        segments = []
+        if mode['style'] == 'martin':
+            segments.append(('sync', sync_samps))
+            segments.append(('porch', porch_samps))
+            for ch in channels:
+                segments.append((ch, chan_samps))
+                segments.append(('sep', sep_samps))
+        elif mode['style'] == 'scottie':
+            # Scottie's quirk: sync sits between the B and R channels, not
+            # at the start of the line (channels list is always [G,B,R]).
+            segments.append((channels[0], chan_samps))
+            segments.append(('sep', sep_samps))
+            segments.append((channels[1], chan_samps))
+            segments.append(('sep', sep_samps))
+            segments.append(('sync', sync_samps))
+            segments.append(('porch', porch_samps))
+            segments.append((channels[2], chan_samps))
+        total = sum(n for _, n in segments)
+        return segments, total
+
+    def _decode_line(self, line_freq: np.ndarray, segments, mode) -> np.ndarray:
+        row = np.zeros((mode['width'], 3), dtype=np.uint8)
+        chan_to_col = {'R': 0, 'G': 1, 'B': 2}
+        idx = 0
+        for tag, n in segments:
+            seg = line_freq[idx: idx + n]
+            idx += n
+            if tag in chan_to_col and len(seg) > 0:
+                pix = np.clip((seg - 1500.0) * (255.0 / 800.0), 0, 255)
+                res = np.interp(np.linspace(0, len(pix), mode['width']),
+                                 np.arange(len(pix)), pix).astype(np.uint8)
+                row[:, chan_to_col[tag]] = res
+        return row
+
+    def _make_png_rgb(self, row: np.ndarray, w: int) -> bytes:
+        """Single-row 24-bit truecolor PNG (RGB) — same chunk-building
+        approach as WefaxDecoder._make_png, generalised to 3 channels."""
+        import zlib, struct as _struct
+        def _chunk(tag, data):
+            c = _struct.pack('>I', len(data)) + tag + data
+            return c + _struct.pack('>I', zlib.crc32(tag + data) & 0xFFFFFFFF)
+        raw  = b'\x00' + row.tobytes()
+        ihdr = _struct.pack('>IIBBBBB', w, 1, 8, 2, 0, 0, 0)   # color type 2 = truecolor
+        idat = zlib.compress(raw, 1)
+        return b'\x89PNG\r\n\x1a\n' + _chunk(b'IHDR', ihdr) + _chunk(b'IDAT', idat) + _chunk(b'IEND', b'')
+
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
+        if not _HAVE_SCIPY or iq_c is None or len(iq_c) == 0:
+            return
+        try:
+            iq_c = np.asarray(iq_c, dtype=np.complex64)
+            if self._last_iq is not None:
+                full = np.concatenate([[self._last_iq], iq_c])
+            else:
+                full = iq_c
+            self._last_iq = iq_c[-1]
+            if len(full) < 2:
+                return
+            freq = (np.angle(full[1:] * np.conj(full[:-1])) * (sr / (2 * np.pi))).astype(np.float32)
+            if abs(sr - _SSTV_SR) > 1e-6:
+                from fractions import Fraction
+                frac = Fraction(_SSTV_SR / sr).limit_denominator(1000)
+                freq = _scipy_signal.resample_poly(freq, frac.numerator, frac.denominator).astype(np.float32)
+            self._freq_buf = np.concatenate((self._freq_buf, freq))
+
+            # BUGFIX (2026-07-19, w033-only, user-reported live: "sstv
+            # decoder running, spectrum and waterfall stutter/freeze"):
+            # _scan_for_vis()'s own "memory bound" (see below in that
+            # method) only trims _freq_buf once _searched_upto itself has
+            # grown past 5s -- but _searched_upto only ever advances past
+            # a leader-tone run that was actually FOUND (either locked
+            # into a header, or conclusively rejected). If the tuned
+            # signal never produces a matching 1900Hz leader tone at all
+            # (near_leader/all_leader_runs empty every pass -- the normal
+            # case while SSTV sits on a channel with no valid transmission
+            # yet, or one that never arrives), _searched_upto stays at 0
+            # forever and that trim never fires. _freq_buf then grows
+            # unbounded, and _scan_for_vis rescans the ENTIRE buffer for
+            # the leader tone on every single call (an O(n) np.abs(...)
+            # scan with n growing every call -> O(n^2) total) -- run
+            # synchronously inline with the same code path that computes
+            # and broadcasts the spectrum/waterfall FFT bins at all 5 of
+            # this decoder's call sites, so it directly blocks/delays
+            # them. Explains a stutter that gets progressively worse the
+            # longer SSTV runs without locking a header. Fixed with a
+            # hard cap independent of _searched_upto: trim the buffer
+            # itself, never letting it exceed ~8s (comfortably longer
+            # than one nominal ~620ms VIS header, so a real header
+            # in-progress is never cut off).
+            _SSTV_MAX_FREQ_BUF = int(_SSTV_SR * 8)
+            if len(self._freq_buf) > _SSTV_MAX_FREQ_BUF:
+                _trim = len(self._freq_buf) - _SSTV_MAX_FREQ_BUF
+                self._freq_buf = self._freq_buf[_trim:]
+                self._searched_upto = max(0, self._searched_upto - _trim)
+
+            if self._mode is None:
+                self._scan_for_vis()
+            else:
+                self._scan_lines()
+        except Exception as exc:
+            log.warning(f'SstvDecoder.process_iq() error ({exc!r}) -- resetting decoder state')
+            self.reset()
+
+    def _scan_for_vis(self):
+        buf = self._freq_buf
+        n = len(buf)
+        if n <= self._searched_upto:
+            return
+        tol = self._FREQ_TOL_HZ
+        leader_min = int(_SSTV_SR * (self.VIS_LEADER_MS * 0.5) / 1000.0)   # tolerate down to 50% of nominal
+        nominal_leader_samps = int(_SSTV_SR * self.VIS_LEADER_MS / 1000.0)
+        break_min  = int(_SSTV_SR * (self.VIS_BREAK_MS * 0.3) / 1000.0)
+        break_max_wait = int(_SSTV_SR * 0.1)     # give the break tone up to 100ms of slop after leader-1 ends
+        bit_samps  = int(round(_SSTV_SR * self.VIS_BIT_MS / 1000.0))
+
+        search_region = buf[self._searched_upto:]
+        m = len(search_region)
+        near_leader = np.abs(search_region - self.VIS_LEADER_HZ) < tol
+        all_leader_runs = self._find_runs(near_leader)
+
+        # Tracks how far we can safely advance _searched_upto once every
+        # candidate below has been CONCLUSIVELY rejected (i.e. rejected with
+        # enough surrounding data to be sure, not just "not enough data yet").
+        # Advancing eagerly on a merely-incomplete candidate was the bug
+        # that shipped first: it discarded samples a still-in-progress
+        # leader/break/leader run would have needed once more data arrived,
+        # so a real header spanning several 20ms chunks could never
+        # complete. Only ever discard data behind a run we've definitively
+        # ruled out.
+        last_rejected_end = None
+
+        for (s0, e0) in all_leader_runs:
+            run_len = e0 - s0
+            is_open = (e0 == m)   # touches the buffer's current end -- might still be growing
+            if run_len < leader_min:
+                if is_open:
+                    return   # too short SO FAR, but could still grow -- wait, don't discard
+                continue     # closed and genuinely too short -- not a leader tone, try next candidate
+            if is_open:
+                # Leader-1 hasn't actually ended yet as far as we can tell --
+                # can't know where to look for the break that should follow
+                # it, so wait for more samples rather than guessing.
+                return
+
+            break_search_end = e0 + break_max_wait
+            if break_search_end > m:
+                return   # leader-1 closed, but not enough trailing data yet to rule the break in/out
+            break_region = search_region[e0:break_search_end]
+            near_break = np.abs(break_region - self.VIS_BREAK_HZ) < tol
+            break_runs = [r for r in self._find_runs(near_break) if (r[1] - r[0]) >= break_min]
+            if not break_runs:
+                last_rejected_end = e0
+                continue
+            b_s, b_e_local = break_runs[0]
+            if b_e_local == len(break_region):
+                return   # break run touches our search window's edge -- ambiguous, wait
+            b_e = e0 + b_e_local
+
+            # Window must be wide enough to contain the FULL nominal-length
+            # (~300ms) second leader tone, not just leader_min (150ms) —
+            # capping the window at leader_min truncates the genuine run
+            # before it reaches full length, so the length check never
+            # passes even when the tone is really there.
+            leader2_search_end = b_e + nominal_leader_samps + int(_SSTV_SR * 0.1)
+            if leader2_search_end > m:
+                return   # not enough data yet to know whether leader-2 fully completes
+            leader2_region = search_region[b_e:leader2_search_end]
+            near_leader2 = np.abs(leader2_region - self.VIS_LEADER_HZ) < tol
+            leader2_runs = [r for r in self._find_runs(near_leader2) if (r[1] - r[0]) >= leader_min]
+            if not leader2_runs:
+                last_rejected_end = e0
+                continue
+            l2_s, l2_e_local = leader2_runs[0]
+            if l2_e_local == len(leader2_region):
+                return   # leader-2 run touches our search window's edge -- ambiguous, wait
+            l2_e = b_e + l2_e_local
+
+            # Decode start bit + 7 data bits + parity + stop bit as fixed
+            # 30ms slots right after leader-2 ends.
+            header_end = l2_e
+            n_slots = 10
+            needed = header_end + n_slots * bit_samps
+            if needed > len(search_region):
+                return   # wait for more samples on a future call, retry this same candidate then
+
+            bits = []
+            for i in range(n_slots):
+                slot = search_region[header_end + i * bit_samps: header_end + (i + 1) * bit_samps]
+                if len(slot) == 0:
+                    bits.append(0)
+                    continue
+                f = float(np.mean(slot))
+                bits.append(1 if abs(f - self.VIS_BIT1_HZ) < abs(f - self.VIS_BIT0_HZ) else 0)
+
+            data_bits, parity_bit = bits[1:8], bits[8]
+            vis_code = 0
+            for i, b in enumerate(data_bits):   # LSB first
+                vis_code |= b << i
+            parity_ok = (parity_bit == (bin(vis_code).count('1') % 2))
+
+            self.headers_detected += 1
+            consumed_upto = self._searched_upto + header_end + n_slots * bit_samps
+            mode = _SSTV_MODES.get(vis_code)
+
+            if mode is None or not parity_ok:
+                log.info(f"[SSTV] VIS header detected (code={vis_code}, parity_ok={parity_ok}) "
+                         f"-- unrecognised mode, skipping")
+                self._searched_upto = self._searched_upto + s0 + 1
+                return
+
+            self._mode = dict(mode)
+            self.last_mode_name = mode['name']
+            self._line_count = 0
+            self._freq_buf = self._freq_buf[consumed_upto:]
+            self._searched_upto = 0
+
+            if mode.get('decode') and mode['style'] == 'scottie':
+                # Scottie's first line still needs a leading sync+porch
+                # (every later line's sync sits mid-line instead — see
+                # _compute_line_layout).
+                lead_extra = int(round(_SSTV_SR * (mode['sync_ms'] + mode['porch_ms']) / 1000.0))
+                self._freq_buf = self._freq_buf[lead_extra:] if len(self._freq_buf) >= lead_extra \
+                                  else np.empty(0, dtype=np.float32)
+
+            if mode.get('decode'):
+                self._segments, self._line_total_samps = self._compute_line_layout(self._mode)
+                log.info(f"[SSTV] Locked mode: {mode['name']} (VIS {vis_code}), "
+                         f"decoding {mode['width']}x{mode['height']}")
+            else:
+                log.info(f"[SSTV] Detected {mode['name']} (VIS {vis_code}) "
+                         f"-- decode not yet implemented for this mode")
+
+            asyncio.run_coroutine_threadsafe(
+                broadcast_json({"type": "sstv_header", "mode": mode['name'], "vis": vis_code,
+                                "decode_supported": bool(mode.get('decode')),
+                                "width": mode.get('width'), "height": mode.get('height')}), loop)
+            return
+
+        # Every candidate in this pass was either conclusively rejected or
+        # there were none at all. Only advance past the last CONCLUSIVELY
+        # rejected candidate's start (never past a still-open/in-progress
+        # run — those already returned early above, above, without
+        # reaching here). If a leader run has been "open" and growing for
+        # an implausibly long time (far longer than any real ~300ms VIS
+        # leader), it's not a real header attempt either — give up on it
+        # too, but keep a full nominal-leader's worth of trailing overlap
+        # in case a genuine header actually starts partway through it.
+        if last_rejected_end is not None:
+            self._searched_upto += last_rejected_end
+        elif all_leader_runs and all_leader_runs[-1][1] == m:
+            open_start, open_end = all_leader_runs[-1]
+            if (open_end - open_start) > _SSTV_SR * 3:
+                advance_to = max(open_start, open_end - nominal_leader_samps)
+                self._searched_upto += advance_to
+
+        # Memory bound for a channel that's never had SSTV on it at all.
+        if self._searched_upto > _SSTV_SR * 5:
+            trim = self._searched_upto - int(_SSTV_SR * 1.0)
+            self._freq_buf = self._freq_buf[trim:]
+            self._searched_upto -= trim
+
+    def _scan_lines(self):
+        if not self._mode.get('decode'):
+            # Unsupported mode locked (Robot 36/72) — nothing to decode;
+            # wait out a generous upper bound on the image duration, then
+            # go back to searching so we're not stuck "locked" forever.
+            if len(self._freq_buf) >= _SSTV_SR * 60:
+                self._mode = None
+                self._searched_upto = 0
+            return
+        while len(self._freq_buf) >= self._line_total_samps:
+            line_freq = self._freq_buf[:self._line_total_samps]
+            self._freq_buf = self._freq_buf[self._line_total_samps:]
+            row = self._decode_line(line_freq, self._segments, self._mode)
+            self._line_count += 1
+            png_bytes = self._make_png_rgb(row, self._mode['width'])
+            import base64
+            b64 = base64.b64encode(png_bytes).decode()
+            asyncio.run_coroutine_threadsafe(
+                broadcast_json({"type": "sstv_line", "image_b64": b64,
+                                "line_count": self._line_count,
+                                "height": self._mode['height'],
+                                "mode": self._mode['name'], "partial": True}), loop)
+            if self._line_count >= self._mode['height']:
+                self.images_decoded += 1
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_json({"type": "sstv_complete", "mode": self._mode['name'],
+                                    "lines": self._line_count}), loop)
+                self._mode = None
+                self._searched_upto = 0
+                break
+
+
+# ── DSP ENGINE: POCSAG ───────────────────────────────────────────────
+class PocsagDecoder:
+    """
+    POCSAG 512 / 1200 / 2400 baud pager decoder.
+    Runs server-side as a fallback; the HTML also has a client-side
+    implementation that operates on the live FFT bins.
+    This class processes raw IQ from the SDRConnect IQ stream.
+    """
+    SYNC_WORD  = 0x7CD215D8
+    IDLE_WORD  = 0x7A89C197
+    ITA2_ALPHA = list(" \x00etaoinsrlhdcumfywgpbvkqxjz") + ["\n", "\r"]
+
+    # BUGFIX (2026-07-19, user report: "waterfall and spectrum go blank,
+    # then reappear frozen" when starting POCSAG). Confirmed via the user's
+    # own terminal log: process_iq() had no `sr` parameter at all, but three
+    # call sites (the t==1 PCM-audio branch, the Full-IQ _fiq_c branch, and
+    # the IQ-Lite branch) called it as poc_dec.process_iq(iq_c, sr=...) --
+    # every other native decoder (cw_dec/rtty_dec/fax_dec) was long ago
+    # updated to accept sr= as part of a uniform calling convention;
+    # PocsagDecoder was simply never updated to match. The moment POCSAG's
+    # Start toggle went active, the very next packet raised
+    # "TypeError: PocsagDecoder.process_iq() got an unexpected keyword
+    # argument 'sr'" INSIDE asyncio.gather(rx(), tx()) in sdr_bridge() --
+    # an unhandled exception there kills the whole SDRConnect bridge
+    # connection outright (not just the POCSAG call), which is why the
+    # *entire* waterfall/spectrum went blank, not just POCSAG's own output.
+    # The outer reconnect-with-backoff loop then reconnects 5s later,
+    # briefly shows live frames again while it re-negotiates the stream,
+    # and hits the identical crash again the instant the next packet
+    # reaches poc_dec.process_iq() (since poc_dec.active was never reset to
+    # False by the crash) -- an endless blank/flicker/freeze cycle, exactly
+    # matching the reported symptom, for as long as POCSAG stays toggled on.
+    # Fixed by giving process_iq() a real sr parameter like its siblings,
+    # and using it instead of the previous hardcoded-48000 assumption in
+    # samples_per_bit (also silently wrong for the two call sites that were
+    # actually passing the true hardware rate, e.g. DECODER_SR).
+    #
+    # Separately (real but secondary): _get_bit_power() -> _goertzel_power()
+    # allocates a fresh np.arange()/np.exp() reference array sized to the
+    # FULL input on every single call, with no caching (the "one allocation
+    # per tone change, not per call" comment on _goertzel_power describes an
+    # optimization that was never actually wired up here), done twice per
+    # packet (mark + space). Harmless at typical packet sizes, but Full IQ
+    # mode can hand this tens of thousands of samples per call -- capped
+    # here so it can't become its own (much smaller) source of loop lag.
+    GOERTZEL_MAX_N = 2000
+
+    def __init__(self):
+        self.active   = False
+        self.baud     = 1200
+        self.buffer   = []          # raw soft-bits
+        self.synced   = False
+        self.codewords = []
+
+    def reset(self):
+        self.buffer    = []
+        self.synced    = False
+        self.codewords = []
+
+    def _get_bit_power(self, iq_c, freq_hz, sr=48000):
+        # OPT-3: Goertzel — no arange/exp allocation per call
+        return _goertzel_power(iq_c, freq_hz, sr)
+
+    def process(self, iq):
+        """Bytes shim — used by SDRConnect path."""
+        data = np.frombuffer(iq, dtype='<i2').astype(np.float32) / 32768.0
+        self.process_iq(data[0::2] + 1j * data[1::2])
+
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
+        """Core decode — accepts complex64 directly (OPT-6).
+
+        BUGFIX (2026-07-19): sr is now a real parameter -- see the class
+        docstring above for the crash this fixes (call sites had been
+        passing sr= as a keyword argument for a signature that didn't
+        accept it at all, raising TypeError on every packet and crashing
+        the whole SDRConnect bridge, not just POCSAG). Also now actually
+        used (previously hardcoded to 48000 regardless of the real rate
+        the caller passed, which just happened to go unnoticed because
+        that value was never read anywhere in the function anyway).
+        """
+        # Defensive cap -- see GOERTZEL_MAX_N above. Decimate once, shared
+        # by both the mark and space measurements below.
+        if len(iq_c) > self.GOERTZEL_MAX_N:
+            step = len(iq_c) // self.GOERTZEL_MAX_N
+            iq_c = iq_c[::step]
+        # FSK: mark ~+600 Hz, space ~-600 Hz (relative to centre)
+        mark  = self._get_bit_power(iq_c, +600, sr=sr)
+        space = self._get_bit_power(iq_c, -600, sr=sr)
+        bit   = 1 if mark > space else 0
+        self.buffer.append(bit)
+
+        bits_per_word = 32
+        samples_per_bit = int(sr / self.baud)
+
+        # Only process once we have enough bits for a codeword
+        if len(self.buffer) < bits_per_word:
+            return
+
+        # Keep buffer manageable
+        if len(self.buffer) > bits_per_word * 64:
+            self.buffer = self.buffer[-bits_per_word:]
+
+        # Try to read a 32-bit word from the tail
+        word_bits = self.buffer[-bits_per_word:]
+        word = 0
+        for b in word_bits:
+            word = ((word << 1) | b) & 0xFFFFFFFF
+
+        if not self.synced:
+            if word == self.SYNC_WORD:
+                self.synced    = True
+                self.codewords = []
+                self.buffer    = []
+        else:
+            self.codewords.append(word)
+            self.buffer = []
+            if len(self.codewords) >= 16:
+                self._decode_batch(self.codewords)
+                self.codewords = []
+                self.synced    = False
+
+    def _decode_batch(self, codewords):
+        i = 0
+        while i < len(codewords):
+            cw = codewords[i]
+            if cw == self.IDLE_WORD or cw == self.SYNC_WORD:
+                i += 1
+                continue
+            # bit 31 = 0 → address word, 1 → message word
+            if not (cw >> 31 & 1):
+                capcode = ((cw >> 13) & 0x3FFFF) * 8 + ((cw >> 11) & 0x3) + (i % 8)
+                func    = (cw >> 11) & 0x3
+                # collect message words that follow
+                msg_words = []
+                j = i + 1
+                while j < len(codewords) and (codewords[j] >> 31 & 1):
+                    msg_words.append(codewords[j])
+                    j += 1
+                text = self._decode_alpha(msg_words) if func == 3 else self._decode_numeric(msg_words)
+                if text:
+                    msg = {
+                        "capcode": str(capcode).zfill(7),
+                        "func":    func,
+                        "text":    text,
+                        "time":    time.strftime("%H:%M:%S"),
+                    }
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast_json({"type": "pocsag_message", **msg}), loop)
+                i = j
+            else:
+                i += 1
+
+    def _decode_alpha(self, words):
+        bits = []
+        for w in words:
+            for i in range(20, 0, -1):
+                bits.append((w >> i) & 1)
+        out = ""
+        for i in range(0, len(bits) - 6, 7):
+            c = 0
+            for b in range(7):
+                c |= bits[i + b] << b
+            if 32 <= c < 127:
+                out += chr(c)
+        return out.strip()
+
+    def _decode_numeric(self, words):
+        NUM_MAP = "0123456789 U -)("
+        out = ""
+        for w in words:
+            for i in range(20, 0, -4):
+                nibble = (w >> (i - 3)) & 0xF
+                out += NUM_MAP[nibble] if nibble < len(NUM_MAP) else ""
+        return out.strip()
+
+
+# ── DSP ENGINE: ACARS ────────────────────────────────────────────────
+class AcarsDecoder:
+    """
+    ACARS Aviation data link decoder.
+    Detects AM-modulated ACARS bursts on 131.725 MHz (primary EU)
+    and other common ACARS frequencies. Runs on the SDRConnect IQ stream.
+    """
+    SOH  = 0x01
+    STX  = 0x02
+    ETX  = 0x03
+    DEL  = 0x7F
+    SYN  = 0x16
+
+    def __init__(self):
+        self.active   = False
+        self.buffer   = bytearray()
+        self.synced   = False
+        self.preamble = 0
+
+    def reset(self):
+        self.buffer   = bytearray()
+        self.synced   = False
+        self.preamble = 0
+
+    def process(self, iq):
+        """Bytes shim — used by SDRConnect path."""
+        data = np.frombuffer(iq, dtype='<i2').astype(np.float32) / 32768.0
+        self.process_iq(data[0::2] + 1j * data[1::2])
+
+    def process_iq(self, iq_c: np.ndarray):
+        """Core decode — accepts complex64 directly (OPT-6).
+        ACARS uses AM with 2400 baud FSK sub-carrier. Mark=1200 Hz, Space=2400 Hz."""
+        # OPT-3: Goertzel for ACARS mark/space — no arange/exp per call
+        mark  = _goertzel_power(iq_c, 1200, 48000)
+        space = _goertzel_power(iq_c, 2400, 48000)
+        bit   = 1 if mark > space else 0
+
+        self.buffer.append(bit)
+
+        # Keep to one frame max
+        if len(self.buffer) > 2048:
+            self.buffer = self.buffer[-256:]
+
+        # Look for ACARS preamble (alternating 1/0 bits) + SYN bytes
+        if len(self.buffer) >= 48:
+            self._try_decode()
+
+    def _try_decode(self):
+        # Reconstruct bytes from bit stream (LSB first, 8N2)
+        bits = list(self.buffer)
+        if len(bits) < 16:
+            return
+        byte_val = 0
+        for i in range(8):
+            byte_val |= bits[i] << i
+        byte_val &= 0x7F  # strip parity
+
+        if byte_val == self.SYN:
+            self.synced   = True
+            self.preamble += 1
+        elif self.synced and self.preamble >= 2:
+            # Attempt to extract a minimal ACARS frame
+            frame = self._extract_frame(bits)
+            if frame:
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_json({"type": "acars_message", **frame}), loop)
+            self.synced   = False
+            self.preamble = 0
+            self.buffer   = bytearray()
+
+    def _extract_frame(self, bits):
+        """Extract fields from raw bit stream and return structured dict."""
+        try:
+            raw = bytearray()
+            for i in range(0, min(len(bits), 256), 8):
+                chunk = bits[i:i+8]
+                if len(chunk) < 8:
+                    break
+                b = 0
+                for j, bit in enumerate(chunk):
+                    b |= bit << j
+                raw.append(b & 0x7F)
+
+            text = ''.join(chr(b) if 32 <= b < 127 else '.' for b in raw).strip()
+            if len(text) < 4:
+                return None
+
+            # Try to parse minimal ACARS fields: mode/addr/ack/label/block/msg
+            return {
+                "mode":    text[0:1] if len(text) > 0 else "?",
+                "tail":    text[1:8].strip() if len(text) > 7 else "?",
+                "ack":     text[8:9] if len(text) > 8 else "?",
+                "label":   text[9:11] if len(text) > 10 else "?",
+                "block":   text[11:12] if len(text) > 11 else "?",
+                "text":    text[12:].strip() if len(text) > 12 else text,
+                "time":    time.strftime("%H:%M:%S"),
+            }
+        except Exception:
+            return None
+
+
+# ── SIGINT ENGINE ─────────────────────────────────────────────────────
+
+# PyInstaller standalone: __file__ lives inside sys._MEIPASS (read-only temp dir).
+# Writable data (config, bookmarks, downloaded CSVs) must go to a persistent folder.
+# When frozen, use ~/Library/Application Support/DARKSKY NEXUS/ (macOS) or
+# %APPDATA%\DARKSKY NEXUS\ (Windows). When running as .py, use the script folder.
+def _get_data_dir() -> Path:
+    if getattr(sys, 'frozen', False):
+        if sys.platform == 'darwin':
+            base = Path.home() / 'Library' / 'Application Support' / 'DARKSKY NEXUS'
+        else:
+            base = Path(os.environ.get('APPDATA', Path.home())) / 'DARKSKY NEXUS'
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+    return Path(__file__).parent
+
+SCRIPT_DIR     = _get_data_dir()
+CONFIG_FILE    = SCRIPT_DIR / "darksky_config.json"
+BOOKMARKS_FILE = SCRIPT_DIR / "darksky_bookmarks.json"
+
+def load_bookmarks():
+    try:
+        if BOOKMARKS_FILE.exists():
+            data = json.loads(BOOKMARKS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+    except Exception as e:
+        log.warning(f"Bookmarks load failed: {e}")
+    return []
+
+def save_bookmarks(bm_list):
+    try:
+        BOOKMARKS_FILE.write_text(json.dumps(bm_list, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning(f"Bookmarks save failed: {e}")
+
+bookmarks = load_bookmarks()
+
+# ── LOGBOOK (Reporting tab, added w033) ─────────────────────────────────────
+# Same persisted-JSON-list pattern as bookmarks above (load/save/mutate a
+# module-level list, broadcast the whole list to every client after any
+# change). One entry = one loggable event — a QSO, an SWL reception report,
+# an FT8 decode, or any other "I heard/logged this" record a user or a
+# decoder wants captured. Deliberately generic (not FT8-specific, not
+# ham-QSO-specific) per the design brief: "every decode is a first-class
+# loggable object" and the logbook shouldn't be limited to one mode.
+#
+# LogEntry shape (all fields optional except id/timestamp — this is a log,
+# not a strict form; a manual SWL note may have no snr/grid at all):
+#   id:        str (uuid8, assigned server-side on first save)
+#   timestamp: str (ISO 8601 UTC, e.g. "2026-07-19T14:32:07Z")
+#   callsign:  str
+#   frequency: float (MHz)
+#   mode:      str (e.g. "FT8", "USB", "CW", "AM")
+#   snr:       float | None (dB)
+#   grid:      str (Maidenhead locator, may be empty)
+#   mission:   str (free-form tag — "FT8", "HF Utility", "Airband",
+#              "Marine VHF", "CW", "General", etc. — the frontend supplies
+#              a fixed palette but the backend never validates this field,
+#              so it stays extensible without a server update)
+#   notes:     str (free text; FT8 auto-populate builds a structured string
+#              here — country/band/distance/bearing/DT/raw message — but
+#              that's a frontend convention, not something this file parses)
+#   source:    str ("manual" or "auto") — which path created the entry,
+#              shown in the UI so auto-populated rows are visually distinct
+#              from hand-entered QSOs/reports, never used to gate behaviour
+LOGBOOK_FILE = SCRIPT_DIR / "darksky_logbook.json"
+
+def load_logbook():
+    try:
+        if LOGBOOK_FILE.exists():
+            data = json.loads(LOGBOOK_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+    except Exception as e:
+        log.warning(f"Logbook load failed: {e}")
+    return []
+
+def save_logbook(entries):
+    try:
+        LOGBOOK_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning(f"Logbook save failed: {e}")
+
+logbook = load_logbook()
+_compat_emitted = False
+
+# Compatibility: SDRPlay / SDRConnect handshake probe flag
+_COMPAT_EMITTED = False
+
+def load_config():
+    try:
+        if CONFIG_FILE.exists():
+            return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.warning(f"Config load failed: {e}")
+    return {}
+
+def save_config(data):
+    try:
+        CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning(f"Config save failed: {e}")
+
+config = load_config()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUILT-IN SIGNAL INTELLIGENCE DATABASE — utility/military/maritime/digital
+# Format: (freq_khz_lo, freq_khz_hi, name, mode, category, description)
+# ─────────────────────────────────────────────────────────────────────────────
+BUILTIN_SIGNALS = [
+    (2500,2500,'WWV','AM','time','NIST time signal, Fort Collins CO'),
+    (5000,5000,'WWV/WWVH','AM','time','NIST time signal 5MHz'),
+    (7850,7850,'CHU','USB','time','NRC Canada time signal'),
+    (10000,10000,'WWV/WWVH','AM','time','NIST time signal 10MHz'),
+    (14670,14670,'CHU','USB','time','NRC Canada time signal'),
+    (15000,15000,'WWV/WWVH','AM','time','NIST time signal 15MHz'),
+    (60,60,'MSF','CW','time','NPL UK time signal Anthorn'),
+    (77500,77500,'DCF77','AM','time','PTB Germany time signal'),
+    (3855,3855,'DWD Offenbach','USB','wefax','DWD weather fax'),
+    (4610,4610,'GYA Northwood','USB','wefax','RN Northwood WEFAX'),
+    (7880,7880,'GFA Northwood','USB','wefax','RN Northwood WEFAX'),
+    (8040,8040,'DDH Hamburg','USB','wefax','DWD Hamburg weather fax'),
+    (13882,13882,'NMF Boston','USB','wefax','NOAA NMF weather fax'),
+    (518,518,'NAVTEX','NAVTEX','maritime','International NAVTEX 518kHz'),
+    (490,490,'NAVTEX','NAVTEX','maritime','National NAVTEX 490kHz'),
+    (2182,2182,'MF Distress','USB','maritime','MF maritime distress calling'),
+    (4125,4125,'HF Distress','USB','maritime','HF maritime distress'),
+    (6215,6215,'HF Distress','USB','maritime','HF maritime distress'),
+    (8291,8291,'HF Distress','USB','maritime','HF maritime distress'),
+    (12290,12290,'HF Distress','USB','maritime','HF maritime distress'),
+    (14074,14074,'FT8 20m','USB','digital','FT8 weak signal digital mode'),
+    (7074,7074,'FT8 40m','USB','digital','FT8 40m'),
+    (10136,10136,'FT8 30m','USB','digital','FT8 30m'),
+    (21074,21074,'FT8 15m','USB','digital','FT8 15m'),
+    (28074,28074,'FT8 10m','USB','digital','FT8 10m'),
+    (14095,14095,'WSPR 20m','USB','digital','Weak signal propagation reporter'),
+    (7095,7095,'WSPR 40m','USB','digital','WSPR 40m'),
+    (5649,5649,'NAT-A MWARA','USB','aviation','N Atlantic MWARA controller'),
+    (8906,8906,'NAT-B MWARA','USB','aviation','N Atlantic oceanic HF'),
+    (8879,8879,'EUR-B MWARA','USB','aviation','Europe/Med oceanic HF'),
+    (11279,11279,'NAT-C MWARA','USB','aviation','N Atlantic oceanic HF'),
+    (8992,8992,'USAF GHFS','USB','military','US Air Force Global HF primary'),
+    (11175,11175,'USAF GHFS','USB','military','US Air Force Global HF secondary'),
+    (4724,4724,'USAF HF','USB','military','US Air Force global HF'),
+    (5765,5765,'M14 Lady','USB','numbers','Russian lady numbers station'),
+    (7887,7887,'V13 Cuban','AM','numbers','Cuban numbers station'),
+    (9120,9120,'E07a Czech','USB','numbers','Czech Lady numbers station'),
+]
+
+class SigIntEngine:
+    """Multi-source frequency database: EIBI, AOKI, SWSKEDS, HFCC, FMLIST, MWLIST, FMSCAN, USER"""
+    SOURCES = [
+        ("eibi.csv",        ";",  "EIBI",    "_parse_eibi"),
+        ("aoki.csv",        ",",  "AOKI",    "_parse_aoki"),
+        ("swskeds.csv",     ",",  "SWSKEDS", "_parse_swskeds"),
+        ("hfcc_sked.csv",   ",",  "HFCC",    "_parse_hfcc"),
+        ("fmlist_sked.csv", ";",  "FMLIST",  "_parse_fmlist"),
+        ("mwlist_sked.csv", ";",  "MWLIST",  "_parse_mwlist"),
+        ("fmscan_sked.csv", ";",  "FMSCAN",  "_parse_fmscan"),
+        ("user_sked.csv",   None, "USER",    "_parse_user"),
+    ]
+
+    def __init__(self):
+        self.db = []
+        self.source_stats = {}
+        self._load_from_disk()
+
+    def _load_from_disk(self):
+        self.db = []
+        self.source_stats = {}
+        for fname, sep, src, parser in self.SOURCES:
+            fpath = SCRIPT_DIR / fname
+            if fpath.exists():
+                try:
+                    raw = fpath.read_text(encoding='latin-1', errors='replace')
+                    records = getattr(self, parser)(raw, sep, src)
+                    self.db.extend(records)
+                    mtime = time.strftime("%Y-%m-%d", time.localtime(fpath.stat().st_mtime))
+                    self.source_stats[src] = {"entries": len(records), "date": mtime}
+                    log.info(f"Loaded {src}: {len(records)} records from {fname}")
+                except Exception as e:
+                    log.warning(f"Could not load {fname}: {e}")
+        if not self.db:
+            log.warning("SignalIntelDB: no local data files found. "
+                        "Use the DARKSKY refresh button to download EIBI/AOKI data.")
+
+    def _parse_eibi(self, raw, sep, src):
+        # Real eibispace header: kHz;Time(UTC);Days;ITU;Station;Lng;Target;Remarks;P;Start;Stop
+        # i.e. 0=kHz 1=Time(UTC) 2=Days 3=ITU 4=Station 5=Lng 6=Target 7=Remarks 8=P 9=Start 10=Stop
+        # (previously misread: station from p[6]/p[5], lang from p[4], target from p[5] — all off by one)
+        records = []
+        for line in raw.splitlines():
+            p = line.split(sep)
+            if len(p) < 7: continue
+            try:
+                freq_khz = float(p[0].strip())
+                if freq_khz <= 0: continue
+                records.append({
+                    "freq":    str(int(freq_khz)),
+                    "station": p[4].strip() or p[6].strip(),
+                    "lang":    p[5].strip(),
+                    "target":  p[6].strip(),
+                    "remarks": p[7].strip() if len(p) > 7 else "",
+                    "time_utc": p[1].strip() if len(p) > 1 else "",
+                    "days":     p[2].strip() if len(p) > 2 else "",
+                    "mode": "", "src": src,
+                })
+            except (ValueError, IndexError): continue
+        return records
+
+    def _parse_aoki(self, raw, sep, src):
+        records = []
+        for line in raw.splitlines():
+            p = line.split(sep)
+            if len(p) < 2: continue
+            try:
+                freq_khz = float(p[0].strip())
+                if freq_khz <= 0: continue
+                records.append({"freq": str(int(freq_khz)), "station": p[1].strip(),
+                                 "lang": p[2].strip() if len(p) > 2 else "",
+                                 "target": p[3].strip() if len(p) > 3 else "", "mode": "", "src": src})
+            except (ValueError, IndexError): continue
+        return records
+
+    def _parse_swskeds(self, raw, sep, src):
+        records = []
+        for line in raw.splitlines():
+            p = line.split(sep)
+            if len(p) < 2: continue
+            try:
+                freq_khz = float(p[0].strip().lstrip('\ufeff'))
+                if freq_khz <= 0: continue
+                records.append({"freq": str(int(freq_khz)), "station": p[1].strip(),
+                                 "lang": p[6].strip() if len(p) > 6 else "",
+                                 "target": p[7].strip() if len(p) > 7 else "",
+                                 "mode": p[2].strip() if len(p) > 2 else "", "src": src})
+            except (ValueError, IndexError): continue
+        return records
+
+    def _parse_hfcc(self, raw, sep, src):
+        records = []
+        lines = raw.splitlines()
+        start = 1 if lines and not lines[0][:1].isdigit() else 0
+        for line in lines[start:]:
+            p = line.split(sep)
+            if len(p) < 2: continue
+            try:
+                freq_khz = float(p[0].strip().lstrip('\ufeff'))
+                if freq_khz <= 0: continue
+                records.append({"freq": str(int(freq_khz)), "station": p[1].strip(),
+                                 "lang": p[3].strip() if len(p) > 3 else "",
+                                 "target": p[4].strip() if len(p) > 4 else "", "mode": "", "src": src})
+            except (ValueError, IndexError): continue
+        return records
+
+    def _parse_fmlist(self, raw, sep, src):
+        records = []
+        lines = raw.splitlines()
+        start = 1 if lines and not lines[0][:1].isdigit() else 0
+        delim = sep if sep else (";" if raw.count(";") > raw.count(",") else ",")
+        for line in lines[start:]:
+            p = line.split(delim)
+            if len(p) < 2: continue
+            try:
+                freq_mhz = float(p[0].strip().lstrip('\ufeff').replace(',', '.'))
+                if freq_mhz <= 0: continue
+                records.append({"freq": str(int(round(freq_mhz * 1000))), "station": p[1].strip(),
+                                 "lang": "", "target": p[2].strip() if len(p) > 2 else "",
+                                 "mode": "WFM", "src": src})
+            except (ValueError, IndexError): continue
+        return records
+
+    def _parse_mwlist(self, raw, sep, src):
+        records = []
+        lines = raw.splitlines()
+        start = 1 if lines and not lines[0][:1].isdigit() else 0
+        delim = sep if sep else (";" if raw.count(";") > raw.count(",") else ",")
+        for line in lines[start:]:
+            p = line.split(delim)
+            if len(p) < 2: continue
+            try:
+                freq_khz = float(p[0].strip().lstrip('\ufeff').replace(',', '.'))
+                if freq_khz <= 0: continue
+                records.append({"freq": str(int(freq_khz)), "station": p[1].strip(),
+                                 "lang": "", "target": p[2].strip() if len(p) > 2 else "",
+                                 "mode": "AM", "src": src})
+            except (ValueError, IndexError): continue
+        return records
+
+    def _parse_fmscan(self, raw, sep, src):
+        """FMSCAN userlist format: semicolon-delimited with multi-line text preamble.
+        Freq at col 0 (kHz), country at col 1, lang at col 2, station name at col 3,
+        location at col 5. Covers MW/SW/VLF (userlist1.csv) and VHF/FM DX lists."""
+        records = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # Data rows start with a digit or '.' — skip all preamble text lines
+            if not (line[0].isdigit() or line[0] == '.'):
+                continue
+            p = line.split(';')
+            if len(p) < 4:
+                continue
+            try:
+                freq_khz = float(p[0].replace(',', '.'))
+                if freq_khz <= 0:
+                    continue
+                name     = p[3].strip() or p[1].strip()
+                location = p[5].strip() if len(p) > 5 else ''
+                country  = p[1].strip() if len(p) > 1 else ''
+                lang     = p[2].strip() if len(p) > 2 else ''
+                mode     = 'WFM' if freq_khz >= 30000 else 'AM'
+                records.append({
+                    'freq':     str(int(round(freq_khz))),
+                    'station':  name,
+                    'lang':     lang,
+                    'target':   country,
+                    'location': location,
+                    'mode':     mode,
+                    'src':      src,
+                })
+            except (ValueError, IndexError):
+                continue
+        return records
+
+    def _parse_user(self, raw, sep, src):
+        records = []
+        lines = [l for l in raw.splitlines() if l.strip()]
+        if not lines: return records
+        delim = ";" if lines[0].count(";") > lines[0].count(",") else ","
+        headers = [h.strip().lower() for h in lines[0].split(delim)]
+        freq_col = next((i for i, h in enumerate(headers)
+                         if h in ("freq_mhz","freq_khz","freq","frequency","mhz","khz","f")), None)
+        name_col = next((i for i, h in enumerate(headers)
+                         if h in ("name","station","service","label","title","description")), None)
+        if freq_col is None: return records
+        is_mhz = "mhz" in headers[freq_col]
+        for line in lines[1:]:
+            p = line.split(delim)
+            if len(p) <= freq_col: continue
+            try:
+                freq_val = float(p[freq_col].strip().replace(',', '.'))
+                if freq_val <= 0: continue
+                freq_khz = int(round(freq_val * 1000)) if is_mhz else int(freq_val)
+                station = p[name_col].strip() if name_col is not None and len(p) > name_col else "User"
+                records.append({"freq": str(freq_khz), "station": station,
+                                 "lang": "", "target": "", "mode": "", "src": src})
+            except (ValueError, IndexError): continue
+        return records
+
+    @staticmethod
+    def _schedule_active(time_utc, days):
+        """Return True/False if we can confidently tell whether a schedule slot is
+        active right now (UTC), or None if the slot is always-on or unparseable
+        (e.g. ordinal-weekday '2.Su' or one-off dates like '2Jul' — too irregular
+        to resolve without a year/locale; better to stay neutral than hide a
+        possibly-live station)."""
+        time_utc = (time_utc or "").strip()
+        days = (days or "").strip()
+        if not time_utc or time_utc == "0000-2400":
+            return None  # always on, or no schedule info — don't penalize
+        m = re.match(r'^(\d{2})(\d{2})-(\d{2})(\d{2})$', time_utc)
+        if not m:
+            return None
+        sh, sm, eh, em = (int(x) for x in m.groups())
+        start_min = sh * 60 + sm
+        end_min   = eh * 60 + em
+        now = time.gmtime()
+        now_min = now.tm_hour * 60 + now.tm_min
+        # Days: blank = daily; digit string of ISO weekdays (1=Mon..7=Sun) e.g. '1235'.
+        # Ordinal ('2.Su') or specific dates ('2Jul') are left unresolved (return None
+        # for day-match, not False) since misreading those would wrongly hide a station.
+        if days and days.isdigit():
+            iso_today = now.tm_wday + 1  # tm_wday: Mon=0..Sun=6 -> ISO Mon=1..Sun=7
+            if str(iso_today) not in days:
+                return False
+        elif days and not days.isdigit():
+            return None  # can't confidently resolve ordinal/specific-date tokens
+        if start_min <= end_min:
+            return start_min <= now_min < end_min
+        else:  # overnight wrap, e.g. 2300-0100
+            return now_min >= start_min or now_min < end_min
+
+    def lookup(self, hz):
+        f_k = hz / 1000.0  # kHz float
+        results = []
+
+        # ── Search EIBI/AOKI CSV database (broadcast schedules) ──────
+        for r in self.db:
+            try:
+                r_khz = float(r['freq'])
+                dist_khz = abs(r_khz - f_k)
+                if dist_khz <= 5:
+                    active = self._schedule_active(r.get('time_utc', ''), r.get('days', ''))
+                    if active is False:
+                        strength = 'weak'      # off-air per schedule — demote, don't hide
+                    elif active is True:
+                        strength = 'strong' if dist_khz <= 3 else 'medium'  # confirmed on-air
+                    else:
+                        strength = 'strong' if dist_khz <= 1 else 'medium' if dist_khz <= 3 else 'weak'
+                    results.append({
+                        "freq":     round(r_khz / 1000.0, 6),
+                        "name":     r.get('station', r.get('name', '—')),
+                        "type":     r.get('type', r.get('mode', r.get('src', ''))),
+                        "notes":    r.get('notes', r.get('lang', '')),
+                        "strength": strength,
+                        "src":      r.get('src', 'EIBI'),
+                        "schedule": r.get('time_utc', r.get('schedule', r.get('sched', ''))),
+                        "location": r.get('location', r.get('target', '')),
+                        "on_air":   active,  # True/False/None(unknown or always-on)
+                    })
+            except (ValueError, KeyError):
+                continue
+
+        # ── Search built-in signal intelligence database ─────────────
+        # Covers utility/military/data/maritime signals EIBI doesn't have
+        for (lo_k, hi_k, name, mode, category, desc) in BUILTIN_SIGNALS:
+            if lo_k <= f_k <= hi_k or abs(lo_k - f_k) <= 5 or abs(hi_k - f_k) <= 5:
+                freq_khz = lo_k if lo_k == hi_k else (lo_k + hi_k) / 2
+                dist_khz = abs(freq_khz - f_k)
+                if dist_khz <= 5 or lo_k <= f_k <= hi_k:
+                    results.append({
+                        "freq":     round(freq_khz / 1000.0, 6),
+                        "name":     name,
+                        "type":     mode,
+                        "notes":    category,
+                        "strength": 'strong' if dist_khz <= 1 else 'medium' if dist_khz <= 3 else 'weak',
+                        "src":      "SigDB",
+                        "schedule": "",
+                        "location": desc,
+                    })
+
+        # Rank confirmed off-air schedules (on_air is False) behind everything else
+        # at comparable distance, instead of treating them as equally relevant.
+        results.sort(key=lambda x: (1 if x.get('on_air') is False else 0, abs(x['freq'] * 1000 - f_k)))
+        return results[:25]
+
+    def status(self):
+        sources_list = [{"name": s, "entries": v["entries"], "date": v["date"]}
+                        for s, v in self.source_stats.items()]
+        # Provide eibi_entries and eibi_date that the JS db_status handler expects
+        eibi_stat  = self.source_stats.get("EIBI", {})
+        aoki_stat  = self.source_stats.get("AOKI", {})
+        total_eibi = eibi_stat.get("entries", 0) + aoki_stat.get("entries", 0)
+        eibi_date  = eibi_stat.get("date", aoki_stat.get("date", ""))
+        return {
+            "records":      len(self.db),
+            "sources":      sources_list,
+            "eibi_entries": total_eibi,
+            "eibi_date":    eibi_date,
+        }
+
+
+
+
+
+# ── AIS DECODER & UDP SERVER ──────────────────────────────────────────
+
+def _ais_decode_payload(payload_str: str, fill_bits: int = 0):
+    """Decode a 6-bit ASCII-armoured AIS payload. Returns dict or None."""
+    bits = []
+    for ch in payload_str:
+        v = ord(ch) - 48
+        if v > 40:
+            v -= 8
+        for i in range(5, -1, -1):
+            bits.append((v >> i) & 1)
+    if fill_bits:
+        bits = bits[:-fill_bits] if fill_bits < len(bits) else bits
+
+    def get_uint(s, l):
+        return int(''.join(str(b) for b in bits[s:s+l]), 2) if s+l <= len(bits) else 0
+
+    def get_int(s, l):
+        v = get_uint(s, l)
+        return (v - (1 << l)) if (l > 0 and bits[s] == 1) else v
+
+    def get_text(s, l):
+        chars = []
+        for i in range(s, s+l, 6):
+            c = get_uint(i, 6)
+            chars.append(chr(64+c) if 1 <= c <= 26 else ('@' if c == 0 else chr(c) if 32 <= c <= 63 else ' '))
+        return ''.join(chars).rstrip('@').strip()
+
+    if len(bits) < 6:
+        return None
+    msg_type = get_uint(0, 6)
+    r = {'msg_type': msg_type}
+
+    # BUGFIX (June 2026, AIS Marine tab audit): the frontend's updateAISDisplay()/
+    # vessel table/ship-icon-rotation/popup all read v.speed, v.course, v.heading,
+    # v.status, v.destination (documented in the AIS DECODER UI comment block in
+    # the HTML as the intended ais_update payload shape) — but this function was
+    # emitting sog/cog/hdg instead, and never extracted nav status or destination
+    # at all. Net effect: speed/course always showed "—", every ship icon rendered
+    # pointing the same direction (heading/course both undefined → fallback 0),
+    # and the popup's "v.speed.toFixed(1)" call would throw on undefined. Renamed
+    # to match the documented/consumed contract and added the two missing fields
+    # rather than touch every frontend read site.
+    if msg_type in (1, 2, 3):
+        if len(bits) < 168: return None
+        r['mmsi'] = str(get_uint(8, 30))
+        r['status'] = get_uint(38, 4)
+        sog = get_uint(50, 10); r['speed'] = round(sog*0.1,1) if sog != 1023 else None
+        lon = get_int(61, 28);  r['lon'] = round(lon/600000.0,6) if abs(lon) < 108000000 else None
+        lat = get_int(89, 27);  r['lat'] = round(lat/600000.0,6) if abs(lat) < 54600000  else None
+        cog = get_uint(116,12); r['course'] = round(cog*0.1,1) if cog != 3600 else None
+        hdg = get_uint(128, 9); r['heading'] = hdg if hdg != 511 else None
+    elif msg_type == 4:
+        # Type 4: Base Station Report. Same 168-bit length and mmsi/lon/lat
+        # layout family as 1/2/3/18, but the middle of the message is a UTC
+        # timestamp (year/month/day/hour/min/sec) instead of nav-status/SOG,
+        # so the lon/lat bit offsets differ from all the mobile-station types.
+        # BUGFIX (2026-07-17, "AIS shows MMSI but nothing else" investigation):
+        # this type wasn't decoded at all -- fell through to `else: return
+        # None` below -- even though it CRC-checks fine and is one of the most
+        # common broadcasts near any coastline (every base station repeats it
+        # every ~10s). Confirmed via the [AIS-DIAG] msg_types histogram: with
+        # only 8/10/12 implemented (none of which carry position -- by spec,
+        # not a bug), 176 of 482 real CRC-OK frames in one live session
+        # weren't being counted/shown anywhere at all. Adding this recovers a
+        # real position (the base station's, not a vessel's) for a big chunk
+        # of that previously-invisible traffic.
+        if len(bits) < 168: return None
+        r['mmsi'] = str(get_uint(8, 30))
+        lon = get_int(79, 28);  r['lon'] = round(lon/600000.0,6) if abs(lon) < 108000000 else None
+        lat = get_int(107, 27); r['lat'] = round(lat/600000.0,6) if abs(lat) < 54600000  else None
+        r['station_type'] = 'base'
+    elif msg_type == 18:
+        if len(bits) < 168: return None
+        r['mmsi'] = str(get_uint(8, 30))
+        sog = get_uint(46, 10); r['speed'] = round(sog*0.1,1) if sog != 1023 else None
+        lon = get_int(57, 28);  r['lon'] = round(lon/600000.0,6) if abs(lon) < 108000000 else None
+        lat = get_int(85, 27);  r['lat'] = round(lat/600000.0,6) if abs(lat) < 54600000  else None
+        cog = get_uint(112,12); r['course'] = round(cog*0.1,1) if cog != 3600 else None
+        hdg = get_uint(124, 9); r['heading'] = hdg if hdg != 511 else None
+    elif msg_type == 5:
+        if len(bits) < 426: return None
+        r['mmsi']        = str(get_uint(8, 30))
+        r['callsign']    = get_text(70, 42)
+        r['name']        = get_text(112, 120)
+        r['ship_type']   = get_uint(232, 8)
+        if len(bits) >= 422:
+            r['destination'] = get_text(302, 120)
+    elif msg_type == 24:
+        r['mmsi'] = str(get_uint(8, 30))
+        part = get_uint(38, 2)
+        r['part'] = part
+        if part == 0 and len(bits) >= 158:
+            r['name'] = get_text(40, 120)
+        elif part == 1 and len(bits) >= 162:
+            r['ship_type'] = get_uint(40, 8)
+            r['callsign']  = get_text(90, 42)
+    elif msg_type == 10:
+        # Type 10: UTC/Date Inquiry -- just a source/destination MMSI pair,
+        # no nav/text fields at all (ported from ais_decoder_dev.py's
+        # _decode_payload_bits_via_sixbit, native-decoder verification task).
+        if len(bits) < 72: return None
+        r['mmsi'] = str(get_uint(8, 30))
+        r['dest_mmsi'] = str(get_uint(40, 30))
+    elif msg_type == 12:
+        # Type 12: Addressed Safety-Related Message. Source/dest MMSI pair
+        # (same layout as type 10's first 70 bits) plus a variable-length
+        # 6-bit-ASCII safety text payload starting at bit 72 -- reuses
+        # get_text() (the same helper type 5's destination/callsign already
+        # use) rather than duplicating 6-bit-ASCII decode logic.
+        if len(bits) < 72: return None
+        r['mmsi'] = str(get_uint(8, 30))
+        r['seq_num'] = get_uint(38, 2)
+        r['dest_mmsi'] = str(get_uint(40, 30))
+        r['retransmit'] = bool(get_uint(70, 1))
+        text_len = len(bits) - 72
+        r['safety_text'] = get_text(72, text_len) if text_len > 0 else ''
+    elif msg_type == 8:
+        # Type 8: Binary Broadcast Message. DAC+FID identify the
+        # application; the application-specific payload itself is out of
+        # scope here, so it's just exposed as raw hex for diagnostics.
+        if len(bits) < 56: return None
+        r['mmsi'] = str(get_uint(8, 30))
+        r['dac'] = get_uint(40, 10)
+        r['fid'] = get_uint(50, 6)
+        data_bits = bits[56:]
+        if data_bits:
+            n_full_bytes = len(data_bits) // 8
+            data_bytes = bytearray(n_full_bytes)
+            for i in range(n_full_bytes):
+                byte_bits = data_bits[i*8:(i+1)*8]
+                v = 0
+                for bit in byte_bits:
+                    v = (v << 1) | bit
+                data_bytes[i] = v
+            r['data_hex'] = bytes(data_bytes).hex()
+        else:
+            r['data_hex'] = ''
+    else:
+        return None
+    return r
+
+
+def _ais_parse_nmea(sentence: str):
+    sentence = sentence.strip()
+    if not sentence.startswith(('!AIVDM', '!AIVDO', 'AIVDM', 'AIVDO')):
+        return None
+    if '*' in sentence:
+        sentence = sentence[:sentence.index('*')]
+    p = sentence.split(',')
+    if len(p) < 7:
+        return None
+    try:
+        return {
+            'fragment_count': int(p[1]),
+            'fragment_num':   int(p[2]),
+            'msg_id':         p[3],
+            'channel':        p[4],
+            'payload':        p[5],
+            'fill_bits':      int(p[6]) if p[6].isdigit() else 0,
+        }
+    except (ValueError, IndexError):
+        return None
+
+
+def _ais_process_sentence(sentence: str):
+    parsed = _ais_parse_nmea(sentence)
+    if not parsed:
+        return None
+    if parsed['fragment_count'] == 1:
+        return _ais_decode_payload(parsed['payload'], parsed['fill_bits'])
+    key = (parsed['msg_id'], parsed['channel'])
+    if key not in _ais_fragments:
+        _ais_fragments[key] = {}
+    _ais_fragments[key][parsed['fragment_num']] = (parsed['payload'], parsed['fill_bits'])
+    if len(_ais_fragments[key]) == parsed['fragment_count']:
+        frags = _ais_fragments.pop(key)
+        combined, fill = '', 0
+        for i in range(1, parsed['fragment_count']+1):
+            combined += frags[i][0]; fill = frags[i][1]
+        if len(_ais_fragments) > 32:
+            del _ais_fragments[next(iter(_ais_fragments))]
+        return _ais_decode_payload(combined, fill)
+    return None
+
+
+def _ais_mmsi_plausible(mmsi: str) -> bool:
+    """Reject MMSIs that cannot be a real, ITU-assigned identity at all.
+
+    Added 2026-07-18 after a user-provided VesselFinder screenshot showed a
+    real, confirmed vessel (MMSI 316003140, a valid Cayman Islands MID)
+    transmitting live and visibly nearby, completely absent from NEXUS's
+    own 38-vessel list -- while most of what NEXUS WAS showing had MIDs
+    structurally impossible under the ITU numbering scheme entirely (e.g.
+    119xxxxxx, 120xxxxxx, 848xxxxxx, 790xxxxxx -- confirmed against
+    navcen.uscg.gov's MMSI Formats page: ship MIDs are 201-775, AIS AtoN
+    stations use 99MIDxxxx with the same 201-775 MID range). Whether those
+    came from a genuine decode bug or a CRC false-accept on non-AIS
+    content, either way they're not real vessels and shouldn't be shown as
+    ones. This intentionally does NOT try to validate every special-purpose
+    prefix (group ship 0MIDxxxxx, coast station 00MIDxxxx, SAR aircraft
+    111MIDxxx, craft-of-parent-ship 98MIDxxxx, SART/MOB/EPIRB 970/972/974)
+    -- only the two shapes actually seen in practice here, ordinary ship
+    MMSIs and AIS AtoN, to avoid false-rejecting a legitimate but rarer
+    category this hasn't been specifically checked against."""
+    if len(mmsi) != 9 or not mmsi.isdigit():
+        return False
+    mid_str = mmsi[2:5] if mmsi[:2] == '99' else mmsi[:3]
+    try:
+        mid = int(mid_str)
+    except ValueError:
+        return False
+    return 201 <= mid <= 775
+
+
+def _ais_update_vessel(decoded: dict):
+    mmsi = decoded.get('mmsi')
+    if not mmsi or not _ais_mmsi_plausible(mmsi):
+        return None
+    vessel = dict(ais_vessels.get(mmsi, {}))
+    vessel['mmsi'] = mmsi
+    vessel.setdefault('first_seen', time.time())
+    vessel['last_seen'] = time.time()
+    # DIAG (2026-07-18, "reference decoder comparison" — user is running
+    # AIS-catcher side-by-side via NEXUS's existing UDP:10110 path, replaying
+    # a REC IQ capture, to test whether it recovers message types the native
+    # decoder doesn't). Both _decode_segment() (native) and
+    # _AisUdpProtocol.datagram_received() (AIS-catcher/UDP) tag their
+    # `decoded` dict with 'decoder_source' before calling here. Track every
+    # source that's ever produced this MMSI (not just the most recent) so
+    # the frontend can show e.g. "native only" vs "native+udp" vs "udp only"
+    # at a glance -- that's the whole point of running both concurrently.
+    src = decoded.get('decoder_source')
+    if src:
+        sources = set(vessel.get('decoder_sources', []))
+        sources.add(src)
+        vessel['decoder_sources'] = sorted(sources)
+    # Free hit against aisstream.io's persistent store (2026-07-18) --
+    # a vessel this MMSI already resolved via the live feed in a *previous*
+    # session gets its name/callsign/etc back instantly here too, without
+    # needing aisstream.io reconnected or this MMSI re-subscribed.
+    if not vessel.get('name'):
+        cached_as = _ais_aisstream_store_get(mmsi)
+        if cached_as:
+            vessel.update({k: v for k, v in cached_as.items() if k != 'resolved_at'})
+            vessel['name_source'] = 'aisstream'
+    mt = decoded.get('msg_type')
+    if mt == 4:
+        # Base station, not a vessel -- tag it so the frontend/map can tell
+        # the two apart (no speed/course/name will ever arrive for this MMSI).
+        for k in ('lat', 'lon'):
+            if decoded.get(k) is not None:
+                vessel[k] = decoded[k]
+        vessel['station_type'] = 'base'
+    elif mt in (1, 2, 3, 18):
+        # BUGFIX (June 2026): field names aligned to speed/course/heading —
+        # see _ais_decode_payload() comment. 'status' (nav status) only sent
+        # for types 1/2/3, not 18 (Class B position reports carry no status field).
+        for k in ('lat', 'lon', 'speed', 'course', 'heading', 'status'):
+            if decoded.get(k) is not None:
+                vessel[k] = decoded[k]
+    elif mt == 5:
+        for k in ('name', 'callsign', 'ship_type', 'destination'):
+            if decoded.get(k) is not None:
+                vessel[k] = decoded[k]
+    elif mt == 24:
+        if decoded.get('part') == 0 and decoded.get('name'):
+            vessel['name'] = decoded['name']
+        elif decoded.get('part') == 1:
+            for k in ('ship_type', 'callsign'):
+                if decoded.get(k) is not None:
+                    vessel[k] = decoded[k]
+    ais_vessels[mmsi] = vessel
+    return mmsi
+
+
+async def _ais_broadcast():
+    await broadcast_json({
+        "type":    "ais_update",
+        "vessels": list(ais_vessels.values()),
+        "count":   len(ais_vessels),
+    })
+
+
+async def _ais_expire_vessels():
+    cutoff = time.time() - AIS_EXPIRE_SECS
+    stale = [m for m, v in ais_vessels.items() if v.get('last_seen', 0) < cutoff]
+    if stale:
+        for m in stale:
+            del ais_vessels[m]
+        await _ais_broadcast()
+
+
+# ── AIS: aisstream.io live feed merge + client task ─────────────────────
+# REMOVED (2026-07-18, user request): this file previously also had
+# _ais_vesselapi_fetch(), _ais_check_key_expiry(), and _ais_lookup_poller()
+# here -- VesselAPI's per-MMSI REST lookup background task. aisstream.io
+# below is now the only online vessel-enrichment source.
+# Message-type names/fields per aisstream.io's own documented models
+# (aisstream.io/documentation) -- note these are aisstream's OWN json
+# encoding of AIS messages (already unit-converted floats for Sog/Cog, no
+# 0.1 scaling like the raw-bit decoder above needs), not a re-use of
+# _ais_decode_payload()'s ITU-R-numbered msg_type/field convention.
+def _aisstream_apply_message(message_type: str, body: dict, meta: dict):
+    """Merge one aisstream.io message into ais_vessels. Returns the MMSI
+    string on a real update, or None if this message type isn't one we map
+    to vessel-table fields, it has no usable station ID, or (BUGFIX,
+    2026-07-18, "key added, nothing coming through") it's an MMSI NEXUS
+    isn't already tracking.
+
+    That last check matters for a subtle reason: _resubscribe_if_due()
+    below must send *some* subscription within 3s of connecting or
+    aisstream.io closes the connection outright -- but ais_vessels is
+    always empty at the very start of every AIS session (ais_stop clears
+    it, and a fresh session hasn't decoded anything yet), so there's
+    nothing to put in FiltersShipMMSI yet. The fix sends an unfiltered
+    subscription in that case (see below) rather than silently sending
+    nothing and letting the connection get closed -- but an unfiltered
+    aisstream.io subscription is the entire world's live AIS traffic
+    (~300 msg/s per their docs), and without this guard every one of those
+    would create a brand-new, unwanted vessel-table entry. Restricting
+    merges to MMSIs already present in ais_vessels keeps the "enrich only
+    what NEXUS itself has heard" design intent intact even during that
+    bootstrap window."""
+    uid = body.get('UserID', meta.get('MMSI'))
+    if uid is None:
+        return None
+    mmsi = str(uid)
+    if mmsi not in ais_vessels:
+        return None
+
+    vessel = dict(ais_vessels.get(mmsi, {}))
+    vessel['mmsi'] = mmsi
+    vessel.setdefault('first_seen', time.time())
+    vessel['last_seen'] = time.time()
+
+    if message_type in ('PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'):
+        lat = body.get('Latitude');  lon = body.get('Longitude')
+        if lat is not None and abs(lat) <= 90:  vessel['lat'] = lat
+        if lon is not None and abs(lon) <= 180: vessel['lon'] = lon
+        sog = body.get('Sog')
+        if sog is not None and sog < 102.3: vessel['speed'] = sog
+        cog = body.get('Cog')
+        if cog is not None and cog < 360.0: vessel['course'] = cog
+        hdg = body.get('TrueHeading')
+        if hdg is not None and hdg != 511: vessel['heading'] = hdg
+        if 'NavigationalStatus' in body:
+            vessel['status'] = body['NavigationalStatus']
+        if message_type == 'ExtendedClassBPositionReport' and body.get('Name'):
+            vessel['name'] = body['Name'].strip()
+            vessel['name_source'] = 'aisstream'
+    elif message_type == 'ShipStaticData':
+        if body.get('Name'):
+            vessel['name'] = body['Name'].strip()
+            vessel['name_source'] = 'aisstream'
+        if body.get('CallSign'):         vessel['callsign'] = body['CallSign'].strip()
+        if body.get('Type') is not None: vessel['ship_type'] = body['Type']
+        if body.get('Destination'):      vessel['destination'] = body['Destination'].strip()
+    elif message_type == 'StaticDataReport':
+        if body.get('PartNumber'):   # True = Part B (callsign/type), False = Part A (name)
+            rb = body.get('ReportB') or {}
+            if rb.get('CallSign'):            vessel['callsign'] = rb['CallSign'].strip()
+            if rb.get('ShipType') is not None: vessel['ship_type'] = rb['ShipType']
+        else:
+            ra = body.get('ReportA') or {}
+            if ra.get('Name'):
+                vessel['name'] = ra['Name'].strip()
+                vessel['name_source'] = 'aisstream'
+    elif message_type == 'BaseStationReport':
+        lat = body.get('Latitude');  lon = body.get('Longitude')
+        if lat is not None and abs(lat) <= 90:  vessel['lat'] = lat
+        if lon is not None and abs(lon) <= 180: vessel['lon'] = lon
+        vessel['station_type'] = 'base'
+    elif message_type == 'AidsToNavigationReport':
+        lat = body.get('Latitude');  lon = body.get('Longitude')
+        if lat is not None and abs(lat) <= 90:  vessel['lat'] = lat
+        if lon is not None and abs(lon) <= 180: vessel['lon'] = lon
+        if body.get('Name'):
+            vessel['name'] = body['Name'].strip()
+            vessel['name_source'] = 'aisstream'
+        vessel['station_type'] = 'aton'
+    else:
+        return None   # message type not mapped -- e.g. binary/interrogation/DLM traffic
+
+    # aisstream.io's own MetaData carries a cross-referenced ShipName even on
+    # messages that don't themselves include one (e.g. a PositionReport from
+    # a vessel whose ShipStaticData some OTHER receiver in their network
+    # picked up) -- free name fill without needing the matching static-data
+    # message to arrive on this same connection.
+    if not vessel.get('name') and meta.get('ShipName'):
+        vessel['name'] = meta['ShipName'].strip()
+        vessel['name_source'] = 'aisstream'
+
+    ais_vessels[mmsi] = vessel
+    return mmsi
+
+
+async def _aisstream_persist_durable(mmsi: str):
+    """Save only the FIXED/durable fields of ais_vessels[mmsi] to the
+    persistent aisstream store (2026-07-18) -- see AIS_AISSTREAM_STORE_FILE
+    comment for why dynamic fields (lat/lon/speed/course) are deliberately
+    excluded for moving vessels. Called after every applied aisstream.io
+    message so a name/callsign that arrives on message N is saved even if
+    the vessel later drops off before a "complete" record ever exists --
+    each durable field persists as soon as it's known, independently."""
+    vessel = ais_vessels.get(mmsi)
+    if not vessel:
+        return
+    durable = {k: vessel[k] for k in _AISSTREAM_DURABLE_FIELDS if vessel.get(k) is not None}
+    if vessel.get('station_type') in ('base', 'aton') and vessel.get('lat') is not None:
+        durable['lat'] = vessel['lat']
+        durable['lon'] = vessel['lon']
+        durable['station_type'] = vessel['station_type']
+    if not durable:
+        return
+    # Merge with whatever's already stored rather than overwrite -- a
+    # PositionReport-only update this call shouldn't erase a name saved by
+    # an earlier ShipStaticData message for the same MMSI.
+    existing = await asyncio.get_running_loop().run_in_executor(
+        None, _ais_aisstream_store_get, mmsi) or {}
+    merged = dict(existing)
+    merged.update(durable)
+    await asyncio.get_running_loop().run_in_executor(
+        None, _ais_aisstream_store_put, mmsi, merged)
+
+
+async def _aisstream_client():
+    """Background task: persistent connection to aisstream.io's global AIS
+    feed, cross-referencing MMSIs NEXUS has already heard (even if only via
+    message types with no name/position, e.g. 8/10/12) against every other
+    receiver in aisstream's network that's heard the same vessel's fuller
+    broadcasts. Fully opt-in -- no-ops without a configured key.
+
+    This is one persistent WebSocket subscription, periodically refreshed (subject to
+    AIS_AISSTREAM_RESUB_SECS) with whichever up-to-AIS_AISSTREAM_MAX_MMSI
+    MMSIs currently lack a name or position -- swapped via a fresh
+    subscription message, aisstream's own documented update mechanism
+    (resending on the same connection *replaces*, rather than merges with,
+    the previous filter list, per their docs)."""
+    import websockets
+    import ssl as _ssl
+    # BUGFIX (2026-07-18, "40+ vessels, still zero aisstream data"): first
+    # live run after the import fix above surfaced a *different* error on
+    # every attempt -- CERTIFICATE_VERIFY_FAILED: unable to get local issuer
+    # certificate. Same root cause as the EIBI/AOKI HTTPS downloader
+    # elsewhere in this file (search '_download_eibi') -- on macOS, a
+    # python.org-installed Python doesn't use the system certificate store
+    # by default, so any wss:// / https:// connection with the default SSL
+    # context fails unless the user has separately run "Install
+    # Certificates.command". This is the first wss:// (TLS) connection in
+    # this file -- sdr_bridge()'s own websockets.connect() only ever talks
+    # to a local, unencrypted ws:// endpoint, so it never hit this. Matching
+    # the existing convention already accepted for EIBI/AOKI rather than
+    # adding a new dependency (e.g. certifi).
+    _aisstream_ssl_ctx = _ssl.create_default_context()
+    _aisstream_ssl_ctx.check_hostname = False
+    _aisstream_ssl_ctx.verify_mode = _ssl.CERT_NONE
+    backoff = 5
+    while True:
+        if not AIS_AISSTREAM_KEY or not state.get('ais_active', False):
+            await asyncio.sleep(5)
+            continue
+        try:
+            async with websockets.connect(AIS_AISSTREAM_URL, ssl=_aisstream_ssl_ctx) as ws:
+                log.info("AIS: connected to aisstream.io")
+                backoff = 5
+                last_mmsi_set = None
+                last_resub = 0.0
+                # DIAG (2026-07-18, "40+ vessels tracked, still zero aisstream
+                # data" report): with no per-message counters, a live terminal
+                # paste couldn't distinguish "connection/subscription still
+                # broken" from "subscribed fine, but aisstream.io genuinely has
+                # no traffic for any of these specific MMSIs" (plausible given
+                # several turned out to have non-standard/invalid MIDs -- see
+                # CHANGELOG). These counters ride along on the existing
+                # resubscribe log line so one terminal paste settles it.
+                recv_count = 0
+                match_count = 0
+
+                def _needs_enrichment():
+                    return [m for m, v in ais_vessels.items()
+                            if not v.get('name') or v.get('lat') is None]
+
+                async def _apply_free_hits(mmsi_list):
+                    """Check the persistent store (2026-07-18) for each MMSI
+                    that still needs enrichment before spending one of the
+                    50 subscription slots on it -- a vessel this MMSI
+                    resolved in a *previous* session comes back instantly
+                    here with zero network involvement, and (this is the
+                    actual point) never occupies a slot a genuinely new,
+                    still-unknown MMSI could use instead."""
+                    still_needed = []
+                    any_hit = False
+                    for m in mmsi_list:
+                        cached = await asyncio.get_running_loop().run_in_executor(
+                            None, _ais_aisstream_store_get, m)
+                        if cached:
+                            vessel = dict(ais_vessels.get(m, {}))
+                            vessel['mmsi'] = m
+                            vessel.setdefault('first_seen', time.time())
+                            vessel.setdefault('last_seen', time.time())
+                            vessel.update({k: v for k, v in cached.items() if k != 'resolved_at'})
+                            vessel['name_source'] = 'aisstream'
+                            ais_vessels[m] = vessel
+                            any_hit = True
+                        else:
+                            still_needed.append(m)
+                    if any_hit:
+                        await _ais_broadcast()
+                    return still_needed
+
+                async def _resubscribe_if_due(force=False):
+                    nonlocal last_mmsi_set, last_resub
+                    now = time.time()
+                    # BUGFIX (2026-07-18, "key added, nothing coming through"):
+                    # this used to `return` here immediately whenever `wanted`
+                    # came out empty -- which it always does on the very
+                    # first check of every session, since ais_vessels starts
+                    # empty (ais_stop clears it) and nothing's been RF-decoded
+                    # yet. That meant NO subscription message was ever sent
+                    # within aisstream.io's required 3-second window on
+                    # essentially every connection attempt, so it closed the
+                    # connection every time -- an invisible, permanent
+                    # reconnect loop that never once delivered data.
+                    # Fix, two parts:
+                    #  1. Send *something* even when `wanted` is empty --
+                    #     omit FiltersShipMMSI entirely rather than send an
+                    #     empty list (their docs mark it optional; an empty
+                    #     list's semantics aren't documented and risk being
+                    #     read as "match nothing" instead of "no filter").
+                    #     Safe to do now that _aisstream_apply_message() only
+                    #     merges MMSIs already in ais_vessels -- an unfiltered
+                    #     subscription's firehose of unrelated global traffic
+                    #     gets silently ignored instead of flooding the table.
+                    #  2. Skip the normal 30s throttle entirely until a real
+                    #     (non-empty) filter has been sent at least once, so
+                    #     the unfiltered window lasts only until the first
+                    #     vessel is RF-decoded (typically seconds), not up to
+                    #     a full AIS_AISSTREAM_RESUB_SECS.
+                    bootstrapping = not last_mmsi_set
+                    if not force and not bootstrapping and (now - last_resub) < AIS_AISSTREAM_RESUB_SECS:
+                        return
+                    candidates = await _apply_free_hits(_needs_enrichment())
+                    wanted = tuple(sorted(set(candidates) | {AIS_AISSTREAM_DIAG_TEST_MMSI}))[:AIS_AISSTREAM_MAX_MMSI]
+                    last_resub = now
+                    if not force and wanted == last_mmsi_set:
+                        return
+                    sub = {"APIKey": AIS_AISSTREAM_KEY,
+                           "BoundingBoxes": [[[-90, -180], [90, 180]]]}
+                    if wanted:
+                        sub["FiltersShipMMSI"] = list(wanted)
+                    await ws.send(json.dumps(sub))
+                    last_mmsi_set = wanted
+                    nonlocal recv_count, match_count
+                    stats = f"(received={recv_count} matched={match_count} since last check)"
+                    if wanted:
+                        log.info(f"AIS: aisstream.io subscription updated -- {len(wanted)} MMSI(s) {stats}")
+                    else:
+                        log.info(f"AIS: aisstream.io subscribed (no MMSIs to filter on yet -- "
+                                 f"unfiltered until NEXUS RF-decodes at least one) {stats}")
+                    recv_count = 0
+                    match_count = 0
+
+                # Subscription message must be sent within 3s of connecting
+                # or aisstream.io closes the connection -- always send
+                # something immediately, even with nothing to filter on yet.
+                await _resubscribe_if_due(force=True)
+
+                # BUGFIX (2026-07-18, "no close frame received or sent" on
+                # every single connection, every ~5s): the previous version
+                # wrapped ws.recv() in asyncio.wait_for(..., timeout=5.0) to
+                # periodically check whether a resubscribe was due even with
+                # no incoming traffic. Cancelling a pending recv() this way
+                # is a known problem with the websockets library -- the
+                # cancellation doesn't always cleanly abort the underlying
+                # read, leaving the connection's internal state corrupted,
+                # which then surfaces as exactly this error on the NEXT
+                # read/write. The failure timing (consistently ~5s after
+                # every connect, matching the timeout value exactly) was the
+                # tell. Fixed by never cancelling recv(): a separate
+                # concurrent task now drives the periodic resubscribe check
+                # on its own timer, while this loop does a plain, uninterrupted
+                # `await ws.recv()`.
+                async def _periodic_resubscribe():
+                    while True:
+                        await asyncio.sleep(5)
+                        await _resubscribe_if_due()
+
+                resub_task = asyncio.ensure_future(_periodic_resubscribe())
+                try:
+                    while True:
+                        if not state.get('ais_active', False):
+                            break   # outer loop idles until AIS is reactivated
+                        raw = await ws.recv()
+                        try:
+                            parsed = json.loads(raw)
+                        except Exception:
+                            continue
+                        if 'error' in parsed:
+                            log.warning(f"AIS: aisstream.io error: {parsed['error']}")
+                            continue
+                        mtype = parsed.get('MessageType')
+                        body  = (parsed.get('Message') or {}).get(mtype, {})
+                        meta  = parsed.get('MetaData') or {}
+                        if mtype and body:
+                            recv_count += 1
+                            # TEMPORARY DIAGNOSTIC -- see AIS_AISSTREAM_DIAG_TEST_MMSI.
+                            # Logged before the normal apply-message call (which will
+                            # correctly ignore this MMSI, since it's not one of the
+                            # user's own tracked vessels) so we get positive proof
+                            # the receive pipeline works, independent of that gate.
+                            _diag_uid = str(body.get('UserID', meta.get('MMSI', '')))
+                            if _diag_uid == AIS_AISSTREAM_DIAG_TEST_MMSI:
+                                log.info(f"AIS-DIAG-TEST: received real aisstream.io "
+                                         f"data for known-active test MMSI "
+                                         f"{AIS_AISSTREAM_DIAG_TEST_MMSI} (MessageType="
+                                         f"{mtype}) -- receive pipeline confirmed working")
+                            mmsi = _aisstream_apply_message(mtype, body, meta)
+                            if mmsi:
+                                match_count += 1
+                                await _aisstream_persist_durable(mmsi)
+                                await _ais_broadcast()
+                finally:
+                    resub_task.cancel()
+                    try:
+                        await resub_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+        except Exception as exc:
+            log.warning(f"AIS: aisstream.io connection error: {exc}")
+        await asyncio.sleep(backoff)
+        backoff = min(backoff * 2, 60)
+
+
+class _AisUdpProtocol(asyncio.DatagramProtocol):
+    def __init__(self):
+        self.transport = None
+
+    def connection_made(self, transport):
+        self.transport = transport
+        log.info(f"AIS: UDP listener bound on port {state.get('ais_port', AIS_UDP_PORT)}")
+
+    def datagram_received(self, data, addr):
+        try:
+            text = data.decode('ascii', errors='ignore')
+        except Exception:
+            return
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                decoded = _ais_process_sentence(line)
+                if decoded:
+                    decoded['decoder_source'] = 'udp'   # see _ais_update_vessel() DIAG note
+                    if _ais_update_vessel(decoded):
+                        asyncio.get_running_loop().create_task(_ais_broadcast())
+            except Exception as e:
+                log.debug(f"AIS decode error: {e}")
+
+    def error_received(self, exc):
+        log.debug(f"AIS UDP error: {exc}")
+
+    def connection_lost(self, exc):
+        log.info("AIS: UDP listener stopped")
+
+
+async def ais_udp_server():
+    """Long-running task: manages the AIS UDP listener and vessel expiry."""
+    global _ais_udp_server
+    transport      = None
+    last_expire    = 0.0
+    last_port      = None
+
+    while True:
+        active = state.get('ais_active', False)
+        port   = state.get('ais_port', AIS_UDP_PORT)
+
+        if active and (transport is None or port != last_port):
+            if transport is not None:
+                transport.close()
+                transport = None
+            try:
+                loop = asyncio.get_running_loop()
+                transport, _ = await loop.create_datagram_endpoint(
+                    _AisUdpProtocol, local_addr=('0.0.0.0', port))
+                _ais_udp_server = transport
+                last_port = port
+                await broadcast_json({"type": "ais_status", "running": True,
+                                      "port": port, "count": len(ais_vessels)})
+            except OSError as exc:
+                log.warning(f"AIS: UDP bind failed on port {port}: {exc}")
+                await broadcast_json({"type": "ais_error",
+                                      "msg": f"Cannot bind UDP port {port}: {exc}"})
+                state['ais_active'] = False
+
+        elif not active and transport is not None:
+            transport.close()
+            transport = None
+            _ais_udp_server = None
+            last_port = None
+            ais_vessels.clear()
+            _ais_fragments.clear()
+            await broadcast_json({"type": "ais_status", "running": False, "count": 0})
+
+        now = time.time()
+        if active and (now - last_expire) >= 60:
+            await _ais_expire_vessels()
+            last_expire = now
+
+        await asyncio.sleep(1)
+
+
+# ── AIS NATIVE GMSK DECODER ────────────────────────────────────────────
+# Ported from ais_decoder_dev.py (standalone dev/verification file, w026)
+# after cross-confirming CRC-OK frames + consistent MMSIs across 3 separate
+# real 161.975MHz AIS captures. Inlined here (rather than imported) to
+# match the existing convention in this file -- MorseDecoder/RttyDecoder
+# above are likewise defined directly in w030_NEXUS.py, not imported
+# from a separate module.
+#
+# Pipeline: FM-discriminate raw IQ -> resample to 48kHz/5-sps grid ->
+# low-pass filter (matched to GMSK symbol rate) -> zero-crossing PLL
+# clock recovery + NRZI decode -> HDLC frame sync/destuff/CRC-16 check ->
+# re-armour CRC-OK payload bytes into 6-bit ASCII and decode via the
+# real _ais_decode_payload() above (no separate copy of that bit-layout
+# logic is kept here, to avoid drift between dev and production).
+
+def _ais_bits_to_bytes(bits: np.ndarray) -> bytes:
+    """Pack a bit array into bytes, LSB-first per byte (AIS/HDLC transmit
+    convention)."""
+    n_bytes = len(bits) // 8
+    out = bytearray(n_bytes)
+    for i in range(n_bytes):
+        byte_bits = bits[i*8:(i+1)*8]
+        v = 0
+        for bitpos, b in enumerate(byte_bits):
+            v |= (int(b) << bitpos)
+        out[i] = v
+    return bytes(out)
+
+
+def _ais_crc16_x25(data: bytes) -> int:
+    """CRC-16/X.25 (CRC-16/CCITT, poly 0x1021 reflected = 0x8408), AIS's
+    frame check sequence per ITU-R M.1371 (same FCS as HDLC/PPP)."""
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 1:
+                crc = (crc >> 1) ^ 0x8408
+            else:
+                crc >>= 1
+    return crc ^ 0xFFFF
+
+
+def _ais_bytes_to_sixbit_ascii(payload: bytes):
+    """Re-armour raw AIS payload bytes (post-HDLC, pre-armour) into the
+    6-bit-ASCII string + fill_bits that _ais_decode_payload() expects, so
+    the native decoder reuses the existing, already-correct payload parser
+    instead of duplicating its bit-layout logic. Returns (sixbit_str, fill_bits)."""
+    bits = []
+    for byte in payload:
+        for bitpos in range(8):
+            bits.append((byte >> bitpos) & 1)
+
+    fill_bits = (6 - (len(bits) % 6)) % 6
+    bits = bits + [0] * fill_bits
+
+    chars = []
+    for i in range(0, len(bits), 6):
+        v = 0
+        for b in bits[i:i+6]:
+            v = (v << 1) | b
+        v += 8 if v > 39 else 0
+        chars.append(chr(v + 48))
+    return ''.join(chars), fill_bits
+
+
+class AisDecoder:
+    """
+    Native AIS GMSK/HDLC decoder, ported near-literally from rtl-ais
+    (github.com/dgiardini/rtl-ais, GPL v2 -- (c) Ruben Undheim & Heikki
+    Hannikainen 2008, later AISDecoder/AISHub fork), the mature, widely
+    deployed RTL-SDR AIS receiver. Consumes complex IQ directly (the same
+    _fiq_c tap CW/RTTY decoders use) and produces decoded message dicts
+    via the existing, independently-validated _ais_decode_payload().
+
+    REBUILT FROM SCRATCH (2026-07-19, user request: "strip out the ais
+    decoder completely, and rebuild from scratch knowing all you have
+    learned so far ... if a better solution is to implement a known
+    sourcecode that works then do so, but do not use ais catcher"). Two
+    things this session found are now gone for good: NEXUS's own
+    from-scratch design (energy-gated burst segmentation + Gaussian-
+    matched filter + bang-bang PLL + a batch/rescan HDLC frame-finder),
+    and the AisCatcherBridge subprocess wrapper around the external
+    AIS-catcher project (explicitly excluded per this instruction). In
+    their place, this class ports rtl-ais's actual, proven front end and
+    framing logic bit-for-bit rather than inventing another design:
+
+      * receiver.c's 36-tap fixed FIR receive filter (exact coefficients
+        below) applied to the FM-discriminated signal.
+      * receiver.c's fixed-point zero-crossing PLL bit-sync + inline NRZI
+        decode (pllinc = 0x10000/5, nudge divisor 16 -- rtl-ais's own
+        tuned constants, unchanged).
+      * protodec.c's streaming HDLC state machine (ST_SKURR / ST_PREAMBLE
+        / ST_STARTSIGN / ST_DATA / ST_STOPSIGN), including its exact
+        bit-destuffing (antallenner threshold of 4 consecutive repeated
+        1-bits) and its CRC-via-magic-residual check (pack payload+FCS
+        together, standard CRC-16/X.25, valid iff result == 0x0f47).
+
+    This is architecturally the SAME non-coherent FM-discriminator family
+    as NEXUS's old design, not a coherent detector like AIS-catcher -- the
+    point of this port is a far more battle-tested, decade-proven
+    implementation of that family (real deployed bug fixes and tuned
+    constants), not a sensitivity-improving architecture change. rtl-ais's
+    own downstream NMEA-sentence text generation (protodec_getdata /
+    protodec_generate_nmea) is deliberately NOT ported -- once a frame
+    passes the CRC check here, its raw destuffed payload bits are handed
+    to NEXUS's own already-validated _ais_bits_to_bytes() /
+    _ais_bytes_to_sixbit_ascii() / _ais_decode_payload() pipeline (these
+    three were confirmed correct against real captures earlier in this
+    project and are untouched by this rebuild).
+
+    Runs as one continuous streaming receiver (no burst/energy gating --
+    rtl-ais itself runs continuously over a live audio stream with no
+    squelch, relying on the framing state machine + CRC to reject noise;
+    porting that same streaming model is simpler and more faithful than
+    re-adding NEXUS's own bespoke burst segmentation on top of it).
+
+    Calling convention matches every other decoder in this file: .active
+    flag, .reset(), process_iq(self, iq_c, sr=48000).
+    """
+
+    AIS_BAUD   = 9600
+    TARGET_SPS = 5                      # rtl-ais assumes 5 samples/symbol (pllinc = 0x10000/5)
+    TARGET_SR  = AIS_BAUD * TARGET_SPS  # 48000 Hz
+
+    # 36-tap fixed receive FIR, ported verbatim from rtl-ais's receiver.c
+    # (static float coeffs[36]) -- applied to the FM-discriminated signal
+    # before bit-slicing.
+    _COEFFS = np.array([
+        2.5959e-55, 2.9479e-49, 1.4741e-43, 3.2462e-38, 3.1480e-33,
+        1.3443e-28, 2.5280e-24, 2.0934e-20, 7.6339e-17, 1.2259e-13,
+        8.6690e-11, 2.6996e-08, 3.7020e-06, 2.2355e-04, 5.9448e-03,
+        6.9616e-02, 3.5899e-01, 8.1522e-01, 8.1522e-01, 3.5899e-01,
+        6.9616e-02, 5.9448e-03, 2.2355e-04, 3.7020e-06, 2.6996e-08,
+        8.6690e-11, 1.2259e-13, 7.6339e-17, 2.0934e-20, 2.5280e-24,
+        1.3443e-28, 3.1480e-33, 3.2462e-38, 1.4741e-43, 2.9479e-49,
+        2.5959e-55,
+    ], dtype=np.float64)
+
+    PLL_INC       = 0x10000 // TARGET_SPS  # rtl-ais: rx->pllinc = 0x10000/5
+    PLL_NUDGE_DIV = 16                     # rtl-ais: #define INC 16
+
+    # protodec.h state constants (ported verbatim)
+    ST_SKURR     = 1
+    ST_PREAMBLE  = 2
+    ST_STARTSIGN = 3
+    ST_DATA      = 4
+    ST_STOPSIGN  = 5
+    DEMOD_BUFFER_LEN = 450   # protodec.h DEMOD_BUFFER_LEN; buffer cap 449 -> reset
+
+    def __init__(self):
+        self.active = False
+        # FM-discriminator continuity across process_iq() calls
+        self._last_iq = None
+        # persistent FIR filter state (mirrors rtl-ais's single continuously
+        # running filter/circular buffer -- receiver_run() is called
+        # repeatedly against the same struct filter *rx->filter)
+        self._filt_zi = None
+        self._resamp_ratio = None   # (up, down, src_sr) cache
+        # PLL / bit-slicer state (receiver.c: rx->pll, rx->prev, rx->lastbit)
+        self._pll = 0
+        self._prev = 0
+        self._lastbit = 0
+        self._samplenum = 0
+        # protodec streaming HDLC state (protodec.c demod_state_t)
+        self._pd_buffer = [0] * self.DEMOD_BUFFER_LEN
+        self._protodec_reset()
+
+        self._pending_vessel_updates = []
+        self.frames_seen = 0
+        self.frames_crc_ok = 0
+        self.msg_type_counts = {}      # {msg_type_int: count} -- successfully-decoded frames only
+        self.all_msg_type_counts = {}  # {msg_type_int: count} -- every CRC-OK frame, decoded or not
+        # RF-overload/clipping diagnostic (kept from the pre-rebuild native
+        # decoder -- still useful, decoder-agnostic front-end health check,
+        # surfaced in the periodic [AIS-DIAG] log line at the call site).
+        self.clip_samples = 0
+        self.total_samples = 0
+        self.max_abs_iq = 0.0
+        # DC-block filter state (see process_iq() BUGFIX comment, 2026-07-20)
+        self._dc_zi = None
+        self._dc_R = None
+        self._dc_sr_cached = None
+
+    def reset(self):
+        self._last_iq = None
+        self._filt_zi = None
+        self._resamp_ratio = None
+        self._pll = 0
+        self._prev = 0
+        self._lastbit = 0
+        self._samplenum = 0
+        self._pd_buffer = [0] * self.DEMOD_BUFFER_LEN
+        self._protodec_reset()
+        self._pending_vessel_updates = []
+        self.frames_seen = 0
+        self.frames_crc_ok = 0
+        self.msg_type_counts = {}
+        self.all_msg_type_counts = {}
+        self.clip_samples = 0
+        self.total_samples = 0
+        self.max_abs_iq = 0.0
+        self._dc_zi = None
+        self._dc_R = None
+        self._dc_sr_cached = None
+
+    # ── protodec.c streaming HDLC state machine (ported near-literally) ──
+    def _protodec_reset(self):
+        self._pd_state = self.ST_SKURR
+        self._pd_nskurr = 0
+        self._pd_ndata = 0
+        self._pd_npreamble = 0
+        self._pd_nstartsign = 0
+        self._pd_antallpreamble = 0
+        self._pd_antallenner = 0
+        self._pd_last = 0
+        self._pd_bitstuff = 0
+        self._pd_bufferpos = 0
+
+    def _protodec_decode_bit(self, bit: int):
+        """One HDLC bit at a time (already NRZI-decoded), ported verbatim
+        from protodec.c's protodec_decode(). `self._pd_last` is updated to
+        `bit` unconditionally at the end, matching the C function's
+        `d->last = in[i];` which runs after the switch regardless of which
+        case fired (every in-branch assignment to d->last in the original
+        sets it to that same value, so folding it into one line here is
+        behaviourally identical, just simpler)."""
+        st = self._pd_state
+
+        if st == self.ST_DATA:
+            if self._pd_bitstuff:
+                if bit == 1:
+                    self._pd_state = self.ST_STOPSIGN
+                    self._pd_ndata = 0
+                    self._pd_bitstuff = 0
+                else:
+                    self._pd_ndata += 1
+                    self._pd_bitstuff = 0
+            else:
+                if bit == self._pd_last and bit == 1:
+                    self._pd_antallenner += 1
+                    if self._pd_antallenner == 4:
+                        self._pd_bitstuff = 1
+                        self._pd_antallenner = 0
+                else:
+                    self._pd_antallenner = 0
+                if self._pd_bufferpos < len(self._pd_buffer):
+                    self._pd_buffer[self._pd_bufferpos] = bit
+                self._pd_bufferpos += 1
+                self._pd_ndata += 1
+                if self._pd_bufferpos >= 449:
+                    self._protodec_reset()
+
+        elif st == self.ST_SKURR:
+            if bit != self._pd_last:
+                self._pd_antallpreamble += 1
+            else:
+                self._pd_antallpreamble = 0
+            if self._pd_antallpreamble > 14 and bit == 0:
+                self._pd_state = self.ST_PREAMBLE
+                self._pd_nskurr = 0
+                self._pd_antallpreamble = 0
+            self._pd_nskurr += 1
+
+        elif st == self.ST_PREAMBLE:
+            if bit != self._pd_last and self._pd_nstartsign == 0:
+                self._pd_antallpreamble += 1
+            else:
+                if bit == 1:
+                    if self._pd_nstartsign == 0:
+                        self._pd_nstartsign = 3
+                    elif self._pd_nstartsign == 5:
+                        self._pd_nstartsign += 1
+                        self._pd_npreamble = 0
+                        self._pd_antallpreamble = 0
+                        self._pd_state = self.ST_STARTSIGN
+                    else:
+                        self._pd_nstartsign += 1
+                else:
+                    if self._pd_nstartsign == 0:
+                        self._pd_nstartsign = 1
+                    else:
+                        self._protodec_reset()
+            self._pd_npreamble += 1
+
+        elif st == self.ST_STARTSIGN:
+            if self._pd_nstartsign >= 7:
+                if bit == 0:
+                    self._pd_state = self.ST_DATA
+                    self._pd_nstartsign = 0
+                    self._pd_antallenner = 0
+                    self._pd_buffer = [0] * self.DEMOD_BUFFER_LEN
+                    self._pd_bufferpos = 0
+                else:
+                    self._protodec_reset()
+            elif bit == 0:
+                self._protodec_reset()
+            self._pd_nstartsign += 1
+
+        elif st == self.ST_STOPSIGN:
+            self.frames_seen += 1
+            bufferlength = self._pd_bufferpos - 6 - 16
+            if bit == 0 and bufferlength > 0:
+                if self._protodec_check_crc(bufferlength):
+                    self.frames_crc_ok += 1
+                    self._protodec_getdata(bufferlength)
+            self._protodec_reset()
+
+        self._pd_last = bit
+
+    def _protodec_check_crc(self, bufferlength: int) -> bool:
+        """Ported from protodec_calculate_crc(): pack (payload+FCS) bits
+        into bytes LSB-first (length_bytes = bufferlength//8, +2 more bytes
+        for the trailing 16-bit FCS -- an integer-truncating formula ported
+        exactly as rtl-ais has it, warts included), run the standard
+        CRC-16/X.25 over the combined bytes, and accept iff the result
+        equals the fixed residual 0x0f47 (mathematically the same check as
+        computing CRC(payload) and comparing to the received FCS, just
+        expressed the way the reference implementation does it)."""
+        if bufferlength <= 0:
+            return False
+        length_bytes = bufferlength // 8
+        if length_bytes <= 0:
+            return False
+        buflen = length_bytes + 2
+        needed_bits = buflen * 8
+        if needed_bits > len(self._pd_buffer):
+            return False
+        bits = np.asarray(self._pd_buffer[:needed_bits], dtype=np.uint8)
+        data_bytes = _ais_bits_to_bytes(bits)
+        crc = _ais_crc16_x25(data_bytes)
+        return crc == 0x0f47
+
+    def _protodec_getdata(self, bufferlength: int):
+        """Ported from protodec_getdata(): extract the destuffed payload
+        bits (any trailing sub-byte remainder beyond length_bytes*8 is
+        zero-padded, matching rtl-ais's own rbuffer-memset-then-partial-
+        fill behaviour in protodec_calculate_crc()), then hand off to
+        NEXUS's existing, already-validated bytes->sixbit-ASCII->field
+        parser pipeline instead of re-deriving rtl-ais's own NMEA-specific
+        bit-reversal/packing logic."""
+        length_bytes = bufferlength // 8
+        bits = self._pd_buffer[:length_bytes * 8] + [0] * (bufferlength - length_bytes * 8)
+        payload_bytes = _ais_bits_to_bytes(np.asarray(bits, dtype=np.uint8))
+        sixbit_str, fill_bits = _ais_bytes_to_sixbit_ascii(payload_bytes)
+        if not sixbit_str:
+            return
+
+        _raw_mt = ord(sixbit_str[0]) - 48
+        if _raw_mt > 40: _raw_mt -= 8
+        self.all_msg_type_counts[_raw_mt] = self.all_msg_type_counts.get(_raw_mt, 0) + 1
+
+        decoded = _ais_decode_payload(sixbit_str, fill_bits)
+        if decoded:
+            mt = decoded.get('msg_type')
+            self.msg_type_counts[mt] = self.msg_type_counts.get(mt, 0) + 1
+            decoded['decoder_source'] = 'native'
+            self._pending_vessel_updates.append(decoded)
+
+    # ── receiver.c front end: FM-discriminate -> resample -> FIR -> PLL ──
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
+        """Feed one chunk of complex IQ. Runs continuously (no burst
+        gating, matching rtl-ais's own always-on streaming model) and
+        feeds every recovered bit into the protodec state machine above.
+
+        The whole body is wrapped in try/except: a per-packet decoder
+        exception raised inside the shared rx() coroutine's
+        asyncio.gather(rx(), tx()) kills the *entire* SDRConnect bridge,
+        not just this decoder -- a real crash class confirmed twice this
+        session (PocsagDecoder's missing `sr` kwarg; the since-removed
+        AisCatcherBridge.feed_iq()'s unguarded resample_poly). Any failure
+        here logs once and resets decoder state instead of propagating."""
+        if not _HAVE_SCIPY or iq_c is None or len(iq_c) == 0:
+            return
+        try:
+            iq_c = np.asarray(iq_c, dtype=np.complex64)
+
+            # RF-overload/clipping diagnostic -- measured on this raw
+            # incoming chunk only, so re-scanned samples can't inflate it.
+            mag = np.abs(iq_c)
+            self.total_samples += len(mag)
+            m = float(mag.max())
+            if m > self.max_abs_iq:
+                self.max_abs_iq = m
+            self.clip_samples += int(np.count_nonzero(mag > 0.90))
+
+            # BUGFIX (2026-07-20, user report: "i have dc spike on the ais
+            # freq"). ais_dec.process_iq() is fed the raw Full-IQ tap
+            # (_fiq_c) completely unmixed -- unlike RTTY/CW it gets no
+            # vfo_offset_hz correction at all, so AIS is decoded straight
+            # off whatever sits at the hardware LO's center (see the call
+            # site, ~9108). Zero-IF/direct-conversion SDRs (RSPdx included)
+            # always show a small residual DC/LO-leakage term exactly at
+            # that center -- SDRplay's own API has automatic DC-offset/IQ-
+            # imbalance calibration and SDRConnect already runs it, but that
+            # only zeroes the RECEIVER's own internal offset; it can't
+            # remove the fact that anything sitting on the LO -- including
+            # this spike -- always lands at exactly 0 Hz baseband. Tuning
+            # AIS directly on 161.975/162.025 MHz (as the user does) puts
+            # that spike right on top of the channel being decoded. Because
+            # the FM discriminator below is a nonlinear product
+            # (s[n]*conj(s[n-1])), a strong stationary DC term doesn't just
+            # add a fixed bias -- it beats against the real signal and can
+            # dominate the discriminator output entirely, corrupting the
+            # zero-crossing PLL/slicer well before CRC gets a chance to
+            # reject anything (the same class of bug documented in rtl-ais's
+            # own README, which is why it tells users not to center-tune
+            # directly on the channel of interest).
+            #   Fix: a persistent one-pole complex DC-block high-pass
+            # (y[n] = x[n] - x[n-1] + R*y[n-1]), applied to the raw IQ
+            # *before* the discriminator, with R derived from `sr` each call
+            # so the cutoff stays ~50 Hz regardless of what sample rate the
+            # Full-IQ tap is running at (varies a lot -- unlike the fixed
+            # 22050 Hz multimon-ng DC block elsewhere in this file). 50 Hz
+            # is comfortably below AIS's 9600-baud/±4.8kHz GMSK signal band,
+            # so this removes the spike without meaningfully touching real
+            # signal energy.
+            if sr != self._dc_sr_cached:
+                _dc_fc = 50.0  # Hz
+                self._dc_R = 1.0 - (2 * np.pi * _dc_fc / sr)
+                self._dc_sr_cached = sr
+                self._dc_zi = np.zeros(1, dtype=np.complex128)
+            iq_dc, self._dc_zi = _scipy_signal.lfilter(
+                [1.0, -1.0], [1.0, -self._dc_R],
+                iq_c.astype(np.complex128), zi=self._dc_zi)
+            iq_c = iq_dc.astype(np.complex64)
+
+            # continuous FM discriminator (quadrature demod), carrying the
+            # last sample from the previous call so the phase-difference
+            # calc doesn't glitch at chunk boundaries.
+            if self._last_iq is not None:
+                full = np.concatenate([[self._last_iq], iq_c])
+            else:
+                full = iq_c
+            self._last_iq = iq_c[-1]
+            if len(full) < 2:
+                return
+            prod = full[1:] * np.conj(full[:-1])
+            demod = np.angle(prod).astype(np.float64)
+
+            # resample onto rtl-ais's assumed 5-samples/symbol grid
+            # (48kHz @ 9600 baud)
+            if abs(sr - self.TARGET_SR) > 1e-6:
+                if self._resamp_ratio is None or self._resamp_ratio[2] != sr:
+                    from fractions import Fraction
+                    frac = Fraction(self.TARGET_SR / sr).limit_denominator(1000)
+                    self._resamp_ratio = (frac.numerator, frac.denominator, sr)
+                up, down, _ = self._resamp_ratio
+                demod = _scipy_signal.resample_poly(demod, up, down)
+
+            if len(demod) == 0:
+                return
+
+            # rtl-ais's 36-tap fixed receive FIR, persistent filter state
+            # carried across calls (mirrors the C's single continuously
+            # running circular-buffer filter).
+            if self._filt_zi is None:
+                self._filt_zi = np.zeros(len(self._COEFFS) - 1)
+            filtered, self._filt_zi = _scipy_signal.lfilter(
+                self._COEFFS, [1.0], demod, zi=self._filt_zi)
+
+            # fixed-point zero-crossing PLL + NRZI decode, ported verbatim
+            # from receiver.c's receiver_run().
+            pll, prev, lastbit = self._pll, self._prev, self._lastbit
+            pllinc = self.PLL_INC
+            for out in filtered:
+                self._samplenum += 1
+                curr = 1 if out > 0 else 0
+                if curr != prev:
+                    if pll < 0x8000:
+                        pll += pllinc // self.PLL_NUDGE_DIV
+                    else:
+                        pll -= pllinc // self.PLL_NUDGE_DIV
+                prev = curr
+                pll += pllinc
+                if pll > 0xFFFF:
+                    bit = 1 if out > 0 else 0
+                    b = 1 if (bit == lastbit) else 0
+                    self._protodec_decode_bit(b)
+                    lastbit = bit
+                    pll &= 0xFFFF
+            self._pll, self._prev, self._lastbit = pll, prev, lastbit
+        except Exception as exc:
+            log.warning(f'AisDecoder.process_iq() error ({exc!r}) -- resetting decoder state')
+            self.reset()
+
+    def drain_vessel_updates(self):
+        """Return and clear any decoded AIS message dicts produced since
+        the last call. Caller feeds each one to _ais_update_vessel()."""
+        out = self._pending_vessel_updates
+        self._pending_vessel_updates = []
+        return out
+
+
+# rtl-ais's 32-bit fixed-point PLL/AGC constants, ported to a float
+# [0, TICKS_PER_PLL_CYCLE) representation for AisDecoderDireWolf below.
+_DW_TICKS_PER_PLL_CYCLE = 256.0 ** 4
+_DW_PLL_LOCKED_INERTIA = 0.89
+_DW_PLL_SEARCHING_INERTIA = 0.67
+_DW_LOCK_AFTER = 20
+_DW_AGC_REF_SR = 48000.0
+_DW_AGC_FAST_ATTACK_REF = 0.080
+_DW_AGC_SLOW_DECAY_REF = 0.00012
+_DW_KI = 0.005                 # empirically best from ground-truth BER sweep
+_DW_MAX_FREQ_OFFSET_FRAC = 0.02
+
+
+def _dw_rate_scaled_alpha(alpha_ref: float, sr: float, sr_ref: float = _DW_AGC_REF_SR) -> float:
+    """Rescale a one-pole IIR smoothing factor tuned at sr_ref so the same
+    REAL-TIME (wall-clock) time constant holds at the actual sample rate sr."""
+    return 1.0 - (1.0 - alpha_ref) ** (sr / sr_ref)
+
+
+def _dw_agc(x: np.ndarray, fast_attack: float, slow_decay: float, peak0=0.0, valley0=0.0):
+    n = len(x)
+    out = np.empty(n, dtype=np.float64)
+    peak, valley = peak0, valley0
+    for i in range(n):
+        v = x[i]
+        if v >= peak:
+            peak = v * fast_attack + peak * (1.0 - fast_attack)
+        else:
+            peak = v * slow_decay + peak * (1.0 - slow_decay)
+        if v <= valley:
+            valley = v * fast_attack + valley * (1.0 - fast_attack)
+        else:
+            valley = v * slow_decay + valley * (1.0 - slow_decay)
+        if peak > valley:
+            out[i] = (v - 0.5 * (peak + valley)) / (peak - valley)
+        else:
+            out[i] = 0.0
+    return out, peak, valley
+
+
+class AisDecoderDireWolf:
+    """
+    Experimental second AIS front end, ported from Dire Wolf's demod_9600.c
+    (github.com/wb2osz/direwolf, multi-slicer 9600-baud GMSK demodulator --
+    AIS mode skips G3RUH descrambling, same as IL2P mode) and run IN
+    PARALLEL with AisDecoder above, not as a replacement for it.
+
+    ADDED 2026-07-19 (w033 fork -- "id like to experiment" research
+    thread): AisDecoder (rtl-ais port) uses a single simple bang-bang
+    zero-crossing PLL. Dire Wolf's own design differs in two ways that
+    might catch frames AisDecoder's simpler PLL misses under marginal
+    SNR: (1) NUM_SLICES parallel HDLC decoders, each biased by a slightly
+    different DC offset (slice_point), so a frame can lock on whichever
+    slice happens to sit closest to the true decision threshold for that
+    burst; (2) an interpolated zero-crossing PLL with a Type-2 (phase +
+    frequency) loop, so it tracks the actual observed symbol rate instead
+    of assuming nominal 9600 baud is exactly right.
+
+    Reuses AisDecoder's already-validated _COEFFS (36-tap FIR),
+    TARGET_SR (48000), and _protodec_* HDLC/CRC backend directly (one
+    full AisDecoder instance per slice, used purely for its protodec
+    state machine + frame decode -- this class supplies its own
+    FM-discriminate/AGC/PLL front end instead of AisDecoder's).
+
+    Two rate-dependent bugs were found and fixed before this was
+    considered production-worthy, both via ground-truth bit-level
+    comparison against AisDecoder's own confirmed-correct bit stream on
+    real captures:
+      * AGC time constants (dw_agc's fast_attack/slow_decay) were tuned
+        by Dire Wolf assuming ~48kHz internal audio; applied unscaled at
+        native 125/250kHz they settle too fast in wall-clock terms --
+        fixed via _dw_rate_scaled_alpha().
+      * The 36-tap FIR (borrowed from AisDecoder) assumes input already
+        resampled to 48kHz/5-samples-per-symbol; applied directly to
+        native-rate discriminator output its real-Hz bandwidth is
+        proportionally too wide (~2.6x at 125kHz, ~5.2x at 250kHz) --
+        fixed by resampling to AisDecoder.TARGET_SR before filtering,
+        same signal-chain order AisDecoder itself uses.
+    After both fixes, validated against production AisDecoder on 3 real
+    WAV captures: exact CRC-OK match on 2 of 3 (9/9 at 125kHz, 7/7 at
+    250kHz on a file that was totally broken -- 0 candidates -- before
+    the fixes); on the 3rd (a low-amplitude, max|iq|=0.008 capture) it
+    found 13 CRC-OK frames / 8 unique MMSIs vs AisDecoder's 12 frames /
+    9 MMSIs -- 7 MMSIs in common, each decoder catching some the other
+    missed. Not a strict superset of AisDecoder, which is why this runs
+    ALONSIDE it (both feed the same _ais_update_vessel()/ais_vessels
+    merge-by-MMSI path AisDecoder and the UDP/aisstream sources already
+    use) rather than replacing it.
+
+    Calling convention matches AisDecoder: .active flag (set at the call
+    site, not stored here), .reset(), process_iq(self, iq_c, sr=48000),
+    drain_vessel_updates().
+    """
+
+    NUM_SLICES = 5
+    SLICE_STEP = 0.02
+
+    def __init__(self, ais_decoder_cls=AisDecoder):
+        self.active = False
+        self._AisDecoder = ais_decoder_cls
+        self.reset()
+
+    def reset(self):
+        self._last_iq = None
+        self._filt_zi = None
+        self._agc_peak = 0.0
+        self._agc_valley = 0.0
+        self._agc_fast = _dw_rate_scaled_alpha(_DW_AGC_FAST_ATTACK_REF, self._AisDecoder.TARGET_SR)
+        self._agc_slow = _dw_rate_scaled_alpha(_DW_AGC_SLOW_DECAY_REF, self._AisDecoder.TARGET_SR)
+        self._prev_sr = None
+        self._resamp_ratio = None
+
+        n = self.NUM_SLICES
+        self._slice_points = [self.SLICE_STEP * (j - 0.5 * (n - 1)) for j in range(n)]
+        self._phase = [0.0] * n            # float phase accumulator, range [0, TICKS_PER_PLL_CYCLE)
+        self._freq_offset = [0.0] * n      # per-slice adaptive rate correction (added to nominal step)
+        self._prev_demod = [0.0] * n
+        self._transitions_seen = [0] * n
+        self._lastbit = [0] * n
+        self._decoders = [self._AisDecoder() for _ in range(n)]
+        self.nominal_step = _DW_TICKS_PER_PLL_CYCLE * 9600.0 / self._AisDecoder.TARGET_SR
+        self._pending_vessel_updates = []
+        # diagnostics, mirrors AisDecoder's fields so the periodic
+        # [AIS-DIAG] log line at the call site can report both uniformly
+        self.frames_seen = 0
+        self.frames_crc_ok = 0
+        # DC-block filter state (see process_iq() BUGFIX comment, 2026-07-20
+        # -- same fix as AisDecoder.process_iq(), applied here too since
+        # this decoder runs on the same unmixed raw Full-IQ tap)
+        self._dc_zi = None
+        self._dc_R = None
+        self._dc_sr_cached = None
+
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
+        if not _HAVE_SCIPY or iq_c is None or len(iq_c) == 0:
+            return
+        try:
+            if sr != self._prev_sr:
+                self._prev_sr = sr
+                self._filt_zi = None
+                self._resamp_ratio = None
+
+            iq_c = np.asarray(iq_c, dtype=np.complex64)
+
+            # BUGFIX (2026-07-20, user report: "i have dc spike on the ais
+            # freq") -- see the matching, fully-explained fix in
+            # AisDecoder.process_iq() above. Same cause (raw unmixed
+            # Full-IQ tap, LO-leakage spike lands exactly on the tuned AIS
+            # channel), same fix (persistent one-pole complex DC-block
+            # high-pass, ~50Hz cutoff, sr-adaptive), applied here too since
+            # this decoder consumes the identical raw tap.
+            if sr != self._dc_sr_cached:
+                _dc_fc = 50.0  # Hz
+                self._dc_R = 1.0 - (2 * np.pi * _dc_fc / sr)
+                self._dc_sr_cached = sr
+                self._dc_zi = np.zeros(1, dtype=np.complex128)
+            iq_dc, self._dc_zi = _scipy_signal.lfilter(
+                [1.0, -1.0], [1.0, -self._dc_R],
+                iq_c.astype(np.complex128), zi=self._dc_zi)
+            iq_c = iq_dc.astype(np.complex64)
+
+            if self._last_iq is not None:
+                full = np.concatenate([[self._last_iq], iq_c])
+            else:
+                full = iq_c
+            self._last_iq = iq_c[-1]
+            if len(full) < 2:
+                return
+            demod = np.angle(full[1:] * np.conj(full[:-1])).astype(np.float64)
+
+            target_sr = self._AisDecoder.TARGET_SR
+            if abs(sr - target_sr) > 1e-6:
+                if self._resamp_ratio is None or self._resamp_ratio[2] != sr:
+                    from fractions import Fraction
+                    frac = Fraction(target_sr / sr).limit_denominator(1000)
+                    self._resamp_ratio = (frac.numerator, frac.denominator, sr)
+                up, down, _ = self._resamp_ratio
+                demod = _scipy_signal.resample_poly(demod, up, down)
+
+            if len(demod) == 0:
+                return
+
+            coeffs = self._AisDecoder._COEFFS
+            if self._filt_zi is None:
+                self._filt_zi = np.zeros(len(coeffs) - 1)
+            filtered, self._filt_zi = _scipy_signal.lfilter(coeffs, [1.0], demod, zi=self._filt_zi)
+
+            agc_out, self._agc_peak, self._agc_valley = _dw_agc(
+                filtered, self._agc_fast, self._agc_slow, self._agc_peak, self._agc_valley)
+
+            nominal_step = self.nominal_step
+            max_offset = _DW_MAX_FREQ_OFFSET_FRAC * nominal_step
+            HALF = _DW_TICKS_PER_PLL_CYCLE / 2.0
+
+            for i in range(len(agc_out)):
+                v = agc_out[i]
+                for s in range(self.NUM_SLICES):
+                    shifted = v - self._slice_points[s]
+                    step = nominal_step + self._freq_offset[s]
+
+                    prev_phase = self._phase[s]
+                    new_phase_raw = prev_phase + step
+                    # bit-SAMPLE instant and zero-crossing CORRECTION target
+                    # must be a half-cycle apart (Dire Wolf's own int32
+                    # version samples at the wrap from most-positive to
+                    # most-negative signed, corrections pull toward
+                    # signed-zero -- exactly HALF apart on the wheel).
+                    sample_now = (prev_phase < HALF) and (new_phase_raw >= HALF)
+                    new_phase = new_phase_raw % _DW_TICKS_PER_PLL_CYCLE
+                    self._phase[s] = new_phase
+
+                    if sample_now:
+                        bit = 1 if shifted > 0 else 0
+                        b = 1 if (bit == self._lastbit[s]) else 0
+                        self._lastbit[s] = bit
+                        self._decoders[s]._protodec_decode_bit(b)
+
+                    prev_demod = self._prev_demod[s]
+                    if (prev_demod < 0 and shifted > 0) or (prev_demod > 0 and shifted < 0):
+                        self._transitions_seen[s] += 1
+                        denom = (shifted - prev_demod)
+                        target = (step * shifted / denom) if denom != 0 else 0.0
+                        cur_signed = new_phase if new_phase < HALF else new_phase - _DW_TICKS_PER_PLL_CYCLE
+                        phase_error = target - cur_signed
+
+                        inertia = _DW_PLL_LOCKED_INERTIA if self._transitions_seen[s] >= _DW_LOCK_AFTER else _DW_PLL_SEARCHING_INERTIA
+                        kp = (1.0 - inertia)
+                        pulled = cur_signed + kp * phase_error
+                        self._phase[s] = pulled % _DW_TICKS_PER_PLL_CYCLE
+
+                        self._freq_offset[s] = float(np.clip(
+                            self._freq_offset[s] + _DW_KI * phase_error, -max_offset, max_offset))
+
+                    self._prev_demod[s] = shifted
+
+            for s in range(self.NUM_SLICES):
+                dec = self._decoders[s]
+                for upd in dec.drain_vessel_updates():
+                    upd = dict(upd)
+                    upd['decoder_source'] = 'direwolf'   # overwrite AisDecoder's own 'native' tag
+                    upd['slice'] = s
+                    self._pending_vessel_updates.append(upd)
+
+            self.frames_seen = sum(d.frames_seen for d in self._decoders)
+            self.frames_crc_ok = sum(d.frames_crc_ok for d in self._decoders)
+
+        except Exception as exc:
+            log.warning(f'AisDecoderDireWolf.process_iq() error ({exc!r}) -- resetting decoder state')
+            self.reset()
+
+    def drain_vessel_updates(self):
+        """Return and clear any decoded AIS message dicts produced since
+        the last call. Caller feeds each one to _ais_update_vessel()."""
+        out = self._pending_vessel_updates
+        self._pending_vessel_updates = []
+        return out
+
+
+def _cleanup_wsjtx_shm():
+    """Remove stale Qt shared memory left by a crashed or exited WSJT-X instance.
+
+    Qt derives a SystemV IPC key from a temp file named
+    qipc_sharedmemory_<SHA1("WSJT-X")>.  When WSJT-X exits without
+    releasing that segment, the next launch fails with
+    "Unable to create shared memory segment".  We remove both the
+    key file and every SystemV shared-memory segment owned by this
+    user so the next launch always starts clean.
+    """
+    if sys.platform == 'win32':
+        return
+    try:
+        import hashlib, tempfile
+        sha1 = hashlib.sha1(b'WSJT-X').hexdigest()
+        # Remove the Qt key file (needed for ftok)
+        kf = os.path.join(tempfile.gettempdir(), f'qipc_sharedmemory_{sha1}')
+        try:
+            os.remove(kf)
+            log.debug(f"FT8/WSPR: removed Qt key file {kf}")
+        except FileNotFoundError:
+            pass
+        # Remove all SystemV shared-memory segments (ipcs -m)
+        try:
+            ipcs_out = subprocess.check_output(
+                ['ipcs', '-m'], text=True, stderr=subprocess.DEVNULL, timeout=3)
+            for ln in ipcs_out.splitlines():
+                parts = ln.split()
+                if parts and parts[0] == 'm' and len(parts) >= 2:
+                    subprocess.run(['ipcrm', '-m', parts[1]],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        log.debug("FT8/WSPR: stale shared memory cleanup complete")
+    except Exception as e:
+        log.debug(f"FT8/WSPR: shm cleanup error: {e}")
+
+
+def _wsjtx_configure_mode(mode_str: str):
+    """Send a WSJT-X Configure message (type 15, schema 3) to change operating mode.
+
+    WSJT-X NetworkMessage type 15 = Configure (inbound from companion app).
+    QDataStream field layout:
+        quint32  magic (0xADBCCBDA)
+        quint32  schema (3)
+        quint32  type   (15)
+        QByteArray  id  (len + bytes, no null)
+        QString  Mode
+        quint32  FrequencyTolerance (0xFFFFFFFF = no change)
+        QString  Submode            (null = no change)
+        bool     FastMode
+        quint32  TRPeriod           (0xFFFFFFFF = no change)
+        quint32  RxDF               (0xFFFFFFFF = no change)
+        QString  DXCall             (null = no change)
+        QString  DXGrid             (null = no change)
+        bool     GenerateMessages
+    """
+    _mode_map = {
+        'ft8':    'FT8',    'ft4':    'FT4',   'jt65':  'JT65',
+        'jt9':    'JT9',    'msk144': 'MSK144','q65':   'Q65',
+        'wspr':   'WSPR',
+    }
+    wsjtx_mode = _mode_map.get(mode_str.lower(), 'FT8')
+    try:
+        import struct as _s, socket as _sk
+
+        def _qstring(s):
+            """Encode str as Qt QDataStream QString (utf-16-be, 4-byte byte-count prefix).
+            Pass None for a null QString (0xFFFFFFFF)."""
+            if s is None:
+                return _s.pack('>I', 0xFFFFFFFF)
+            enc = s.encode('utf-16-be')
+            return _s.pack('>I', len(enc)) + enc
+
+        def _qbytearray(b):
+            return _s.pack('>I', len(b)) + b
+
+        _id  = b'DarkSky'
+        # Heartbeat (type 0) — register before sending Configure so WSJT-X
+        # accepts the control message from this source port.
+        hb  = _s.pack('>III', 0xADBCCBDA, 3, 0)  # magic, schema=3, Heartbeat
+        hb += _qbytearray(_id)
+        hb += _s.pack('>I', 3)       # MaxSchemaNumber=3
+        hb += _qstring('DarkSky')    # version
+        hb += _qstring(None)         # revision (null)
+
+        msg  = _s.pack('>III', 0xADBCCBDA, 3, 15)  # magic, schema=3, type=15
+        msg += _qbytearray(_id)
+        msg += _qstring(wsjtx_mode)          # Mode name
+        msg += _s.pack('>I', 0xFFFFFFFF)    # Frequency Tolerance: no change
+        msg += _qstring(None)                # Submode: no change
+        msg += _s.pack('>?', False)          # Fast Mode
+        msg += _s.pack('>I', 0xFFFFFFFF)    # T/R Period: no change
+        msg += _s.pack('>I', 0xFFFFFFFF)    # Rx DF: no change
+        msg += _qstring(None)                # DX Call: no change
+        msg += _qstring(None)                # DX Grid: no change
+        msg += _s.pack('>?', False)          # Generate Messages
+        sock = _sk.socket(_sk.AF_INET, _sk.SOCK_DGRAM)
+        sock.sendto(hb, ('127.0.0.1', 2237))   # register first
+        sock.sendto(msg, ('127.0.0.1', 2237))   # then send Configure
+        sock.close()
+        log.info(f"FT8: sent Heartbeat + Configure mode={wsjtx_mode} to WSJT-X")
+    except Exception as _e:
+        log.debug(f"FT8: WSJT-X Configure failed: {_e}")
+
+
+# ── FLDIGI ENGINE ────────────────────────────────────────────────────
+# Uses Python stdlib xmlrpc.client — no extra dependency required.
+# fldigi must be installed separately (https://www.w1hkj.com/).
+# XML-RPC server runs on port 7362 by default.
+
+FLDIGI_XMLRPC_URL = 'http://127.0.0.1:7362/RPC2'
+FLDIGI_XMLRPC_TIMEOUT = 4   # seconds — blocking socket timeout on each call
+
+# ── Single-connection XML-RPC transport ──────────────────────────────────────
+# xmlrpc.client.ServerProxy opens a NEW TCP connection for every call by
+# default, and with multiple asyncio threads in flight the connections pile up
+# faster than fldigi's server can close them (10+ ESTABLISHED seen in lsof).
+# Fix: use a custom Transport that sets Connection: close on every request so
+# fldigi tears the socket down immediately after each response.
+import xmlrpc.client as _xmlrpc_mod
+import http.client as _http_mod
+
+class _CloseTransport(_xmlrpc_mod.Transport):
+    """Transport that forces a fresh TCP connection per call and closes it after.
+
+    xmlrpc.client reuses HTTP connections by default (keep-alive). With async
+    threads firing concurrently this causes connection pile-up against fldigi's
+    single-threaded server. Disabling keep-alive (_connection = None after each
+    request) ensures each call gets exactly one socket that is closed immediately.
+
+    BUGFIX (file-descriptor leak, reported June 2026): the base
+    xmlrpc.client.Transport.single_request() only calls self.close() on the
+    *exception* path — on a normal 200-OK response it leaves the connection
+    open for potential reuse, relying on a subclass's make_connection() to
+    manage reuse via self._connection. This subclass's close() used to be a
+    no-op ("nothing persistent to close"), which was wrong: make_connection()
+    above creates a brand-new http.client.HTTPConnection (a real socket) on
+    every single call, and with close() doing nothing, that socket was never
+    actually closed on the success path — only abandoned to the garbage
+    collector, which does not promptly release the underlying file
+    descriptor. fldigi_poller() makes ~13 XML-RPC calls per poll cycle at
+    4 Hz while connected, so this leaked dozens of file descriptors per
+    second, eventually exhausting the process's open-file limit (observed:
+    "Errno 24: Too many open files" after ~30 min of an active fldigi
+    session). Fix: track the live HTTPConnection and actually close it here.
+    """
+    def make_connection(self, host):
+        # Return a plain HTTPConnection with no keep-alive
+        self._connection = (host, None)
+        conn = _http_mod.HTTPConnection(host, timeout=FLDIGI_XMLRPC_TIMEOUT)
+        self._live_conn = conn   # remember it so close() can actually close it
+        return conn
+
+    def close(self):
+        conn = getattr(self, '_live_conn', None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._live_conn = None
+
+    def single_request(self, host, handler, request_body, verbose=False):
+        # Base implementation only closes on the exception path — force a
+        # close here too on the success path so every call's socket/fd is
+        # released immediately, matching this transport's "fresh connection
+        # per call" design intent.
+        try:
+            return super().single_request(host, handler, request_body, verbose)
+        finally:
+            self.close()
+
+def _make_fldigi_proxy():
+    """Create a ServerProxy using the close-per-call transport."""
+    return _xmlrpc_mod.ServerProxy(
+        FLDIGI_XMLRPC_URL,
+        transport=_CloseTransport(),
+        allow_none=True,
+    )
+
+# Serialise all XML-RPC calls through a single asyncio Lock so only one
+# blocking thread is in flight at a time — prevents connection storms when
+# poller + wf_poller + WS commands all fire concurrently.
+_fldigi_rpc_lock = asyncio.Lock()
+
+async def _xrpc(fn, *args, timeout=FLDIGI_XMLRPC_TIMEOUT):
+    """Run a blocking xmlrpc.client call in a thread so it never stalls the event loop.
+
+    Serialised via _fldigi_rpc_lock so at most one TCP connection to fldigi
+    exists at any moment — prevents the connection pile-up that overwhelms
+    fldigi's XML-RPC server.
+
+    Usage:  result = await _xrpc(proxy.fldigi.name)
+            result = await _xrpc(proxy.main.set_frequency, 14074000.0)
+
+    Raises whatever the underlying call raises (Fault, socket.timeout, OSError…).
+    """
+    import functools as _ft
+    loop = asyncio.get_event_loop()
+    call = _ft.partial(fn, *args) if args else fn
+    async with _fldigi_rpc_lock:
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, call),
+            timeout=timeout,
+        )
+
+# Map DARKSKY mode names → fldigi modem.set_by_name() strings
+FLDIGI_MODE_MAP = {
+    'PSK31':          'PSK31',           # fldigi aliases → BPSK31
+    'PSK63':          'PSK63',           # fldigi aliases → BPSK63
+    'PSK125':         'BPSK125',         # PSK125 not recognised; must be BPSK125
+    'Olivia-8-500':   'OLIVIA-8/500',    # confirmed via modem.get_names()
+    'Olivia-16-500':  'OLIVIA-16/500',
+    'MFSK16':         'MFSK16',          # no dash; MFSK-16 not recognised
+    'MFSK32':         'MFSK32',
+    'MT63-500':       'MT63-500L',
+    'MT63-1000':      'MT63-1KL',
+    'RTTY':           'RTTY',
+    'Navtex':         'NAVTEX',          # no -SC suffix
+    'Hellschreiber':  'FELDHELL',
+    'DominoEX4':      'DOMINOEX4',
+    'Contestia-8-250':'CONTESTIA-8/250', # same hyphen/slash pattern as Olivia
+    'CW':             'CW',              # fldigi CW — AFC + adaptive threshold
+}
+# Reverse map: fldigi modem name → NEXUS mode name
+_FLDIGI_MODE_REVERSE = {v: k for k, v in FLDIGI_MODE_MAP.items()}
+# fldigi sometimes reports BPSK31 for PSK31 — ensure both map back
+_FLDIGI_MODE_REVERSE.update({
+    'BPSK31':  'PSK31',
+    'BPSK63':  'PSK63',
+    'BPSK125': 'PSK125',
+    'QPSK31':  'PSK31',   # treat QPSK as same UI mode
+    'QPSK63':  'PSK63',
+})
+
+def _fldigi_launch():
+    """Try to launch fldigi if not already running. Returns True if launched."""
+    import glob as _glob
+
+    # Check if already running
+    try:
+        if sys.platform == 'win32':
+            out = subprocess.check_output(['tasklist'], text=True, stderr=subprocess.DEVNULL)
+            if 'fldigi' in out.lower():
+                log.info("fldigi: already running")
+                return True
+        else:
+            subprocess.check_output(['pgrep', '-x', 'fldigi'], stderr=subprocess.DEVNULL)
+            log.info("fldigi: already running")
+            return True  # already running
+    except Exception:
+        pass
+
+    if sys.platform == 'darwin':
+        # Glob for versioned bundles: fldigi.app, fldigi-4.2.11.app, etc.
+        app_bundles = (
+            _glob.glob('/Applications/fldigi*.app') +
+            _glob.glob(str(Path.home() / 'Applications/fldigi*.app'))
+        )
+        for app_path in sorted(app_bundles, reverse=True):   # newest version first
+            try:
+                subprocess.Popen(['open', '-g', app_path],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                log.info(f"fldigi: launched {app_path}")
+                return True
+            except Exception as e:
+                log.debug(f"fldigi: open {app_path} failed: {e}")
+                continue
+        # Fallback: bare binary on PATH
+        try:
+            subprocess.Popen(['fldigi'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log.info("fldigi: launched via PATH")
+            return True
+        except Exception:
+            pass
+
+    elif sys.platform == 'win32':
+        candidates = [
+            r'C:\Program Files\fldigi\fldigi.exe',
+            r'C:\Program Files (x86)\fldigi\fldigi.exe',
+            'fldigi.exe',
+        ]
+        for exe in candidates:
+            try:
+                if Path(exe).is_file() or not Path(exe).is_absolute():
+                    subprocess.Popen([exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    log.info(f"fldigi: launched {exe}")
+                    return True
+            except Exception:
+                continue
+
+    else:  # Linux / other
+        candidates = ['/usr/bin/fldigi', '/usr/local/bin/fldigi',
+                      '/opt/homebrew/bin/fldigi', 'fldigi']
+        for exe in candidates:
+            try:
+                if Path(exe).is_file() or not Path(exe).is_absolute():
+                    subprocess.Popen([exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    log.info(f"fldigi: launched {exe}")
+                    return True
+            except Exception:
+                continue
+
+    log.warning("fldigi: could not find or launch fldigi")
+    return False
+
+
+async def _fldigi_retune(target_hz: int):
+    """Deferred retry: if fldigi's display still shows the wrong frequency
+    400 ms after a tune call, re-send set_frequency to force a display refresh.
+    Handles the case where fldigi's main thread REQ queue misses the first call.
+    """
+    await asyncio.sleep(0.4)
+    global _fldigi_xmlrpc
+    if _fldigi_xmlrpc is None:
+        return
+    try:
+        _px      = _fldigi_xmlrpc
+        _sb2     = str(await _xrpc(_px.main.get_wf_sideband))
+        dial_tgt = target_hz - _fldigi_carrier_hz if _sb2 != 'LSB' else target_hz + _fldigi_carrier_hz
+        actual   = int(await _xrpc(_px.main.get_frequency))
+        if abs(actual - dial_tgt) > 500:       # more than 500 Hz out → retry
+            log.info(f"fldigi: display still at {actual/1e6:.4f} MHz — retrying dial to {dial_tgt/1e6:.4f} MHz")
+            state['wsjtx_hz'] = int(dial_tgt)  # keep Hamlib in sync on retry too
+            await _xrpc(_px.main.set_frequency, float(dial_tgt))
+    except Exception as _e:
+        log.debug(f"fldigi retune check: {_e}")
+
+
+async def fldigi_poller():
+    """Long-running asyncio task: maintains XML-RPC connection to fldigi.
+
+    All xmlrpc.client calls are offloaded to a thread via _xrpc() so blocking
+    socket I/O never stalls the asyncio event loop (prevents macOS beachball).
+
+    Connection is maintained at all times so that tune/mode commands work
+    without requiring the user to click Start.  RX text is only streamed
+    to the browser when fldigi_active is True (▶ Start clicked).
+    """
+    global _fldigi_xmlrpc, _fldigi_rx_offset, _fldigi_carrier_hz
+
+    while True:
+        # ── Always maintain connection ────────────────────────────────
+        if _fldigi_xmlrpc is None:
+            try:
+                proxy = _make_fldigi_proxy()
+                await _xrpc(proxy.fldigi.name)   # ping in thread — won't block loop
+                _fldigi_xmlrpc = proxy
+                _fldigi_rx_offset = 0
+                log.info("fldigi: XML-RPC connected on port 7362")
+                # On fresh connect: push any pending target freq so Hamlib
+                # polling gets dial_hz from the start (not stale 14 MHz default)
+                _tgt = state.get('fldigi_target_hz', 0)
+                if _tgt > 0:
+                    try:
+                        _sb0 = str(await _xrpc(proxy.main.get_wf_sideband))
+                        _dial0 = _tgt - _fldigi_carrier_hz if _sb0 != 'LSB' else _tgt + _fldigi_carrier_hz
+                        state['wsjtx_hz'] = int(_dial0)
+                        await _xrpc(proxy.main.set_frequency, float(_dial0))
+                        log.info(f"fldigi: on-connect freq sync → dial {_dial0/1e6:.4f} MHz (target {_tgt/1e6:.4f} MHz)")
+                    except Exception as _sfe:
+                        log.debug(f"fldigi on-connect freq sync error: {_sfe}")
+                await broadcast_json({
+                    "type": "fldigi_status", "connected": True,
+                    "running": state.get('fldigi_active', False),
+                    "mode": state.get('fldigi_mode', 'PSK31'),
+                })
+            except Exception:
+                _fldigi_xmlrpc = None
+                await asyncio.sleep(5)       # retry every 5 s while fldigi not running
+                continue
+
+        # ── Poll RX text + modem stats ────────────────────────────────
+        # rx.get_data() returns only NEW text since last call — no offset tracking needed
+        try:
+            proxy = _fldigi_xmlrpc
+
+            # Text — fldigi 4.x returns xmlrpc.Binary; 3.x returns bytes/str
+            new_text = await _xrpc(proxy.rx.get_data)
+            if new_text:
+                if hasattr(new_text, 'data'):          # xmlrpc.Binary
+                    new_text = new_text.data.decode('utf-8', errors='replace')
+                elif isinstance(new_text, (bytes, bytearray)):
+                    new_text = new_text.decode('utf-8', errors='replace')
+                else:
+                    new_text = str(new_text)
+                new_text = new_text.strip()
+                if new_text:
+                    await broadcast_json({
+                        "type": "fldigi_text",
+                        "mode": state.get('fldigi_mode', 'PSK31'),
+                        "text": new_text,
+                        "t":   time.time(),
+                    })
+
+            # Stats — carrier, AFC, WPM, S-meter, active modem name + extended metrics
+            stats = {"type": "fldigi_stats", "mode": state.get('fldigi_mode', 'PSK31')}
+            for _key, _method in [
+                ("carrier",    proxy.modem.get_carrier),
+                ("afc_sr",     proxy.modem.get_afc_sr),
+                ("wpm",        proxy.main.get_wpm),
+                ("smeter",     proxy.rig.get_smeter),
+                ("modem_id",   proxy.modem.get_id),
+                ("quality",    proxy.modem.get_quality),
+                ("bandwidth",  proxy.modem.get_bandwidth),
+                ("trx_status", proxy.main.get_trx_status),
+                ("status1",    proxy.main.get_status1),
+                ("status2",    proxy.main.get_status2),
+                ("sideband",   proxy.main.get_wf_sideband),
+            ]:
+                try:
+                    val = await _xrpc(_method)
+                    stats[_key] = str(val).upper() if _key == 'trx_status' else val
+                except Exception:
+                    pass
+
+            # Sync active modem name from fldigi → update state if changed
+            try:
+                _fdname = str(await _xrpc(proxy.modem.get_name))
+                _nexname = _FLDIGI_MODE_REVERSE.get(_fdname, _fdname)
+                if _nexname != state.get('fldigi_mode'):
+                    state['fldigi_mode'] = _nexname
+                    stats['mode'] = _nexname
+                    log.info(f"fldigi: mode changed → {_fdname!r} (→ {_nexname!r})")
+            except Exception:
+                pass
+
+            # Compute actual signal frequency = dial ± carrier (sideband-aware)
+            _carrier = stats.get('carrier', _fldigi_carrier_hz)
+            if _carrier and isinstance(_carrier, (int, float)) and _carrier > 0:
+                _fldigi_carrier_hz = int(_carrier)
+            # Cache sideband so LO-sync path can use it without an extra await
+            _sb = str(stats.get('sideband', 'USB'))
+            if _sb in ('USB', 'LSB'):
+                state['fldigi_sideband'] = _sb
+            try:
+                _dial = int(await _xrpc(proxy.main.get_frequency))
+                stats['dial_hz']   = _dial
+                stats['actual_hz'] = _dial + _fldigi_carrier_hz if _sb != 'LSB' else _dial - _fldigi_carrier_hz
+            except Exception:
+                pass
+            await broadcast_json(stats)
+
+        except Exception as _xc_err:
+            import xmlrpc.client as _xc2
+            if isinstance(_xc_err, _xc2.Fault):
+                log.debug(f"fldigi rx method error: {_xc_err}")
+            else:
+                log.debug(f"fldigi connection lost: {_xc_err}")
+                _fldigi_xmlrpc = None
+                _fldigi_rx_offset = 0
+        await asyncio.sleep(0.25)    # 4 Hz poll
+
+
+# ── DX CLUSTER SPOTS ──────────────────────────────────────────────────────
+# Backend poller for the HF Utility "LIVE DX SPOTS" column. Previously the
+# browser did this fetch itself, which meant every connected browser hit the
+# public API independently and was at the mercy of that browser's own CORS/
+# network policy. Centralising it here means one fetch serves every client,
+# survives a browser reload without a fresh 90s wait, and isn't subject to
+# browser CORS at all (server-to-server requests aren't CORS-restricted).
+#
+# dxsummit.fi (Radio Arcala OH8X's DX cluster) migrated its default site to
+# new.dxsummit.fi; the legacy www. host may behave differently/be retired
+# later, so we try new. first and fall back to www., mirroring the frontend
+# fallback chain this replaces.
+_DX_SPOTS_URLS = [
+    "https://new.dxsummit.fi/api/v1/spots?limit=50",
+    "https://www.dxsummit.fi/api/v1/spots?limit=50",
+]
+_dx_spots_cache = []   # last-known-good normalized spot list, for late-join catch-up
+
+
+def _dx_spots_fetch_blocking(url):
+    """Blocking HTTP GET + JSON parse. Always called via run_in_executor —
+    never call this directly from the event loop."""
+    req = urllib.request.Request(url, headers={"User-Agent": "DARKSKY-NEXUS/2.6"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return json.loads(r.read().decode('utf-8', errors='replace'))
+
+
+def _dx_spots_normalize(raw):
+    """Map dxsummit.fi's API shape to the shape siRenderDX() already expects
+    (same field names the old frontend fetch produced, so the browser-side
+    render code needs no changes)."""
+    out = []
+    for s in (raw if isinstance(raw, list) else []):
+        try:
+            freq_mhz = float(s.get('frequency', 0)) / 1000.0
+        except (TypeError, ValueError):
+            continue
+        if freq_mhz <= 0:
+            continue
+        out.append({
+            "call":    s.get('dx_call') or '?',
+            "freq":    freq_mhz,
+            "spotter": s.get('de_call') or '?',
+            "comment": s.get('info') or '',
+            "time":    (s.get('time') or '')[11:16],
+            "country": s.get('dx_country') or '',
+            "src":     "dxsummit.fi",
+        })
+    return out
+
+
+async def dx_spots_poller():
+    """Long-running asyncio task: polls the DX cluster API every 90s and
+    broadcasts results to all connected browsers. Blocking I/O is offloaded
+    to a thread via run_in_executor — this loop runs forever, so a stalled
+    event loop here would be far worse than in a one-off request handler."""
+    global _dx_spots_cache
+    loop = asyncio.get_event_loop()
+    while True:
+        last_err = None
+        for url in _DX_SPOTS_URLS:
+            try:
+                raw = await loop.run_in_executor(None, _dx_spots_fetch_blocking, url)
+                spots = _dx_spots_normalize(raw)
+                _dx_spots_cache = spots
+                await broadcast_json({"type": "dx_spots", "spots": spots})
+                log.debug(f"dx_spots: {len(spots)} spots from {url}")
+                break
+            except Exception as e:
+                last_err = e
+                continue
+        else:
+            log.debug(f"dx_spots: all endpoints failed: {last_err}")
+            await broadcast_json({"type": "dx_spots", "spots": [], "error": str(last_err) if last_err else "unknown error"})
+        await asyncio.sleep(90)
+
+
+# ── FLDIGI WATERFALL ──────────────────────────────────────────────────────
+# fldigi 4.x has no wf.get_data() XML-RPC method, so the waterfall shown in
+# the NEXUS fldigi panel is no longer captured from fldigi's window. Instead
+# it is rendered client-side from the IQ Lite narrowband audio FFT (see the
+# 'audio_fft' broadcast in the IQ-Lite processing loop above), which gives a
+# higher-resolution, lower-latency view than screen-scraping ever could.
+# The carrier/BW overlay logic is unchanged — it just draws on top of the
+# FFT-driven canvas now instead of a captured PNG.
+
+
+# ── APRS ENGINE ──────────────────────────────────────────────────────
+# Supports two sources:
+#   "internet" — APRS-IS TCP feed (rotate.aprs2.net:14580)
+#   "direwolf" — Direwolf KISS TCP (default 127.0.0.1:8001)
+# Both feed the shared aprs_stations dict and broadcast to browsers.
+
+def _aprs_decdeg(deg_str, min_str, hemi):
+    """Convert APRS DDMM.mm + hemisphere to decimal degrees."""
+    try:
+        d = float(deg_str); m = float(min_str)
+        val = d + m / 60.0
+        return -val if hemi in ('S', 'W') else val
+    except ValueError:
+        return None
+
+
+def _aprs_parse_position(info: str):
+    """Extract (lat, lon) from APRS info field. Returns (None, None) on failure."""
+    # Strip data-type indicator and optional timestamp
+    data = info
+    if not data:
+        return None, None
+    dti = data[0]
+    if dti in '@/':
+        # Timestamp present: @DDHHMMz  or @HHMMSSh  (8 chars after @)
+        data = data[8:] if len(data) > 8 else ''
+        if not data:
+            return None, None
+        dti = data[0]
+    if dti in '!=;':
+        data = data[1:]
+
+    m = _APRS_POS_RE.search(data[:20])
+    if m:
+        lat = _aprs_decdeg(m.group(1), m.group(2), m.group(3))
+        lon = _aprs_decdeg(m.group(5), m.group(6), m.group(7))
+        return lat, lon
+    return None, None
+
+
+def _aprs_parse_weather(info: str) -> dict:
+    """Extract weather fields from APRS info. Returns dict or {}."""
+    wx = {}
+    # Wind: CCC/SSS  course/speed (mph)
+    m = _WX_WIND_RE.search(info)  # PY-13
+    if m:
+        wx['wind_dir'] = int(m.group(1))
+        wx['wind_speed_mph'] = int(m.group(2))
+    # Temperature: tXXX (°F)
+    m = _WX_TEMP_RE.search(info)  # PY-13
+    if m:
+        f = int(m.group(1))
+        wx['temp_c'] = round((f - 32) * 5 / 9, 1)
+    # Humidity: hXX (%)
+    m = _WX_HUMID_RE.search(info)  # PY-13
+    if m:
+        wx['humidity'] = int(m.group(1))
+    # Pressure: bXXXXX (0.1 hPa)
+    m = _WX_BARO_RE.search(info)  # PY-13
+    if m:
+        wx['pressure_hpa'] = int(m.group(1)) / 10.0
+    # Rain 1h: rXXX (0.01 inch)
+    m = _WX_RAIN_RE.search(info)  # PY-13
+    if m:
+        wx['rain_1h_mm'] = round(int(m.group(1)) * 0.254, 1)
+    return wx
+
+
+def _aprs_parse_line(raw: str):
+    """Parse one APRS-IS text line → station dict, or None if unparseable."""
+    raw = raw.strip()
+    if not raw or raw.startswith('#'):
+        return None
+    # Split header:info
+    colon = raw.find(':')
+    gt    = raw.find('>')
+    if colon < 0 or gt < 0 or gt > colon:
+        return None
+    callsign = raw[:gt].strip()
+    info     = raw[colon + 1:]
+    if not callsign or not info:
+        return None
+
+    dti  = info[0] if info else ''
+    lat, lon = _aprs_parse_position(info)
+
+    stype = 'unknown'
+    if dti == '_':
+        stype = 'weather'
+    elif dti == ':':
+        stype = 'message'
+    elif dti == '>':
+        stype = 'status'
+    elif dti == ';':
+        stype = 'object'
+    elif dti in '!=/@':
+        stype = 'position'
+
+    station = {
+        'callsign':  callsign,
+        'type':      stype,
+        'last_seen': time.time(),
+        'raw':       raw,
+    }
+    if lat is not None:
+        station['lat'] = round(lat, 5)
+        station['lon'] = round(lon, 5)
+
+    # Course / speed
+    m = _APRS_COURSE_RE.search(info[10:25] if len(info) > 10 else '')  # PY-13
+    if m:
+        station['course']    = int(m.group(1))
+        station['speed_kts'] = round(int(m.group(2)) * 0.868976, 1)  # mph→kts
+
+    # Altitude
+    m = _APRS_ALT_RE.search(info)  # PY-13
+    if m:
+        station['alt_ft'] = int(m.group(1))
+
+    # Weather data
+    if dti == '_':
+        wx = _aprs_parse_weather(info)
+        if wx:
+            station['weather'] = wx
+
+    # Comment (text after position/weather block)
+    try:
+        comment_start = 20 if stype == 'position' else 1
+        station['comment'] = info[comment_start:].strip()[:120]
+    except Exception:
+        pass
+
+    return station
+
+
+def _aprs_update_station(parsed: dict):
+    """Merge a parsed APRS packet into the aprs_stations store."""
+    if not parsed:
+        return
+    call = parsed.get('callsign', '')
+    if not call:
+        return
+    existing = aprs_stations.get(call, {})
+    existing.update({k: v for k, v in parsed.items() if v is not None})
+    aprs_stations[call] = existing
+
+
+async def _aprs_broadcast():
+    """Send all current APRS stations to all connected browsers."""
+    await broadcast_json({
+        "type":     "aprs_update",
+        "stations": list(aprs_stations.values()),
+    })
+
+
+async def _aprs_expire_stations():
+    """Periodically remove APRS stations not heard for _APRS_EXPIRE_SECS."""
+    while True:
+        await asyncio.sleep(60)
+        now = time.time()
+        stale = [c for c, s in aprs_stations.items()
+                 if now - s.get('last_seen', 0) > _APRS_EXPIRE_SECS]
+        for c in stale:
+            aprs_stations.pop(c, None)
+        if stale:
+            await _aprs_broadcast()
+
+
+# ── APRS-IS (internet feed) ───────────────────────────────────────────
+async def aprs_is_task():
+    """Connect to APRS-IS rotate.aprs2.net and receive filtered packets."""
+    while True:
+        if not state.get('aprs_active') or state.get('aprs_source') != 'internet':
+            await asyncio.sleep(2)
+            continue
+
+        lat    = state.get('aprs_lat', 51.5)
+        lon    = state.get('aprs_lon', -0.1)
+        radius = state.get('aprs_radius', 150)
+
+        log.info(f"APRS-IS: connecting (filter r/{lat:.3f}/{lon:.3f}/{radius}km)")
+        await broadcast_json({"type": "aprs_status", "source": "internet",
+                               "running": True, "msg": "Connecting to APRS-IS…"})
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection('rotate.aprs2.net', 14580), timeout=10)
+            login = f'user N0CALL pass -1 vers DARKSKY 1.7.6\r\n'
+            filt  = f'#filter r/{lat:.4f}/{lon:.4f}/{radius}\r\n'
+            writer.write(login.encode())
+            writer.write(filt.encode())
+            await writer.drain()
+            log.info("APRS-IS: connected")
+            await broadcast_json({"type": "aprs_status", "source": "internet",
+                                   "running": True, "msg": "Connected to APRS-IS"})
+
+            while state.get('aprs_active') and state.get('aprs_source') == 'internet':
+                try:
+                    line = await asyncio.wait_for(reader.readline(), timeout=60)
+                except asyncio.TimeoutError:
+                    # Send keep-alive
+                    try:
+                        writer.write(b'#ping\r\n')
+                        await writer.drain()
+                    except Exception:
+                        break
+                    continue
+                if not line:
+                    break
+                text = line.decode('utf-8', errors='replace').strip()
+                parsed = _aprs_parse_line(text)
+                if parsed:
+                    _aprs_update_station(parsed)
+                    await broadcast_json({"type": "aprs_station", "station": parsed})
+            writer.close()
+        except Exception as e:
+            log.warning(f"APRS-IS error: {e}")
+            await broadcast_json({"type": "aprs_status", "source": "internet",
+                                   "running": False, "msg": f"APRS-IS error: {e}"})
+        if state.get('aprs_active'):
+            await asyncio.sleep(5)
+
+
+# ── APRS via Direwolf / KISS TCP ──────────────────────────────────────
+def _kiss_unescape(data: bytes) -> bytes:
+    """Undo KISS byte-stuffing (FESC sequences)."""
+    out = bytearray()
+    i = 0
+    while i < len(data):
+        if data[i] == 0xDB and i + 1 < len(data):
+            i += 1
+            if data[i] == 0xDC:
+                out.append(0xC0)
+            elif data[i] == 0xDD:
+                out.append(0xDB)
+            else:
+                out.append(data[i])
+        else:
+            out.append(data[i])
+        i += 1
+    return bytes(out)
+
+
+def _ax25_callsign(raw7: bytes) -> str:
+    """Decode a 7-byte AX.25 address field to 'CALL-N' string."""
+    call = ''.join(chr(b >> 1) for b in raw7[:6]).rstrip()
+    ssid = (raw7[6] >> 1) & 0x0F
+    return f"{call}-{ssid}" if ssid else call
+
+
+def _kiss_decode(frame_bytes: bytes):
+    """Decode a KISS frame → (src_callsign, info_str) or None."""
+    if not frame_bytes or frame_bytes[0] & 0x0F != 0:
+        return None   # not a data frame
+    raw = _kiss_unescape(frame_bytes[1:])   # skip port/type byte
+    if len(raw) < 16:
+        return None
+    dest = _ax25_callsign(raw[0:7])
+    src  = _ax25_callsign(raw[7:14])
+    # Walk digipeater addresses (bit 0 of byte 6 = end-of-address flag)
+    idx = 14
+    while idx + 6 < len(raw) and not (raw[idx - 1] & 1):
+        idx += 7
+    # Skip control (0x03) and PID (0xF0)
+    idx += 2
+    if idx >= len(raw):
+        return None
+    info = raw[idx:].decode('ascii', errors='replace')
+    return src, info
+
+
+async def aprs_kiss_task():
+    """Connect to Direwolf KISS TCP and decode incoming AX.25 frames."""
+    FEND = 0xC0
+    while True:
+        if not state.get('aprs_active') or state.get('aprs_source') != 'direwolf':
+            await asyncio.sleep(2)
+            continue
+
+        host = state.get('aprs_kiss_host', '127.0.0.1')
+        port = state.get('aprs_kiss_port', 8001)
+
+        log.info(f"APRS KISS: connecting to {host}:{port}")
+        await broadcast_json({"type": "aprs_status", "source": "direwolf",
+                               "running": True, "msg": f"Connecting to Direwolf {host}:{port}…"})
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=5)
+            log.info("APRS KISS: connected to Direwolf")
+            await broadcast_json({"type": "aprs_status", "source": "direwolf",
+                                   "running": True, "msg": "Connected to Direwolf KISS"})
+
+            buf = bytearray()
+            while state.get('aprs_active') and state.get('aprs_source') == 'direwolf':
+                try:
+                    chunk = await asyncio.wait_for(reader.read(4096), timeout=30)
+                except asyncio.TimeoutError:
+                    continue
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                # Extract complete KISS frames delimited by 0xC0
+                while True:
+                    start = buf.find(FEND)
+                    if start < 0:
+                        break
+                    end = buf.find(FEND, start + 1)
+                    if end < 0:
+                        break
+                    frame = bytes(buf[start + 1:end])
+                    del buf[:end + 1]
+                    if not frame:
+                        continue
+                    result = _kiss_decode(frame)
+                    if result:
+                        src, info = result
+                        # Re-assemble as APRS-IS line for unified parser
+                        raw_line = f"{src}>APRS:{info}"
+                        parsed = _aprs_parse_line(raw_line)
+                        if parsed:
+                            _aprs_update_station(parsed)
+                            await broadcast_json({"type": "aprs_station", "station": parsed})
+            writer.close()
+        except Exception as e:
+            log.warning(f"APRS KISS error: {e}")
+            await broadcast_json({"type": "aprs_status", "source": "direwolf",
+                                   "running": False, "msg": f"Direwolf error: {e}"})
+        if state.get('aprs_active'):
+            await asyncio.sleep(5)
+
+
+# ── DSP ENGINE: FT8 / WSPR ───────────────────────────────────────────
+class FT8Decoder:
+    """
+    FT8 / WSPR decoder — tails WSJT-X ALL.TXT for spots.
+
+    WSJT-X writes every decoded FT8/WSPR message to ALL.TXT in real time.
+    DARKSKY watches this file for new lines and forwards them to the browser.
+
+    ALL.TXT line format (FT8 example):
+        2026-04-05 14:15:00     0.0  0.1  14.074  -12  0.0  CQ DX G3XYZ IO91
+
+    Columns: date time  dt  df  freq(MHz)  snr  offset  message
+
+    WSPR format:
+        2026-04-05 14:16:00   0.0  14.0956  -22  0  G3XYZ IO91 10
+
+    Typical ALL.TXT locations:
+        macOS:   ~/Library/Application Support/WSJT-X/ALL.TXT
+                 ~/Documents/WSJT-X/ALL.TXT
+        Windows: %APPDATA%/WSJT-X/ALL.TXT
+        Linux:   ~/.local/share/WSJT-X/ALL.TXT
+    """
+
+    # Candidate paths searched in order
+    SEARCH_PATHS = [
+        # macOS
+        Path.home() / 'Library' / 'Application Support' / 'WSJT-X' / 'ALL.TXT',
+        Path.home() / 'Documents' / 'WSJT-X' / 'ALL.TXT',
+        # Linux
+        Path.home() / '.local' / 'share' / 'WSJT-X' / 'ALL.TXT',
+        # Windows
+        Path(os.environ.get('APPDATA', '~')) / 'WSJT-X' / 'ALL.TXT',
+        # Current directory (manual placement)
+        Path('ALL.TXT'),
+    ]
+
+    def __init__(self):
+        self.active      = False
+        self.mode        = 'ft8'   # 'ft8' or 'wspr'
+        self._path       = None    # resolved ALL.TXT path
+        self._pos        = 0       # file read position (tail from end on start)
+        self._task       = None    # asyncio poll task
+        self._lock       = threading.Lock()
+
+    def reset(self):
+        with self._lock:
+            self._pos  = 0
+            self._path = None
+
+    def set_mode(self, mode):
+        _valid = ('ft8', 'ft4', 'jt65', 'jt9', 'msk144', 'q65', 'wspr')
+        self.mode = mode if mode in _valid else 'ft8'
+
+    def _find_alltxt(self):
+        """Return the first existing ALL.TXT path, or None."""
+        for p in self.SEARCH_PATHS:
+            try:
+                resolved = p.expanduser().resolve()
+                if resolved.exists():
+                    return resolved
+            except Exception:
+                pass
+        return None
+
+    def start_watching(self, loop_ref):
+        """Start async tail task. Called when decoder is activated."""
+        self._path = self._find_alltxt()
+        if self._path:
+            log.info(f"FT8/WSPR: watching {self._path}")
+            # Seek to end so we only show new spots
+            try:
+                self._pos = self._path.stat().st_size
+            except Exception:
+                self._pos = 0
+        else:
+            log.warning("FT8/WSPR: WSJT-X ALL.TXT not found — spots will appear once WSJT-X runs")
+            self._pos = 0
+        # Schedule poll loop on the asyncio event loop
+        asyncio.run_coroutine_threadsafe(self._poll_loop(), loop_ref)
+
+    async def _poll_loop(self):
+        """Poll ALL.TXT every 2 seconds for new lines."""
+        while self.active:
+            try:
+                # Re-search for file if not found yet
+                if self._path is None or not self._path.exists():
+                    found = self._find_alltxt()
+                    if found:
+                        self._path = found
+                        self._pos  = 0
+                        log.info(f"FT8/WSPR: found ALL.TXT at {self._path}")
+
+                if self._path and self._path.exists():
+                    size = self._path.stat().st_size
+                    if size > self._pos:
+                        with open(self._path, 'r', encoding='utf-8', errors='replace') as f:
+                            f.seek(self._pos)
+                            new_text = f.read()
+                        self._pos = size
+                        results = self._parse_lines(new_text)
+                        if results:
+                            await broadcast_json({
+                                "type":    "ft8_results",
+                                "mode":    self.mode,
+                                "t0":      time.time(),
+                                "results": results,
+                                "source":  "wsjtx",
+                            })
+                            # PSK Reporter spot upload (2026-07-15) — best-effort
+                            # extraction of the transmitting callsign from each
+                            # decoded message. psk_uploader.spot() no-ops if
+                            # uploading isn't enabled, so this is safe to call
+                            # unconditionally.
+                            for r in results:
+                                call = PskReporterUploader.extract_sender_callsign(r.get('msg', ''))
+                                if call:
+                                    psk_uploader.spot(call, r.get('freq', 0), self.mode, snr=r.get('snr'))
+            except Exception as e:
+                log.debug(f"FT8/WSPR poll error: {e}")
+            await asyncio.sleep(2)
+
+    def _parse_lines(self, text: str) -> list:
+        """Parse new ALL.TXT lines into result dicts.
+
+        WSJT-X 2.x ALL.TXT format (current):
+            YYMMDD_HHMMSS  dial_mhz  Rx/Tx  mode  snr  dt  audio_hz  message...
+            e.g.: 230101_120000  14.074  Rx  FT8  -13  0.2  1234  CQ W1XYZ FN42
+            parts: [0]=datetime [1]=freq_mhz [2]=Rx/Tx [3]=mode
+                   [4]=snr [5]=dt [6]=audio_hz [7+]=message
+
+        Older format (pre-2.x):
+            date  time  dt  df  freq_mhz  snr  offset  message...
+            parts: [0]=date [1]=time [2]=dt [3]=df [4]=freq_mhz [5]=snr [7+]=message
+
+        Detection: parts[1] is freq_mhz (0.1–500) in new format,
+                   time string (HH:MM:SS) in old format.
+        """
+        results = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parts = line.split()
+                if len(parts) < 7:
+                    continue
+                freq_mhz = None
+                snr      = None
+                msg      = ''
+                # Detect format: new format has dial freq at parts[1] (e.g. "14.074")
+                # Old format has a time string at parts[1] (e.g. "12:00:00")
+                is_new_fmt = False
+                try:
+                    p1 = float(parts[1])
+                    if 0.1 <= p1 <= 500.0:
+                        # New WSJT-X 2.x format — parts[3] is mode name
+                        is_new_fmt = True
+                        freq_mhz = p1
+                        snr      = int(float(parts[4]))
+                        msg      = ' '.join(parts[7:]) if len(parts) > 7 else ''
+                    else:
+                        # Old format — freq at parts[4]
+                        freq_mhz = float(parts[4])
+                        snr      = int(float(parts[5]))
+                        msg      = ' '.join(parts[7:]) if len(parts) > 7 else ''
+                except (ValueError, IndexError):
+                    continue
+
+                # Filter by mode
+                if is_new_fmt and len(parts) > 3:
+                    # Use the mode column directly (e.g. "FT8", "FT4", "WSPR")
+                    if parts[3].lower() != self.mode:
+                        continue
+                else:
+                    # Old format fallback: frequency-based WSPR detection
+                    is_wspr = (freq_mhz is not None and
+                               any(abs(freq_mhz - f) < 0.001 for f in
+                                   [0.136, 0.4742, 1.8366, 3.5686, 5.2872, 5.3647,
+                                    7.0386, 10.1387, 14.0956, 18.1046, 21.0946, 24.9246, 28.1246]))
+                    if self.mode == 'wspr' and not is_wspr:
+                        continue
+                    if self.mode != 'wspr' and is_wspr:
+                        continue
+
+                if freq_mhz is not None:
+                    # Show audio-baseband offset in Hz (like local decoder)
+                    # For display, show SNR instead of Costas score
+                    results.append({
+                        "freq":   int(freq_mhz * 1e6),  # actual frequency in Hz
+                        "costas": snr,                   # reuse field for SNR
+                        "crc_ok": True,
+                        "msg":    msg,
+                        "snr":    snr,
+                    })
+            except Exception:
+                continue
+        return results
+
+    # Stub — IQ not used; kept for interface compatibility
+    def process(self, raw_iq: bytes):
+        pass
+
+async def broadcast_binary(data):
+    for c in list(clients):
+        try:
+            await c.send(data)
+        except Exception:
+            clients.discard(c)
+
+# PY-09: cache the last serialised state message — only re-serialise when
+# content changes.  Non-state messages always serialise fresh.
+_bcast_state_cache: dict | None = None
+_bcast_state_json:  str  | None = None
+
+async def broadcast_json(msg):
+    global _bcast_state_cache, _bcast_state_json
+    if msg.get('type') == 'state':
+        if msg != _bcast_state_cache:
+            _bcast_state_cache = msg.copy()
+            _bcast_state_json  = json.dumps(msg)
+        m = _bcast_state_json
+    else:
+        m = json.dumps(msg)
+    for c in list(clients):
+        try:
+            await c.send(m)
+        except Exception:
+            clients.discard(c)
+
+
+# ── SDR BRIDGE ────────────────────────────────────────────────────────
+cw_dec    = MorseDecoder()
+rtty_dec  = RttyDecoder()
+ais_dec   = AisDecoder()
+# Experimental Dire Wolf-derived second AIS front end (w033 fork,
+# 2026-07-19) -- runs alongside ais_dec, not instead of it. See
+# AisDecoderDireWolf docstring above for validation results/rationale.
+# Shares ais_dec's own .active gate at the call site rather than a
+# separate one, so there's a single AIS on/off switch for the user.
+ais_dec_dw = AisDecoderDireWolf(AisDecoder)
+# Auto-detect capture: when non-None, accumulate PCM bytes for analysis
+_rtty_capture_buf  = None   # bytearray while capturing
+_rtty_capture_ws   = None   # websocket to reply to
+_rtty_capture_need = 48000 * 2 * 2  # ~1 s of int16 stereo PCM at 48 kHz (legacy default, unused — see _rtty_capture_sr)
+_rtty_capture_sr   = 48000  # real-valued sample rate of whatever was last fed to _rtty_capture_feed
+_rtty_capture_gen  = None   # echoes the frontend's _rttyAutodetectGen so a stale
+                            # reply (capture started before a preset/uncheck
+                            # bumped the generation) can be told apart from a
+                            # fresh one — see BUGFIX (June 2026, #4) in the HTML
+fax_dec   = WefaxDecoder()
+sstv_dec  = SstvDecoder()   # w033 fork, 2026-07-19 -- see SstvDecoder docstring for validation caveats
+poc_dec   = PocsagDecoder()
+acars_dec = AcarsDecoder()
+ft8_dec   = FT8Decoder()
+
+# ── NATIVE FT8/FT4 DECODER (w030) ──────────────────────────────────────────
+# ft8_dec above only tails WSJT-X's ALL.txt (the "WSJT-X bridge" source in
+# the FT8 tab). The browser also has a fully independent client-side decoder
+# (ft8ts, running in a Web Worker — no WSJT-X needed): the "INTERNAL" source.
+# All the internal decoder needs from the backend is real demodulated mono
+# audio for whatever's currently tuned. ft8_internal_active is toggled by the
+# 'ft8_internal_enable' WS command (sent when the user selects INTERNAL in
+# the FT8 tab) and gates the _ft8_broadcast_audio() calls added at each demod
+# hook point — kept off by default so no extra bandwidth/CPU is spent when
+# the user is on WSJT-X-bridge mode or not using FT8 at all.
+ft8_internal_active = False
+
+# Binary audio frame wire format: byte[0]=0x02, bytes[1:3]=uint16-LE sample
+# rate (Hz), bytes[3:]=little-endian int16 mono PCM. The sample rate is only
+# ever a few Hz off 48000 in practice (RTL-SDR decimation doesn't always
+# divide evenly — see the "cur_sr // dec_r" bugfix notes elsewhere in this
+# file), but it's embedded explicitly rather than assumed, so the browser's
+# 48kHz->12kHz decimation stays accurate on every source path.
+_ft8_audio_last_sent = 0.0
+_FT8_AUDIO_MIN_DT    = 0.0  # no extra throttling beyond the natural packet cadence
+
+def _ft8_broadcast_audio(samples, sr: float):
+    """Broadcast real-valued demodulated mono audio to the browser for the
+    native/internal FT8 decoder. `samples` may be a numpy float array
+    (nominally -1..1, as produced by the IQ-downmix paths) or raw bytes
+    already in int16 PCM form (the Compact-mode t==4 path hands us that
+    directly). Silently no-ops on any conversion error — this must never be
+    allowed to take down a demod loop the way the old ft8_dec.process(...)
+    calls did (see notes above).
+
+    REVERTED (2026-07-15, w031, later same day): briefly also gated on
+    cw_dec.active so the CW mini-waterfall could tap this same raw-audio
+    stream client-side (see the client-side FFT commit earlier today). That
+    approach regressed Full IQ/IQ-Lite users from a genuinely wideband,
+    BW-immune ±3000 Hz scope (computed server-side from unfiltered complex
+    IQ, immune to the CW decoder's own narrow BW filter) down to a
+    BW-limited view built from the already-filtered demodulated audio —
+    exactly the opposite of what was asked for ("in the main spectrum and
+    waterfall, i am usually looking at 2, 1 or 0.5 msps... 3000hz would
+    provide me with a close up scope which is what i need"). The CW mini-
+    waterfall is back to consuming the server 'audio_fft' broadcast (see
+    the audio_fft blocks below and _audio_fft_center_hz()) on every stream
+    mode, so this function is FT8-internal-only again.
+    """
+    if not ft8_internal_active:
+        return
+    try:
+        if isinstance(samples, (bytes, bytearray)):
+            i16 = np.frombuffer(samples, dtype='<i2')
+        else:
+            arr = np.asarray(samples)
+            if arr.size == 0:
+                return
+            i16 = np.clip(arr.real.astype(np.float32) * 32767.0, -32768, 32767).astype('<i2')
+        if i16.size == 0:
+            return
+        header = struct.pack('<BH', 0x02, int(round(sr)) & 0xFFFF)
+        asyncio.create_task(broadcast_binary(header + i16.tobytes()))
+    except Exception as e:
+        log.debug(f"FT8 internal audio broadcast error: {e}")
+
+# ── WSPR DECODER ─────────────────────────────────────────────────────────────
+# Decodes WSPR signals using wsprd (from WSJT-X package or standalone).
+# WSPR uses 2-minute transmission cycles starting on even UTC minutes.
+# Each cycle: 110.6 s of audio captured → WAV file → wsprd → parse spots.
+# Dial frequencies (USB): signal occupies dial+1400 to dial+1600 Hz.
+#
+# wsprd output line format:
+#   <snr> <dt> <freq_hz> <drift> <callsign> <grid> <dBm>
+#   e.g.  -22  0.4  14095643  0  W1AW  FN31  30
+#
+# WSPR standard dial frequencies (MHz):
+#   0.1366, 0.4742, 1.8366, 3.5686, 5.2872, 5.3647,
+#   7.0386, 10.1387, 14.0956, 18.1046, 21.0946, 24.9246, 28.1246
+
+import wave as _wave
+import tempfile as _tempfile
+
+WSPR_DIAL_FREQS = {
+    '2200m': 0.1366,  '630m':  0.4742,  '160m': 1.8366,
+    '80m':   3.5686,  '60m':   5.2872,  '60mb': 5.3647,
+    '40m':   7.0386,  '30m':  10.1387,  '20m': 14.0956,
+    '17m':  18.1046,  '15m':  21.0946,  '12m': 24.9246,
+    '10m':  28.1246,
+}
+
+class WsprDecoder:
+    """
+    Standalone WSPR decoder using wsprd binary.
+
+    Captures 2-minute IQ windows aligned to even UTC minutes, writes a
+    WAV file and runs wsprd on it.  Works with both nRSP-ST IQ Lite
+    (192 kHz) and RTL-SDR IQ streams.  No WSJT-X required.
+
+    wsprd search order:
+      1. PATH  (wsjt-x package installs it here on most distros)
+      2. WSJT-X app bundle (macOS)
+      3. Common installation prefixes
+    """
+
+    CYCLE_SECONDS  = 120         # WSPR 2-minute cycle
+    CAPTURE_SECS   = 110.6       # actual signal duration within each cycle
+    SAMPLE_RATE    = 12000       # wsprd requires 12 kHz mono s16le WAV
+    SAMPLES_NEEDED = int(SAMPLE_RATE * CAPTURE_SECS)  # ~1 327 200 samples
+
+    def __init__(self):
+        self.active       = False
+        self._buf         = np.zeros(0, dtype=np.float32)
+        self._dial_mhz    = 14.0956            # default 20m
+        self._lock        = threading.Lock()
+        self._wsprd_path  = None
+        self._cycle_count = 0
+        self._spot_count  = 0
+        self._last_spots  = []
+        self._in_capture  = False
+        self._capture_start_s = 0.0            # monotonic time capture began
+
+    # ── Binary search ────────────────────────────────────────────────
+    @staticmethod
+    def _find_wsprd() -> str | None:
+        import shutil
+        if (p := shutil.which('wsprd')):
+            return p
+        candidates = []
+        if sys.platform == 'darwin':
+            candidates += [
+                '/Applications/wsjtx.app/Contents/MacOS/wsprd',
+                str(Path.home() / 'Applications/wsjtx.app/Contents/MacOS/wsprd'),
+            ]
+        candidates += [
+            '/usr/bin/wsprd', '/usr/local/bin/wsprd',
+            '/opt/homebrew/bin/wsprd', '/opt/local/bin/wsprd',
+        ]
+        if sys.platform == 'win32':
+            ap = os.environ.get('APPDATA', '')
+            candidates += [
+                r'C:\WSJT\wsjtx\bin\wsprd.exe',
+                os.path.join(ap, r'WSJT-X\bin\wsprd.exe'),
+            ]
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+        return None
+
+    # ── Lifecycle ────────────────────────────────────────────────────
+    def start(self, dial_mhz: float):
+        self._wsprd_path = self._find_wsprd()
+        self._dial_mhz   = dial_mhz
+        self._buf        = np.zeros(0, dtype=np.float32)
+        self._cycle_count = 0
+        self._in_capture  = False
+        self.active       = True
+        log.info(f"WsprDecoder: started on {dial_mhz:.4f} MHz "
+                 f"({'wsprd at ' + self._wsprd_path if self._wsprd_path else 'NO WSPRD — dry run'})")
+
+    def stop(self):
+        self.active      = False
+        self._buf        = np.zeros(0, dtype=np.float32)
+        self._in_capture = False
+        log.info("WsprDecoder: stopped")
+
+    def set_dial(self, dial_mhz: float):
+        self._dial_mhz = dial_mhz
+        self._buf      = np.zeros(0, dtype=np.float32)
+        self._in_capture = False
+
+    # ── IQ feed ──────────────────────────────────────────────────────
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000, loop=None):
+        """
+        Called from the IQ processing loop with each chunk.
+        Accumulates samples aligned to the 2-minute WSPR cycle.
+        """
+        if not self.active:
+            return
+
+        # AM demod → mono audio (USB: take real part of baseband)
+        # Shift to baseband at +1500 Hz (WSPR centre of 1400–1600 Hz window)
+        # then low-pass and decimate to 12 kHz for wsprd
+        centre_offset = 1500.0   # Hz into USB passband
+        n     = len(iq_c)
+        t     = np.arange(n, dtype=np.float32) / sr
+        shift = np.exp(-2j * np.pi * centre_offset * t).astype(np.complex64)
+        base  = (iq_c * shift)
+
+        # Decimate to 12 kHz — factor = sr / 12000
+        dec = max(1, int(round(sr / self.SAMPLE_RATE)))
+        # BUGFIX (2026-07-15, w031 live decoder-testing pass): this used to be
+        # a bare strided slice (base[::dec]) with no anti-aliasing filter —
+        # the comment above always said "low-pass and decimate" but the
+        # low-pass was never actually written. Any energy above the new
+        # Nyquist (SAMPLE_RATE/2 = 6kHz) folds straight back into the WSPR
+        # passband (1400-1600Hz) on every decimate-by-4 (48kHz Compact-mode
+        # audio) or decimate-by-16 (2MSPS Full-IQ) call, corrupting decode.
+        # Every other IQ-fed decoder in this file that decimates (CW, RTTY)
+        # applies a proper low-pass first — WsprDecoder was the one
+        # exception. scipy's decimate() does FIR anti-alias + slice in one
+        # call; falls back to the old unfiltered slice only if scipy is
+        # unavailable (matches this file's established _HAVE_SCIPY pattern).
+        if _HAVE_SCIPY and dec > 1:
+            audio = _scipy_signal.decimate(base, dec, ftype='fir', zero_phase=True).real.astype(np.float32)
+        else:
+            audio = base[::dec].real.astype(np.float32)
+        # Normalise chunk
+        pk = np.max(np.abs(audio))
+        if pk > 0:
+            audio /= pk
+
+        # Determine if we're in a capture window.
+        # WSPR transmissions start at even UTC minutes + ~1 s.
+        utc_s = time.time()
+        sec_in_min = utc_s % 60
+        min_parity = int(utc_s // 60) % 2   # 0=even, 1=odd
+        # Capture window: even minute, 0–111 s
+        in_window = (min_parity == 0) and (sec_in_min < self.CAPTURE_SECS)
+
+        with self._lock:
+            if in_window:
+                if not self._in_capture:
+                    # New cycle starting — reset buffer
+                    self._in_capture = True
+                    self._buf = np.zeros(0, dtype=np.float32)
+                    self._capture_start_s = time.monotonic()
+                    log.debug("WsprDecoder: capture window started")
+                self._buf = np.concatenate([self._buf, audio])
+            else:
+                if self._in_capture and len(self._buf) > self.SAMPLES_NEEDED // 2:
+                    # Window just ended — decode what we have
+                    decode_buf = self._buf.copy()
+                    self._in_capture = False
+                    self._buf = np.zeros(0, dtype=np.float32)
+                    if loop is not None:
+                        asyncio.run_coroutine_threadsafe(
+                            self._decode_async(decode_buf), loop)
+                elif not in_window:
+                    self._in_capture = False
+
+    # ── Decode ───────────────────────────────────────────────────────
+    async def _decode_async(self, audio: np.ndarray):
+        """Write WAV, run wsprd, parse output, broadcast spots."""
+        loop = asyncio.get_running_loop()
+        spots = await loop.run_in_executor(None, self._run_wsprd, audio)
+        self._cycle_count += 1
+        self._spot_count  += len(spots)
+        self._last_spots   = spots
+        await broadcast_json({
+            "type":        "wspr_results",
+            "dial_mhz":    self._dial_mhz,
+            "cycle":       self._cycle_count,
+            "spot_count":  self._spot_count,
+            "t0":          time.time(),
+            "spots":       spots,
+        })
+        log.info(f"WsprDecoder: cycle {self._cycle_count} → {len(spots)} spots "
+                 f"on {self._dial_mhz:.4f} MHz")
+        # PSK Reporter spot upload (2026-07-15) — WSPR's own decoded fields
+        # (call/freq_hz/snr) are already structured, no free-text parsing
+        # needed unlike the FT8 WSJT-X-bridge path.
+        for s in spots:
+            psk_uploader.spot(s.get('call', ''), s.get('freq_hz', 0), 'WSPR', snr=s.get('snr'))
+
+    def _run_wsprd(self, audio: np.ndarray) -> list:
+        """Blocking: write WAV + invoke wsprd. Returns list of spot dicts."""
+        # Trim / pad to exactly SAMPLES_NEEDED
+        needed = self.SAMPLES_NEEDED
+        if len(audio) > needed:
+            audio = audio[:needed]
+        elif len(audio) < needed:
+            audio = np.concatenate([audio, np.zeros(needed - len(audio), dtype=np.float32)])
+
+        s16 = (audio * 32767).clip(-32768, 32767).astype(np.int16)
+
+        with _tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tf:
+            wav_path = tf.name
+
+        try:
+            with _wave.open(wav_path, 'w') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(self.SAMPLE_RATE)
+                wf.writeframes(s16.tobytes())
+
+            if not self._wsprd_path:
+                log.debug("WsprDecoder: no wsprd binary — skipping decode")
+                return []
+
+            freq_hz = int(self._dial_mhz * 1e6)
+            result  = subprocess.run(
+                [self._wsprd_path, '-f', str(freq_hz / 1e6), '-d', wav_path],
+                capture_output=True, text=True, timeout=60,
+            )
+            return self._parse_wsprd_output(result.stdout + result.stderr)
+        except subprocess.TimeoutExpired:
+            log.warning("WsprDecoder: wsprd timed out")
+            return []
+        except Exception as e:
+            log.warning(f"WsprDecoder: error running wsprd: {e}")
+            return []
+        finally:
+            try:
+                os.unlink(wav_path)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _parse_wsprd_output(text: str) -> list:
+        """
+        Parse wsprd stdout.  Two known formats:
+
+        Classic (wsprd ≤ 2.6):
+          <snr> <dt> <freq_hz> <drift> <call> <grid> <dBm>
+          e.g. -22  0.4  14095643  0  W1AW  FN31  30
+
+        Extended (wsprd ≥ 2.7, --submodes/-a flag):
+          <snr> <dt> <freq_hz> <drift> <call> <grid> <dBm> [<decode_type>]
+        """
+        spots = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith('<') or line.startswith('No '):
+                continue
+            parts = line.split()
+            if len(parts) < 7:
+                continue
+            try:
+                snr      = int(float(parts[0]))
+                dt       = float(parts[1])
+                freq_hz  = int(float(parts[2]))
+                drift    = int(float(parts[3]))
+                callsign = parts[4]
+                grid     = parts[5]
+                power_dbm = int(float(parts[6]))
+                spots.append({
+                    "snr":      snr,
+                    "dt":       dt,
+                    "freq_hz":  freq_hz,
+                    "drift":    drift,
+                    "call":     callsign,
+                    "grid":     grid,
+                    "pwr_dbm":  power_dbm,
+                })
+            except (ValueError, IndexError):
+                continue
+        return spots
+
+wspr_dec = WsprDecoder()
+
+
+# ── PSK REPORTER SPOT UPLOAD ────────────────────────────────────────────────
+class PskReporterUploader:
+    """
+    Uploads decode 'spots' (FT8, WSPR, CW) to the PSK Reporter propagation
+    network (pskreporter.info) — the same "de callsign callsign" reporting
+    system WSJT-X, JTDX, and fldigi already report to, so the user's
+    reception reports show up on pskreporter.info's map/history for
+    whoever transmitted.
+
+    Protocol: simplified IPFIX (RFC 5101) over UDP to
+    report.pskreporter.info:4739. Full spec: https://pskreporter.info/pskdev.html
+    (enterprise number 30351, registered to the PSK Reporter author). The
+    template/field hex blobs below are transcribed verbatim from that page
+    rather than built up field-by-field, to avoid subtly getting the IPFIX
+    encoding wrong — these exact bytes are what WSJT-X and other established
+    clients send.
+
+    Frontend scaffolding for this (callsign + Maidenhead locator fields in
+    the HF Utility location bar) was added 2026-07-13 with the comment
+    "Stored locally for the upcoming PSK Reporter spot-upload feature — not
+    sent anywhere yet"; this class is that feature, wired up for real.
+
+    Rate limit (protocol requirement): at most one datagram every ~5 minutes
+    unless the buffer fills first. Record format descriptors (the two
+    templates below) must be resent periodically since UDP is lossy and the
+    server caches them per (source ip, port) — the *same* UDP socket must be
+    reused for every send, which is why this class owns one socket for its
+    lifetime rather than opening a fresh one per packet.
+
+    Scope (v1): FT8/WSPR via the WSJT-X ALL.txt bridge (FT8Decoder), native
+    WSPR (WsprDecoder/wsprd), and CW Skimmer callsign decodes (MorseDecoder).
+    FT8 INTERNAL (the client-side ft8ts decoder) is NOT yet wired up — those
+    decodes never reach this backend process at all today; see CHANGELOG.md.
+    """
+    HOST = 'report.pskreporter.info'
+    PORT = 4739
+    FLUSH_INTERVAL          = 300.0   # protocol minimum
+    TEMPLATE_RESEND_INTERVAL = 3600.0
+    MAX_RECORDS_PER_PACKET  = 80      # spec: "80 to 90 records" fits a safe UDP datagram
+    DEDUPE_SECS             = 300.0   # spec: no more than once per 5 min per callsign
+    SOFTWARE_NAME = 'DARKSKY NEXUS w033'
+
+    # Receiver info record format descriptor (receiverCallsign, receiverLocator,
+    # decodingSoftware) — verbatim from pskreporter.info/pskdev.html
+    RX_TEMPLATE = bytes.fromhex(
+        '000300249992000300018002FFFF0000768F8004FFFF0000768F8008FFFF0000768F0000'
+    )
+    # Sender info record format descriptor (senderCallsign, frequency,
+    # sNR(1B), iMD(1B), mode, informationSource(1B), flowStartSeconds) —
+    # verbatim from pskreporter.info/pskdev.html
+    TX_TEMPLATE = bytes.fromhex(
+        '0002003C999300078001FFFF0000768F800500040000768F800600010000768F'
+        '800700010000768F800AFFFF0000768F800B00010000768F00960004'
+    )
+
+    _CALLSIGN_RE = re.compile(r'^[A-Z0-9]{1,3}[0-9][A-Z0-9]{0,4}[A-Z]?$')
+
+    def __init__(self):
+        self.enabled     = False
+        self.callsign    = ''
+        self.locator     = ''
+        self._sock       = None
+        self._session_id = random.randint(1, 0x7FFFFFFF)
+        self._seq        = 0
+        self._sent_count = 0        # datagrams sent this session
+        self._last_flush   = 0.0
+        self._last_tmpl_ts = 0.0
+        self._pending          = []   # list of spot dicts awaiting upload
+        self._reported_recent  = {}   # callsign -> last-report unix time
+        self._loop        = None
+        self._flush_task   = None
+
+    def configure(self, enabled: bool, callsign: str, locator: str, loop):
+        was_enabled   = self.enabled
+        self.callsign = (callsign or '').strip().upper()
+        self.locator  = (locator or '').strip().upper()
+        self.enabled  = bool(enabled) and bool(self.callsign)
+        self._loop = loop
+        if self.enabled and self._sock is None:
+            self._open_socket()
+        if self.enabled and not was_enabled and self._flush_task is None:
+            self._flush_task = asyncio.run_coroutine_threadsafe(self._flush_loop(), loop)
+        log.info(f"PSK Reporter: {'enabled' if self.enabled else 'disabled'} "
+                 f"(call={self.callsign or '(none)'}, loc={self.locator or '(none)'})")
+
+    def _open_socket(self):
+        try:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._sock.setblocking(False)
+        except Exception as e:
+            log.warning(f"PSK Reporter: could not open UDP socket: {e}")
+            self._sock = None
+
+    def spot(self, sender_callsign: str, freq_hz: float, mode: str, snr=None, ts=None):
+        """Queue a reception report. Safe to call unconditionally — no-ops
+        if uploading is disabled, so callers don't need to check first."""
+        if not self.enabled or not sender_callsign:
+            return
+        call = sender_callsign.strip().upper()
+        if not call or call == self.callsign or not self._CALLSIGN_RE.match(call):
+            return
+        now = ts if ts is not None else time.time()
+        last = self._reported_recent.get(call)
+        if last is not None and (now - last) < self.DEDUPE_SECS:
+            return
+        self._reported_recent[call] = now
+        try:
+            snr_i8 = max(-128, min(127, int(round(snr)))) if snr is not None else 0
+        except Exception:
+            snr_i8 = 0
+        self._pending.append({
+            'call': call[:254], 'freq': max(0, int(round(freq_hz))),
+            'snr': snr_i8, 'mode': (mode or '').upper()[:254], 'ts': int(now),
+        })
+        if len(self._pending) >= self.MAX_RECORDS_PER_PACKET:
+            self._send_now()
+
+    async def _flush_loop(self):
+        while True:
+            await asyncio.sleep(30)
+            if not self.enabled:
+                continue
+            if self._pending and (time.time() - self._last_flush) >= self.FLUSH_INTERVAL:
+                self._send_now()
+
+    def _send_now(self):
+        if not self._pending or self._sock is None:
+            return
+        try:
+            records = self._pending[:self.MAX_RECORDS_PER_PACKET]
+            self._pending = self._pending[len(records):]
+            packet = self._build_packet(records)
+            self._sock.sendto(packet, (self.HOST, self.PORT))
+            self._sent_count += 1
+            self._last_flush = time.time()
+            if self._sent_count <= 3:
+                self._last_tmpl_ts = self._last_flush
+            log.info(f"PSK Reporter: uploaded {len(records)} spot(s)")
+        except Exception as e:
+            log.debug(f"PSK Reporter: send failed: {e}")
+
+    def _build_packet(self, records) -> bytes:
+        include_templates = (self._sent_count < 3) or \
+            (time.time() - self._last_tmpl_ts >= self.TEMPLATE_RESEND_INTERVAL)
+
+        rx_call = (self.callsign or '')[:254].encode('utf-8')
+        rx_loc  = (self.locator  or '')[:254].encode('utf-8')
+        rx_sw   = self.SOFTWARE_NAME.encode('utf-8')
+        rx_body = (bytes([len(rx_call)]) + rx_call +
+                   bytes([len(rx_loc)])  + rx_loc  +
+                   bytes([len(rx_sw)])   + rx_sw)
+        # NOTE: the declared length field must include the trailing pad-to-4
+        # bytes, per the worked examples on pskreporter.info/pskdev.html (the
+        # receiver-record example's declared 0x20 covers 26 bytes of field
+        # data + 2 bytes of padding, not just the field data) — pad first,
+        # then compute the header from the final padded length.
+        rx_body += b'\x00' * ((-(4 + len(rx_body))) % 4)
+        rx_rec   = struct.pack('>HH', 0x9992, 4 + len(rx_body)) + rx_body
+
+        tx_body = b''
+        for r in records:
+            call_b = r['call'].encode('utf-8')
+            mode_b = r['mode'].encode('utf-8')
+            tx_body += bytes([len(call_b)]) + call_b
+            tx_body += struct.pack('>I', r['freq'] & 0xFFFFFFFF)
+            tx_body += struct.pack('>b', r['snr'])
+            tx_body += struct.pack('>b', 0)              # iMD — not measured
+            tx_body += bytes([len(mode_b)]) + mode_b
+            tx_body += bytes([1])                          # informationSource = automatically extracted
+            tx_body += struct.pack('>I', r['ts'] & 0xFFFFFFFF)
+        tx_body += b'\x00' * ((-(4 + len(tx_body))) % 4)   # same padding-before-length-field rule as rx_body
+        tx_rec   = struct.pack('>HH', 0x9993, 4 + len(tx_body)) + tx_body
+
+        body = (self.RX_TEMPLATE + self.TX_TEMPLATE if include_templates else b'') + rx_rec + tx_rec
+        seq_before = self._seq
+        self._seq += len(records)
+        header = struct.pack('>HHIII', 0x000A, 16 + len(body), int(time.time()),
+                              seq_before, self._session_id)
+        return header + body
+
+    @staticmethod
+    def extract_sender_callsign(message: str):
+        """Best-effort extraction of the transmitting station's callsign from
+        a free-text FT8/WSPR-style message (e.g. "CQ G3XYZ IO91" or
+        "K1ABC G3XYZ RRR"). Not a full protocol decode — good enough for spot
+        attribution, same tier of heuristic loggers commonly use."""
+        parts = message.strip().upper().split()
+        if not parts:
+            return None
+        idx = 0
+        if parts[0] == 'CQ':
+            idx = 1
+            if idx < len(parts) and not PskReporterUploader._looks_like_callsign(parts[idx]) and idx + 1 < len(parts):
+                idx += 1   # skip a CQ modifier token (DX, POTA, NA, ...)
+        elif parts[0] == 'DE':
+            idx = 1
+        if idx < len(parts) and PskReporterUploader._looks_like_callsign(parts[idx]):
+            return parts[idx]
+        for p in parts:
+            if PskReporterUploader._looks_like_callsign(p):
+                return p
+        return None
+
+    @staticmethod
+    def _looks_like_callsign(tok: str) -> bool:
+        if not (3 <= len(tok) <= 10):
+            return False
+        if not any(c.isdigit() for c in tok):
+            return False
+        if not any(c.isalpha() for c in tok):
+            return False
+        return bool(re.match(r'^[A-Z0-9/]+$', tok))
+
+psk_uploader = PskReporterUploader()
+
+
+# ── Multimon-NG decoder ───────────────────────────────────────────────────────
+class MultimonDecoder:
+    """
+    Wrapper around multimon-ng subprocess.
+    Pipes raw s16le 22050 Hz mono PCM from the SDRConnect audio stream
+    into multimon-ng stdin, parses its stdout line-by-line, and broadcasts
+    decoded messages via WebSocket as {type:'multimon_decode', mode, raw, data}.
+
+    Modes that support --json (POCSAG, FLEX, EAS, DTMF) use structured output.
+    All others fall back to regex parsing of multimon-ng's text output.
+
+    Installation (Windows):  multimon-ng is available via https://github.com/EliasOenal/multimon-ng
+                              or via WSL2: sudo apt install multimon-ng
+    Installation (Linux):    sudo apt install multimon-ng
+    Installation (macOS):    brew install multimon-ng
+    """
+
+    slug = 'multimon'
+    name = 'Multimon-NG'
+
+    # Modes that multimon-ng supports via -a flag
+    SUPPORTED_MODES = [
+        'POCSAG512', 'POCSAG1200', 'POCSAG2400',
+        'FLEX', 'EAS', 'AFSK1200', 'FSK9600',
+        'DTMF', 'ZVEI1', 'ZVEI2', 'ZVEI3',
+        'DZVEI', 'PZVEI', 'EEA', 'EIA', 'CCIR',
+        'MORSE_CW',
+    ]
+
+    # Modes that support --json flag
+    JSON_MODES = {'POCSAG512', 'POCSAG1200', 'POCSAG2400', 'FLEX', 'EAS', 'DTMF'}
+
+    # Regex patterns for text-mode parsing
+    _RE_POCSAG = re.compile(
+        r'POCSAG(\d+):\s*Address:\s*(\d+)\s+Function:\s*(\d+)\s*(Alpha|Numeric|Skyper)?:?\s*(.*)',
+        re.IGNORECASE
+    )
+    _RE_FLEX   = re.compile(r'FLEX:\s*(.*)', re.IGNORECASE)
+    _RE_EAS    = re.compile(r'EAS:\s*(.*)', re.IGNORECASE)
+    _RE_APRS   = re.compile(r'AFSK1200:\s*(.*)')
+    _RE_DTMF   = re.compile(r'DTMF:\s*(.*)')
+    _RE_SELCAL = re.compile(r'(ZVEI\d|DZVEI|PZVEI|EEA|EIA|CCIR):\s*(.*)', re.IGNORECASE)
+    _RE_FSK    = re.compile(r'FSK9600:\s*(.*)', re.IGNORECASE)
+    _RE_MORSE  = re.compile(r'MORSE_CW:\s*(.*)', re.IGNORECASE)
+
+    MULTIMON_RATE = 22050   # multimon-ng native input rate
+
+    def __init__(self):
+        self.active   = False
+        self.modes    = ['POCSAG512', 'POCSAG1200', 'POCSAG2400', 'FLEX']
+        self._proc    = None
+        self._thread  = None
+        self._loop    = None
+        self._broadcast = None
+        self._use_json  = False
+        # Demodulation state (initialised lazily on first process() call)
+        self._demod_sr   = None   # last seen sample rate
+        self._sos_lpf    = None   # low-pass filter SOS
+        self._zi_lpf     = None
+        self._sos_dc     = np.array([[1.0, -1.0, 0.0, 1.0, -0.999, 0.0]])  # DC block
+        self._zi_dc      = None
+        self._resamp_buf = np.array([], dtype=np.float32)  # resampling accumulator
+
+    def _init_filters(self, sr: float):
+        """Build filters for a given input sample rate."""
+        if sr == self._demod_sr and self._sos_lpf is not None:
+            return
+        self._demod_sr = sr
+        # Low-pass at 8 kHz — passes POCSAG/FLEX audio content, rejects IQ image
+        nyq = sr / 2
+        self._sos_lpf = ss.butter(5, 8000 / nyq, btype='low', output='sos')
+        self._zi_lpf  = ss.sosfilt_zi(self._sos_lpf) * 0.0
+        self._zi_dc   = ss.sosfilt_zi(self._sos_dc)  * 0.0
+        log.debug(f'MultimonDecoder: filters init @ sr={sr:.0f}')
+
+    def process(self, iq: bytes, sr: float = None):
+        """
+        Receive raw int16 IQ — genuine, not-yet-demodulated hardware/RF
+        samples (Full-IQ or RTL-SDR paths only; NOT Compact-mode or IQ-Lite
+        audio — see process_audio() for those).
+        Pipeline: int16 IQ → complex float → FM discriminator →
+                  low-pass 8 kHz → DC block → resample to 22050 Hz → int16 → multimon-ng stdin
+
+        `sr` should be the true sample rate of `iq` — pass it explicitly
+        from the caller rather than relying on the state.get() fallback
+        below, which only happens to be correct for genuine raw-IQ call
+        sites (see BUGFIX 2026-07-15 note at the call sites in the
+        SDRConnect read loop for why this matters).
+        """
+        if not self.active or not self._proc:
+            return
+        if self._proc.poll() is not None:
+            log.warning('MultimonDecoder: process died — stopping')
+            self.active = False
+            return
+
+        sr = float(sr) if sr is not None else float(state.get('sample_rate', 2_000_000))
+        if not _HAVE_SCIPY:
+            return  # can't demodulate without scipy
+
+        # Unpack int16 interleaved IQ → complex float
+        raw  = np.frombuffer(iq, dtype='<i2').astype(np.float32) / 32768.0
+        if len(raw) < 4:
+            return
+        iq_c = raw[0::2] + 1j * raw[1::2]
+
+        # FM discriminator: angle difference between successive samples
+        prod   = iq_c[1:] * np.conj(iq_c[:-1])
+        discr  = np.angle(prod).astype(np.float32)
+
+        # One discriminator sample per IQ pair, so the audio-domain rate is sr/2
+        self._emit(discr, sr / 2)
+
+    def process_audio(self, audio, sr: float):
+        """
+        Receive audio that has ALREADY been demodulated upstream — the
+        Compact-mode ("t==1"/"t==4") and IQ-Lite stream paths never deliver
+        genuine raw IQ to the backend, only real-valued baseband/demodulated
+        audio (see the fake-complex-IQ shim used elsewhere in this file for
+        those same paths). Running process()'s FM discriminator on that
+        would be meaningless — there is no IQ rotation left to discriminate,
+        it was already removed by whatever demodulated the signal upstream.
+
+        BUGFIX (2026-07-15, w031 live decoder-testing pass): before this
+        method existed, every Compact-mode/IQ-Lite call site fed multimon
+        through process(iq: bytes) instead — which (a) ran a nonsensical FM
+        discriminator over what were actually two audio channels or a mono
+        stream reinterpreted as IQ pairs, and (b) read sr from
+        state.get('sample_rate'), the RF/hardware rate (e.g. 500000 or
+        2000000), not the ~48000Hz the audio is actually at — an adjacent
+        pre-existing code comment already flagged this exact mislabel for
+        the neighbouring _rtty_capture_feed() call without fixing it "to
+        stay in scope". Net effect: multimon-ng (POCSAG/FLEX/EAS/DTMF/
+        selcall/MORSE_CW/AFSK1200/FSK9600) was completely non-functional in
+        Compact mode — badged "COMPACT" in the decoder dropdown — despite
+        never throwing an error or showing any indication of failure.
+
+        `audio` may be a numpy float array (nominally -1..1) or raw bytes
+        already in int16 PCM form, mirroring the convention already used by
+        _ft8_broadcast_audio() elsewhere in this file.
+        """
+        if not self.active or not self._proc:
+            return
+        if self._proc.poll() is not None:
+            log.warning('MultimonDecoder: process died — stopping')
+            self.active = False
+            return
+        if not _HAVE_SCIPY:
+            return
+
+        if isinstance(audio, (bytes, bytearray)):
+            real = np.frombuffer(audio, dtype='<i2').astype(np.float32) / 32768.0
+        else:
+            real = np.asarray(audio, dtype=np.float32).real
+        if len(real) < 4:
+            return
+
+        self._emit(real, float(sr))
+
+    def _emit(self, real_signal: np.ndarray, in_rate: float):
+        """Shared tail for both process() and process_audio(): low-pass to
+        audio bandwidth, DC-block, resample to MULTIMON_RATE, write to
+        multimon-ng's stdin. `in_rate` is the true sample rate of
+        `real_signal` as measured by the caller (post-discriminator rate for
+        process(), or the demodulated-audio rate for process_audio())."""
+        self._init_filters(in_rate)
+
+        # Low-pass filter to audio bandwidth
+        filt, self._zi_lpf = ss.sosfilt(self._sos_lpf, real_signal, zi=self._zi_lpf)
+
+        # DC block
+        dc_out, self._zi_dc = ss.sosfilt(self._sos_dc, filt, zi=self._zi_dc)
+
+        # Resample from in_rate to MULTIMON_RATE.
+        # Use linear interpolation via np.interp — accurate enough for paging signals
+        out_rate = self.MULTIMON_RATE
+        ratio    = out_rate / in_rate
+
+        n_in   = len(dc_out)
+        n_out  = max(1, int(round(n_in * ratio)))
+        x_in   = np.arange(n_in,  dtype=np.float64)
+        x_out  = np.linspace(0, n_in - 1, n_out, dtype=np.float64)
+        audio  = np.interp(x_out, x_in, dc_out.astype(np.float64))
+
+        # Normalise and convert to int16
+        peak = np.max(np.abs(audio))
+        if peak > 0:
+            audio = audio / peak * 0.9
+        pcm16 = (audio * 32767).astype(np.int16).tobytes()
+
+        try:
+            self._proc.stdin.write(pcm16)
+            self._proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            self.active = False
+            return
+
+        # BUGFIX (June 2026, user-reported "no indicator multimon is actually
+        # running"): the 2s status heartbeat (audio_peak + pid + uptime, used
+        # by the frontend's AUDIO meter / pid-uptime readout in the Multimon
+        # tab) used to only fire from one specific call site in the
+        # SDRConnect read loop (the RTL-SDR demodulated-audio branch). This
+        # method is also called (via process()/process_audio()) from every
+        # other stream path and none of those got any heartbeat at all, so
+        # on every stream mode except RTL-SDR the status bar just froze at
+        # its one-time start() values (uptime stuck at 0, no audio_peak ever
+        # shown) — looking exactly like "is this actually doing anything?"
+        # even while genuinely decoding. Keeping the heartbeat in this
+        # shared tail means every caller gets it for free.
+        if self._loop and self._broadcast:
+            now = time.monotonic()
+            if now - getattr(self, '_last_hb', 0) >= 2.0:
+                self._last_hb = now
+                try:
+                    status = self.get_status()
+                    status['audio_peak'] = round(float(min(1.0, peak)), 3)
+                    asyncio.run_coroutine_threadsafe(self._broadcast(status), self._loop)
+                except Exception:
+                    pass
+
+    def _find_binary(self):
+        """Return path to multimon-ng binary or None.
+        Search order:
+          1. Plain 'multimon-ng' on PATH (Linux/macOS native, WSL2 if on PATH)
+          2. Common Windows install locations (pre-built binary)
+          3. WSL2 wrapper — 'wsl multimon-ng' (Windows with WSL2 installed)
+        """
+        candidates = ['multimon-ng', 'multimon_ng']
+        if sys.platform == 'darwin':
+            # Homebrew on Apple Silicon (/opt/homebrew) and Intel (/usr/local)
+            candidates += [
+                '/opt/homebrew/bin/multimon-ng',
+                '/usr/local/bin/multimon-ng',
+                '/opt/local/bin/multimon-ng',   # MacPorts
+            ]
+        if sys.platform == 'win32':
+            # Common native Windows install locations
+            candidates += [
+                r'C:\multimon-ng\multimon-ng.exe',
+                r'C:\Program Files\multimon-ng\multimon-ng.exe',
+                r'C:\Program Files (x86)\multimon-ng\multimon-ng.exe',
+                str(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'multimon-ng', 'multimon-ng.exe')),
+                # Chocolatey / scoop install locations
+                r'C:\ProgramData\chocolatey\bin\multimon-ng.exe',
+                str(os.path.join(os.environ.get('USERPROFILE', ''), 'scoop', 'apps', 'multimon-ng', 'current', 'multimon-ng.exe')),
+            ]
+
+        for c in candidates:
+            try:
+                result = subprocess.run([c, '--help'], capture_output=True, timeout=3)
+                if result.returncode == 0 or b'multimon' in (result.stdout + result.stderr).lower():
+                    log.info(f'MultimonDecoder: found binary at: {c}')
+                    return c
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                continue
+
+        # WSL2 fallback on Windows — wrap with 'wsl multimon-ng'
+        if sys.platform == 'win32':
+            try:
+                result = subprocess.run(['wsl', 'multimon-ng', '--help'],
+                                        capture_output=True, timeout=5)
+                if result.returncode == 0 or b'multimon' in (result.stdout + result.stderr).lower():
+                    log.info('MultimonDecoder: found via WSL2')
+                    return '__WSL__'   # sentinel — handled in start()
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                pass
+
+        return None
+
+    def start(self, loop, broadcast_fn):
+        """Start multimon-ng subprocess and reader thread."""
+        if self._proc and self._proc.poll() is None:
+            return True  # already running
+
+        binary = self._find_binary()
+        if not binary:
+            log.warning('MultimonDecoder: multimon-ng not found — install it and ensure it is on PATH')
+            asyncio.run_coroutine_threadsafe(
+                broadcast_fn({'type': 'multimon_status', 'running': False,
+                              'error': 'multimon-ng not found — install it and ensure it is on PATH'}),
+                loop
+            )
+            return False
+
+        self._loop       = loop
+        self._broadcast  = broadcast_fn
+        self._use_json   = bool(self.JSON_MODES.intersection(set(self.modes)))
+
+        # Build argument list — handle WSL2 wrapper
+        if binary == '__WSL__':
+            args = ['wsl', 'multimon-ng', '-t', 'raw', '-']
+        else:
+            args = [binary, '-t', 'raw', '-']
+        for m in self.modes:
+            if m in self.SUPPORTED_MODES:
+                args += ['-a', m]
+        if self._use_json:
+            args.append('--json')
+        args += ['-q']          # quiet — suppress banner/noise
+        args += ['--timestamp'] # prepend timestamps if supported (fails silently if not)
+
+        log.info(f'MultimonDecoder: starting {" ".join(args)}')
+        try:
+            self._proc = subprocess.Popen(
+                args,
+                stdin  = subprocess.PIPE,
+                stdout = subprocess.PIPE,
+                stderr = subprocess.DEVNULL,
+                bufsize= 0,
+            )
+        except Exception as e:
+            log.error(f'MultimonDecoder: failed to start: {e}')
+            asyncio.run_coroutine_threadsafe(
+                broadcast_fn({'type': 'multimon_status', 'running': False, 'error': str(e)}),
+                loop
+            )
+            return False
+
+        self._start_time = time.monotonic()
+
+        # Start stdout reader thread
+        self._thread = threading.Thread(
+            target = self._reader_thread,
+            args   = (broadcast_fn, loop),
+            daemon = True,
+            name   = 'multimon-reader',
+        )
+        self._thread.start()
+
+        asyncio.run_coroutine_threadsafe(
+            broadcast_fn({'type': 'multimon_status', 'running': True,
+                          'modes': self.modes, 'binary': binary,
+                          'pid': self._proc.pid, 'uptime_s': 0}),
+            loop
+        )
+        log.info(f'MultimonDecoder: running with modes {self.modes}')
+        return True
+
+    def get_status(self) -> dict:
+        """Return current process health for status bar broadcast."""
+        running = bool(self._proc and self._proc.poll() is None)
+        uptime  = int(time.monotonic() - self._start_time) if (running and self._start_time) else 0
+        pid     = self._proc.pid if running else None
+        return {
+            'type':     'multimon_status',
+            'running':  running,
+            'modes':    self.modes if running else [],
+            'pid':      pid,
+            'uptime_s': uptime,
+        }
+
+    def stop(self):
+        """Terminate multimon-ng subprocess."""
+        if self._proc:
+            try:
+                self._proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+            self._proc = None
+        self.active       = False
+        self._start_time  = None
+        if self._loop and self._broadcast:
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast({'type': 'multimon_status', 'running': False}),
+                self._loop
+            )
+
+    def _reader_thread(self, broadcast_fn, loop):
+        """Background thread: read stdout, parse, broadcast."""
+        try:
+            for raw_line in self._proc.stdout:
+                if not raw_line:
+                    continue
+                line = raw_line.decode('utf-8', errors='replace').rstrip('\r\n')
+                if not line:
+                    continue
+                msg = self._parse_line(line)
+                if msg:
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast_fn(msg), loop
+                    )
+        except Exception as e:
+            log.debug(f'MultimonDecoder reader thread exited: {e}')
+
+    def _parse_line(self, line: str) -> dict | None:
+        """Parse one line of multimon-ng output into a broadcast dict."""
+        # ── JSON mode (POCSAG, FLEX, EAS, DTMF) ──────────────────────────────
+        if self._use_json and line.startswith('{'):
+            try:
+                j = json.loads(line)
+                mode = j.get('type', 'UNKNOWN').upper()
+                data = {}
+                if mode.startswith('POCSAG'):
+                    data = {
+                        'capcode': str(j.get('address', '')),
+                        'func':    int(j.get('function', 0)),
+                        'baud':    int(mode.replace('POCSAG', '') or 0),
+                        'text':    j.get('message', '').strip(),
+                    }
+                elif mode == 'FLEX':
+                    data = {
+                        'capcode': str(j.get('address', '')),
+                        'type':    j.get('type_description', ''),
+                        'text':    j.get('message', '').strip(),
+                    }
+                elif mode == 'EAS':
+                    data = {
+                        'org':        j.get('org_code', ''),
+                        'event':      j.get('event_code', ''),
+                        'locations':  j.get('locations', []),
+                        'valid_time': j.get('valid_time', ''),
+                        'callsign':   j.get('callsign', ''),
+                    }
+                elif mode == 'DTMF':
+                    data = {'tones': j.get('tones', '')}
+                return {'type': 'multimon_decode', 'mode': mode, 'raw': line, 'data': data}
+            except json.JSONDecodeError:
+                pass  # fall through to regex parsing
+
+        # ── Text mode regex parsing ───────────────────────────────────────────
+        m = self._RE_POCSAG.match(line)
+        if m:
+            baud, cap, func, enc, text = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+            return {'type': 'multimon_decode', 'mode': f'POCSAG{baud}', 'raw': line,
+                    'data': {'capcode': cap, 'func': int(func or 0), 'baud': int(baud), 'text': (text or '').strip()}}
+
+        m = self._RE_FLEX.match(line)
+        if m:
+            return {'type': 'multimon_decode', 'mode': 'FLEX', 'raw': line,
+                    'data': {'text': m.group(1).strip()}}
+
+        m = self._RE_EAS.match(line)
+        if m:
+            return {'type': 'multimon_decode', 'mode': 'EAS', 'raw': line,
+                    'data': {'text': m.group(1).strip()}}
+
+        m = self._RE_APRS.match(line)
+        if m:
+            return {'type': 'multimon_decode', 'mode': 'AFSK1200', 'raw': line,
+                    'data': {'raw': m.group(1).strip()}}
+
+        m = self._RE_DTMF.match(line)
+        if m:
+            return {'type': 'multimon_decode', 'mode': 'DTMF', 'raw': line,
+                    'data': {'tones': m.group(1).strip()}}
+
+        m = self._RE_SELCAL.match(line)
+        if m:
+            return {'type': 'multimon_decode', 'mode': m.group(1).upper(), 'raw': line,
+                    'data': {'tones': m.group(2).strip()}}
+
+        m = self._RE_FSK.match(line)
+        if m:
+            return {'type': 'multimon_decode', 'mode': 'FSK9600', 'raw': line,
+                    'data': {'raw': m.group(1).strip()}}
+
+        m = self._RE_MORSE.match(line)
+        if m:
+            return {'type': 'multimon_decode', 'mode': 'MORSE_CW', 'raw': line,
+                    'data': {'text': m.group(1).strip()}}
+
+        # Unknown line — log at debug only, return None (don't broadcast noise)
+        log.debug(f'MultimonDecoder unparsed: {line!r}')
+        return None
+
+    def reset(self):
+        """Clear state without stopping subprocess."""
+        pass
+
+
+# ── Numbers-station / spy-HF decoder (native, clean-room) ─────────────────────
+class RivetModesDecoder:
+    """
+    Native NEXUS decoder for two well-documented HF data modes historically
+    associated with numbers-station / diplomatic traffic monitoring software
+    such as Rivet (IanWraith/Rivet): Baudot (ITA2/CCITT-2 RTTY) and
+    CCIR 493-4 / ITU-R M.493 Digital Selective Calling (DSC).
+
+    This is a clean-room implementation written directly from public protocol
+    specifications (ITU-R M.493-9, and the standard ITA2 5-bit teleprinter
+    alphabet) — no code or algorithms were taken from the Rivet project, whose
+    GitHub repository carries no explicit open-source license. Only the
+    *idea* of supporting these mode families (and the list of which modes are
+    interesting to numbers-station/HF-intelligence monitoring) was informed by
+    surveying Rivet's public feature description.
+
+    BAUDOT/ITA2:
+      Standard 5-bit start-stop teleprinter code, same alphabet already used
+      by RttyDecoder elsewhere in this file. Demodulated here independently
+      because Rivet-style traffic often runs non-standard shifts/baud rates
+      not exposed by the existing RTTY tab's UI (170 Hz shift is assumed but
+      baud rate is configurable).
+
+    CCIR 493-4 / DSC (ITU-R M.493-9):
+      10-bit synchronous error-detecting code. Each character = 7 information
+      bits (LSB-first) + 3 check bits (MSB-first) where the check bits encode,
+      as a 3-bit binary count, the number of B-elements (binary 0) among the
+      7 information bits — i.e. a "constant weight" forward error check
+      (every valid 10-bit word has exactly 7 B-elements total). This lets the
+      decoder validate every received character before using it.
+      HF/MF: 100 Bd, 170 Hz shift, audio tone pair ≈1615/1785 Hz (1700 Hz
+      center). VHF: 1200 Bd, tones 1300/2100 Hz. Each information character
+      (format specifier, address, category, self-ID, message, EOS, ECC) is
+      sent twice — once as "DX" and again, 5 character-slots later, as "RX"
+      — for time-diversity error correction; phasing uses dedicated symbols
+      104–111 (RX countdown) and 125 (DX) ahead of the message body.
+    """
+
+    slug = 'rivet'
+    name = 'Numbers-Station / HF-Intel (Baudot + DSC)'
+
+    # ── ITA2 / CCITT-2 5-bit alphabet (LTRS shift) — same table as RttyDecoder ──
+    ITA2_LTRS = {
+        24: "A", 19: "B", 14: "C", 18: "D", 16: "E", 22: "F", 11: "G", 5: "H",
+        12: "I", 26: "J", 30: "K", 9: "L", 7: "M", 6: "N", 3: "O", 13: "P",
+        29: "Q", 10: "R", 20: "S", 1: "T", 28: "U", 15: "V", 25: "W", 23: "X",
+        21: "Y", 17: "Z", 4: " ", 8: "\r", 2: "\n", 27: "<FIGS>", 31: "<LTRS>",
+        0: "<NUL>",
+    }
+    ITA2_FIGS = {
+        24: "-", 19: "?", 14: ":", 18: "$", 16: "3", 22: "!", 11: "&", 5: "#",
+        12: "8", 26: "'", 30: "(", 9: ")", 7: ".", 6: ",", 3: "9", 13: "0",
+        29: "1", 10: "4", 20: "'", 1: "5", 28: "7", 15: ";", 25: "2", 23: "/",
+        21: "6", 17: '"', 4: " ", 8: "\r", 2: "\n", 27: "<FIGS>", 31: "<LTRS>",
+        0: "<NUL>",
+    }
+
+    # ── DSC (ITU-R M.493-9) — format specifiers, categories, special symbols ──
+    DSC_FORMAT_SPECIFIER = {
+        102: "Geographic area call", 112: "Distress",
+        114: "Group call (common interest)", 116: "All ships",
+        120: "Individual station", 123: "Individual (semi/auto service)",
+    }
+    DSC_CATEGORY = {
+        100: "Routine", 106: "Ship's business", 108: "Safety",
+        110: "Urgency", 112: "Distress",
+    }
+    DSC_NATURE_OF_DISTRESS = {
+        100: "Fire/explosion", 101: "Flooding", 102: "Collision",
+        103: "Grounding", 104: "Listing/capsizing", 105: "Sinking",
+        106: "Disabled/adrift", 107: "Undesignated distress",
+        108: "Abandoning ship", 109: "Piracy/armed robbery",
+        110: "Man overboard", 112: "EPIRB emission",
+    }
+    DSC_PHASING_RX  = {104: 0, 105: 1, 106: 2, 107: 3, 108: 4, 109: 5, 110: 6, 111: 7}
+    DSC_PHASING_DX  = 125
+    DSC_EOS_ACK_RQ  = 117   # acknowledgement requested
+    DSC_EOS_ACK_BQ  = 122   # this is an acknowledgement
+    DSC_EOS_PLAIN   = 127
+    DSC_NO_INFO     = 126   # filler / unused field
+
+    HF_BAUD     = 100.0     # CCIR 493-4 HF/MF symbol rate
+    HF_SHIFT    = 170       # Hz
+    HF_CENTER   = 1700      # Hz audio tone-pair center
+    BAUDOT_BAUD = 50.0      # common Baudot rate for numbers-station Baudot traffic
+    BAUDOT_SHIFT = 170
+
+    def __init__(self):
+        self.active      = False
+        self.mode        = 'dsc'   # 'dsc' or 'baudot'
+        self.baud        = self.HF_BAUD
+        self.shift       = self.HF_SHIFT
+        self.center      = self.HF_CENTER
+        self._bit_buf    = []      # accumulated demodulated bits (0/1 ints)
+        self._dsc_chars  = []      # accumulated validated 7-bit DSC symbols
+        self._msg_fields = {}      # in-progress DSC message decode
+        self._resamp_buf = np.array([], dtype=np.float32) if _HAVE_SCIPY else None
+        self._broadcast  = None
+        self._loop       = None
+        self._baudot_state = "LTRS"
+        self._baudot_text  = ""
+
+    def start(self, mode: str, loop, broadcast_fn):
+        self.mode       = mode if mode in ('dsc', 'baudot') else 'dsc'
+        self.baud        = self.HF_BAUD if self.mode == 'dsc' else self.BAUDOT_BAUD
+        self.shift        = self.HF_SHIFT if self.mode == 'dsc' else self.BAUDOT_SHIFT
+        self._bit_buf    = []
+        self._dsc_chars  = []
+        self._msg_fields = {}
+        self._baudot_state = "LTRS"
+        self._baudot_text  = ""
+        self._loop       = loop
+        self._broadcast  = broadcast_fn
+        self.active      = True
+        log.info(f'RivetModesDecoder: started mode={self.mode} baud={self.baud} shift={self.shift}')
+        return True
+
+    def stop(self):
+        self.active = False
+        self._loop, self._broadcast = None, None
+
+    def get_status(self) -> dict:
+        return {'type': 'rivet_status', 'running': self.active, 'mode': self.mode,
+                'baud': self.baud, 'shift': self.shift}
+
+    # ── Audio demodulation (FSK → bit stream) ──────────────────────────────
+    def process_audio(self, pcm_bytes: bytes, sample_rate: int = 48000):
+        """Receive int16 LE mono PCM audio (already at AF, e.g. from IQ Lite
+        discriminator output or direct soundcard-equivalent feed) and run it
+        through simple FSK demodulation: dual-tone correlator → bit slicer.
+        """
+        if not self.active or not _HAVE_SCIPY:
+            return
+        data = np.frombuffer(pcm_bytes, dtype='<i2').astype(np.float32) / 32768.0
+        if len(data) < 32:
+            return
+
+        mark_hz  = self.center - self.shift / 2.0   # Y (binary 1) — lower tone
+        space_hz = self.center + self.shift / 2.0   # B (binary 0) — higher tone
+        n  = len(data)
+        t  = np.arange(n) / sample_rate
+
+        # Goertzel-style dual correlator: mix down to baseband at each tone,
+        # low-pass over one symbol period, compare energies.
+        mix_mark  = data * np.exp(-2j * np.pi * mark_hz  * t)
+        mix_space = data * np.exp(-2j * np.pi * space_hz * t)
+        win = max(1, int(sample_rate / self.baud))
+        kern = np.ones(win, dtype=np.float32) / win
+        env_mark  = np.convolve(np.abs(mix_mark),  kern, mode='same')
+        env_space = np.convolve(np.abs(mix_space), kern, mode='same')
+
+        # Sample one decision per symbol period at mid-symbol
+        samples_per_bit = sample_rate / self.baud
+        n_bits = int(n / samples_per_bit)
+        for i in range(n_bits):
+            idx = int((i + 0.5) * samples_per_bit)
+            if idx >= n:
+                break
+            bit = 1 if env_mark[idx] > env_space[idx] else 0   # 1=mark/Y, 0=space/B
+            self._bit_buf.append(bit)
+
+        if self.mode == 'dsc':
+            self._drain_dsc_bits()
+        else:
+            self._drain_baudot_bits()
+
+    # ── Baudot/ITA2 bit-stream → text ───────────────────────────────────────
+    def _drain_baudot_bits(self):
+        """Consume self._bit_buf as async start-bit + 5 data + 1.5 stop-bit
+        frames. Simplified slicer: looks for a 0 (start) bit then reads the
+        next 5 bits as the character, assuming bits already land mid-symbol
+        (matches the sampling done in process_audio)."""
+        i = 0
+        buf = self._bit_buf
+        while i + 6 < len(buf):
+            if buf[i] == 0:   # start bit (always space/0 in async start-stop)
+                bits5 = buf[i+1:i+6]
+                code = 0
+                for b in reversed(bits5):   # ITA2 sent LSB-first
+                    code = (code << 1) | b
+                ch = (self.ITA2_FIGS if self._baudot_state == "FIGS" else self.ITA2_LTRS).get(code)
+                if ch == "<FIGS>":
+                    self._baudot_state = "FIGS"
+                elif ch == "<LTRS>":
+                    self._baudot_state = "LTRS"
+                elif ch and ch != "<NUL>":
+                    self._baudot_text += ch
+                    if len(self._baudot_text) >= 200 or ch == "\n":
+                        self._emit_baudot()
+                i += 7  # 1 start + 5 data + ~1 stop bit-slot
+            else:
+                i += 1
+        self._bit_buf = buf[i:]
+
+    def _emit_baudot(self):
+        text = self._baudot_text.strip()
+        self._baudot_text = ""
+        if not text or not self._broadcast:
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast({'type': 'rivet_decode', 'mode': 'BAUDOT', 'data': {'text': text}}),
+            self._loop
+        )
+
+    # ── DSC bit-stream → validated 7-bit symbols → message fields ──────────
+    def _drain_dsc_bits(self):
+        """Consume self._bit_buf as 10-bit DSC characters: 7 info bits
+        (LSB-first) + 3 check bits (MSB-first), validate the constant-weight
+        check (7 B-elements total per valid word), then feed good symbols
+        into the message-field state machine."""
+        buf = self._bit_buf
+        i = 0
+        while i + 10 <= len(buf):
+            frame = buf[i:i+10]
+            info_bits  = frame[0:7]
+            check_bits = frame[7:10]
+            # info bits LSB-first → integer value 0-127
+            info_val = 0
+            for b in reversed(info_bits):
+                info_val = (info_val << 1) | b
+            # check bits MSB-first → integer 0-7 = claimed count of B(=0) elements
+            check_val = 0
+            for b in check_bits:
+                check_val = (check_val << 1) | b
+            actual_b_count = info_bits.count(0)
+            if check_val == actual_b_count:
+                self._dsc_chars.append(info_val)
+                self._feed_dsc_symbol(info_val)
+            i += 10
+        self._bit_buf = buf[i:]
+
+    def _feed_dsc_symbol(self, sym: int):
+        """Very small DSC framing state machine: looks for the DX phasing
+        symbol (125) followed by a recognised format specifier, then collects
+        subsequent symbols as address/category/message digits until an EOS
+        symbol (117/122/127) closes out the call — at which point the
+        decoded fields are broadcast. Phasing/RX-countdown symbols and the
+        dot pattern are detected but not required for a successful decode of
+        well-formed traffic (greatly simplifies the clean-room logic vs. the
+        full spec's tolerance for partial/noisy phasing)."""
+        fields = self._msg_fields
+
+        if sym == self.DSC_PHASING_DX or sym in self.DSC_PHASING_RX:
+            return  # phasing/sync — not message content
+
+        if sym in self.DSC_FORMAT_SPECIFIER and 'format' not in fields:
+            fields['format']  = self.DSC_FORMAT_SPECIFIER[sym]
+            fields['digits']  = []
+            fields['category'] = None
+            return
+
+        if 'format' not in fields:
+            return  # not yet in a message — ignore stray symbols
+
+        if sym in (self.DSC_EOS_ACK_RQ, self.DSC_EOS_ACK_BQ, self.DSC_EOS_PLAIN):
+            fields['eos'] = {self.DSC_EOS_ACK_RQ: 'ACK-RQ', self.DSC_EOS_ACK_BQ: 'ACK-BQ',
+                              self.DSC_EOS_PLAIN: 'EOS'}[sym]
+            self._emit_dsc(fields)
+            self._msg_fields = {}
+            return
+
+        if sym == self.DSC_NO_INFO:
+            return  # filler — skip
+
+        if sym in self.DSC_CATEGORY and fields.get('category') is None:
+            fields['category'] = self.DSC_CATEGORY[sym]
+            return
+
+        if 0 <= sym <= 99:
+            # two-decimal-digit symbol — part of address (MMSI) or message digits
+            fields.setdefault('digits', []).append(f'{sym:02d}')
+            return
+        # Unrecognised 100-127 special symbol in this position — ignore quietly
+
+    def _emit_dsc(self, fields: dict):
+        if not self._broadcast:
+            return
+        digits = ''.join(fields.get('digits', []))
+        data = {
+            'format':   fields.get('format', ''),
+            'category': fields.get('category') or '',
+            'address':  digits[:9] if digits else '',
+            'message':  digits[9:] if len(digits) > 9 else '',
+            'eos':      fields.get('eos', ''),
+        }
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast({'type': 'rivet_decode', 'mode': 'DSC', 'data': data}),
+            self._loop
+        )
+
+    def reset(self):
+        self._bit_buf, self._dsc_chars, self._msg_fields = [], [], {}
+        self._baudot_state, self._baudot_text = "LTRS", ""
+
+
+# ── FreeDV HF digital voice decoder (codec2 freedv_rx subprocess wrapper) ─────
+class FreeDvDecoder:
+    """
+    Wrapper around the `freedv_rx` command-line tool shipped with the codec2
+    project (drowe67/codec2, LGPL-2.1 — open source, freely linkable/usable).
+
+    freedv_rx demodulates an HF SSB digital-voice signal and decodes it back
+    to speech PCM. Unlike NEXUS's other decoders (which emit text/data),
+    FreeDV's output is audio — so this wrapper resamples incoming 48 kHz
+    audio down to the 8 kHz mono PCM that freedv_rx's modem expects, pipes
+    it to the subprocess's stdin, and reads decoded 8 kHz speech PCM back
+    from stdout. That speech is base64-encoded into small chunks and
+    broadcast over the WebSocket for client-side playback via Web Audio.
+
+    Sync/SNR telemetry is parsed from freedv_rx's verbose (-v) stderr output
+    and broadcast as a status message, similar to multimon-ng's status bar.
+
+    Installation: build codec2 (https://github.com/drowe67/codec2) with
+    UNITTEST/demo targets enabled — freedv_rx is a demo binary not included
+    in standard distro packages, so it usually needs a manual build:
+        git clone https://github.com/drowe67/codec2 && cd codec2
+        mkdir build_linux && cd build_linux && cmake .. && make
+        # binary appears at build_linux/src/freedv_rx
+    """
+
+    slug = 'freedv'
+    name = 'FreeDV HF Digital Voice'
+
+    SUPPORTED_MODES = ['1600', '700C', '700D', '700E', '2400A', '2400B', '800XA']
+    MODEM_SR  = 8000     # freedv_rx modem input/output sample rate (Hz)
+    CHUNK_MS  = 80        # outbound audio chunk size, ms
+
+    _RE_STATS = re.compile(
+        r'frame:\s*(\d+)\s+sync:\s*(\d+)\s+nin:\s*(\d+)\s+snr:\s*([\-\d.]+)\s*dB'
+        r'\s+bit errors:\s*(\d+)\s+clock_off:\s*([\-\d.]+)\s+foff:\s*([\-\d.]+)',
+        re.IGNORECASE
+    )
+
+    def __init__(self):
+        self.active      = False
+        self.mode        = '700D'
+        self._proc       = None
+        self._thread     = None
+        self._loop       = None
+        self._broadcast  = None
+        self._start_time = None
+        self._resamp_buf = np.array([], dtype=np.float32)
+        self._last_sync  = 0
+        self._last_snr   = 0.0
+
+    def _find_binary(self):
+        """Return path to freedv_rx binary or None.
+        freedv_rx is a codec2 demo/build target, not a packaged distro binary,
+        so the search favours common manual-build output locations.
+        """
+        candidates = ['freedv_rx']
+        home = os.path.expanduser('~')
+        if sys.platform == 'darwin':
+            candidates += [
+                '/opt/homebrew/bin/freedv_rx',
+                '/usr/local/bin/freedv_rx',
+                os.path.join(home, 'codec2', 'build_osx', 'src', 'freedv_rx'),
+                os.path.join(home, 'codec2', 'build_linux', 'src', 'freedv_rx'),
+            ]
+        elif sys.platform == 'win32':
+            candidates += [
+                r'C:\codec2\build_windows\src\freedv_rx.exe',
+                str(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'codec2', 'freedv_rx.exe')),
+            ]
+        else:
+            candidates += [
+                '/usr/local/bin/freedv_rx',
+                '/usr/bin/freedv_rx',
+                os.path.join(home, 'codec2', 'build_linux', 'src', 'freedv_rx'),
+            ]
+
+        for c in candidates:
+            try:
+                result = subprocess.run([c, '-h'], capture_output=True, timeout=3)
+                out = (result.stdout + result.stderr).lower()
+                if b'freedv' in out or b'usage' in out:
+                    log.info(f'FreeDvDecoder: found binary at: {c}')
+                    return c
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                continue
+        return None
+
+    def start(self, mode: str, loop, broadcast_fn):
+        if self._proc and self._proc.poll() is None:
+            return True  # already running
+
+        binary = self._find_binary()
+        if not binary:
+            log.warning('FreeDvDecoder: freedv_rx not found — build codec2 and place freedv_rx on PATH')
+            asyncio.run_coroutine_threadsafe(
+                broadcast_fn({'type': 'freedv_status', 'running': False,
+                              'error': 'freedv_rx not found — build codec2 (see decoder tooltip) and ensure it is on PATH'}),
+                loop
+            )
+            return False
+
+        self.mode       = mode if mode in self.SUPPORTED_MODES else '700D'
+        self._loop      = loop
+        self._broadcast = broadcast_fn
+        self._resamp_buf = np.array([], dtype=np.float32)
+        self._last_sync, self._last_snr = 0, 0.0
+
+        args = [binary, '-v', self.mode, '-', '-']
+        log.info(f'FreeDvDecoder: starting {" ".join(args)}')
+        try:
+            self._proc = subprocess.Popen(
+                args,
+                stdin  = subprocess.PIPE,
+                stdout = subprocess.PIPE,
+                stderr = subprocess.PIPE,
+                bufsize= 0,
+            )
+        except Exception as e:
+            log.error(f'FreeDvDecoder: failed to start: {e}')
+            asyncio.run_coroutine_threadsafe(
+                broadcast_fn({'type': 'freedv_status', 'running': False, 'error': str(e)}),
+                loop
+            )
+            return False
+
+        self._start_time = time.monotonic()
+        self.active = True
+
+        self._thread = threading.Thread(
+            target = self._reader_thread,
+            args   = (broadcast_fn, loop),
+            daemon = True,
+            name   = 'freedv-reader',
+        )
+        self._thread.start()
+
+        self._stderr_thread = threading.Thread(
+            target = self._stderr_thread_fn,
+            args   = (broadcast_fn, loop),
+            daemon = True,
+            name   = 'freedv-stderr',
+        )
+        self._stderr_thread.start()
+
+        asyncio.run_coroutine_threadsafe(
+            broadcast_fn({'type': 'freedv_status', 'running': True, 'mode': self.mode,
+                          'pid': self._proc.pid, 'uptime_s': 0}),
+            loop
+        )
+        log.info(f'FreeDvDecoder: running mode={self.mode}')
+        return True
+
+    def stop(self):
+        if self._proc:
+            try:
+                self._proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+            self._proc = None
+        self.active       = False
+        self._start_time  = None
+        if self._loop and self._broadcast:
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast({'type': 'freedv_status', 'running': False}),
+                self._loop
+            )
+
+    def get_status(self) -> dict:
+        running = bool(self._proc and self._proc.poll() is None)
+        uptime  = int(time.monotonic() - self._start_time) if (running and self._start_time) else 0
+        return {
+            'type':     'freedv_status',
+            'running':  running,
+            'mode':     self.mode if running else None,
+            'sync':     self._last_sync,
+            'snr':      self._last_snr,
+            'pid':      self._proc.pid if running else None,
+            'uptime_s': uptime,
+        }
+
+    def process_audio(self, pcm_bytes: bytes, sample_rate: int = 48000):
+        """Resample incoming audio to 8 kHz and feed freedv_rx stdin."""
+        if not self.active or not self._proc or self._proc.poll() is not None:
+            return
+        data = np.frombuffer(pcm_bytes, dtype='<i2').astype(np.float32)
+        if len(data) < 2:
+            return
+
+        if sample_rate != self.MODEM_SR:
+            ratio = self.MODEM_SR / float(sample_rate)
+            n_in  = len(data)
+            n_out = max(1, int(round(n_in * ratio)))
+            x_in  = np.arange(n_in, dtype=np.float64)
+            x_out = np.linspace(0, n_in - 1, n_out, dtype=np.float64)
+            data  = np.interp(x_out, x_in, data.astype(np.float64))
+
+        pcm16 = data.astype(np.int16).tobytes()
+        try:
+            self._proc.stdin.write(pcm16)
+            self._proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            self.active = False
+
+    def _reader_thread(self, broadcast_fn, loop):
+        """Read decoded 8kHz speech PCM from stdout, chunk it, broadcast as base64."""
+        chunk_samples = int(self.MODEM_SR * self.CHUNK_MS / 1000)
+        chunk_bytes   = chunk_samples * 2  # int16 = 2 bytes/sample
+        try:
+            while True:
+                buf = self._proc.stdout.read(chunk_bytes)
+                if not buf:
+                    break
+                b64 = base64.b64encode(buf).decode('ascii')
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_fn({'type': 'freedv_audio', 'sr': self.MODEM_SR, 'pcm_b64': b64}),
+                    loop
+                )
+        except Exception as e:
+            log.debug(f'FreeDvDecoder reader thread exited: {e}')
+
+    def _stderr_thread_fn(self, broadcast_fn, loop):
+        """Parse -v verbose stats lines from stderr, broadcast sync/SNR periodically."""
+        last_emit = 0.0
+        try:
+            for raw_line in self._proc.stderr:
+                if not raw_line:
+                    continue
+                line = raw_line.decode('utf-8', errors='replace').strip()
+                m = self._RE_STATS.search(line)
+                if not m:
+                    continue
+                sync     = int(m.group(2))
+                snr_est  = float(m.group(4))
+                self._last_sync = sync
+                self._last_snr  = snr_est
+                now = time.monotonic()
+                if now - last_emit > 0.5:  # throttle to 2 Hz
+                    last_emit = now
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast_fn({'type': 'freedv_stats', 'sync': sync, 'snr': snr_est}),
+                        loop
+                    )
+        except Exception as e:
+            log.debug(f'FreeDvDecoder stderr thread exited: {e}')
+
+    def reset(self):
+        self._resamp_buf = np.array([], dtype=np.float32)
+        self._last_sync, self._last_snr = 0, 0.0
+
+
+rivet_dec = RivetModesDecoder()
+freedv_dec = FreeDvDecoder()
+multimon_dec = MultimonDecoder()
+sigint    = SigIntEngine()
+# Auto-download EIBI/AOKI if no local data found
+if not sigint.db:
+    log.info("No signal database files found — attempting auto-download of EIBI/AOKI…")
+    try:
+        import ssl as _ssl, urllib.request as _urlreq
+        _ctx = _ssl._create_unverified_context()
+        for _url, _fname in [
+            ("https://www.eibispace.de/dx/sked-a25.csv", "eibi.csv"),
+            # AOKI (ndxc/starcat) blocks automated downloads — skip
+        ]:
+            try:
+                with _urlreq.urlopen(_url, context=_ctx, timeout=25) as _r:
+                    (SCRIPT_DIR / _fname).write_bytes(_r.read())
+                log.info(f"Downloaded {_fname} from eibispace.de")
+            except Exception as _e:
+                log.warning(f"Could not download {_fname}: {_e}")
+        sigint._load_from_disk()
+        log.info(f"Signal database ready: {len(sigint.db):,} entries")
+    except Exception as _e:
+        log.warning(f"EIBI auto-download failed: {_e}")
+active_decoder_slug = None   # only one decoder active at a time
+
+def _rtty_capture_feed(pcm_bytes, sr=48000):
+    """Called from the IQ processing path; accumulates PCM for auto-detect.
+
+    BUGFIX (June 2026): this used to be called with raw interleaved-IQ
+    bytes (the same `p` fed to decoders) at whatever rate the active
+    stream mode happened to deliver — Compact mode's real mono audio,
+    but IQ Lite/Full IQ's complex baseband IQ at 48kHz/hardware-rate.
+    RttyDecoder.analyse() expects real-valued mono PCM at a known rate;
+    fed raw complex IQ bytes, the I/Q samples interleave as if they were
+    one real channel at 2x the true sample count, producing meaningless
+    spectral peaks (hence "No signal" even with strong, visible tones).
+    Callers must now pass `sr` explicitly so the accumulation window and
+    analyse() math both use the real rate, matching every other decoder.
+    """
+    global _rtty_capture_buf, _rtty_capture_ws, _rtty_capture_sr
+    if _rtty_capture_buf is None:
+        return
+    _rtty_capture_sr = sr
+    _rtty_capture_buf.extend(pcm_bytes)
+    # Capture window is sized in bytes assuming int16 mono @ _rtty_capture_sr;
+    # recompute the byte target for the rate actually in use.
+    need = int(sr * 1.0) * 2   # ~1s of int16 mono PCM at this rate
+    if len(_rtty_capture_buf) >= need:
+        buf = bytes(_rtty_capture_buf)
+        _rtty_capture_buf = None
+        ws  = _rtty_capture_ws
+        _rtty_capture_ws  = None
+        gen = _rtty_capture_gen
+        if ws is not None:
+            result = RttyDecoder.analyse(buf, sample_rate=sr)
+            if result:
+                mark, space, baud, confidence = result
+                asyncio.run_coroutine_threadsafe(
+                    ws.send(json.dumps({
+                        "type":       "rtty_autodetect",
+                        "mark":       mark,
+                        "space":      space,
+                        "baud":       baud,
+                        # BUGFIX (2026-07-20): analyse() now measures a real
+                        # confidence (SNR-gated, see its docstring) instead
+                        # of the caller having none to send — the frontend
+                        # used to fall back to a hardcoded 0.85 on every
+                        # reply because this field never existed before.
+                        "confidence": confidence,
+                        "gen":        gen,
+                    })), loop)
+            else:
+                asyncio.run_coroutine_threadsafe(
+                    ws.send(json.dumps({
+                        "type":  "rtty_autodetect",
+                        "error": "No clear FSK signal detected — try tuning closer to the signal",
+                        "gen":   gen,
+                    })), loop)
+
+
+def deactivate_all_decoders():
+    """Stop every IQ decoder — called before activating a new one."""
+    global active_decoder_slug
+    cw_dec.active    = False
+    rtty_dec.active  = False
+    fax_dec.active   = False
+    sstv_dec.active  = False
+    poc_dec.active   = False
+    acars_dec.active = False
+    ft8_dec.active   = False
+    wspr_dec.active  = False
+    if multimon_dec.active:
+        multimon_dec.stop()
+    if rivet_dec.active:
+        rivet_dec.stop()
+    if freedv_dec.active:
+        freedv_dec.stop()
+    active_decoder_slug = None
+
+async def sdr_bridge():
+    global last_ui_update
+    # _is_nrsp_st is module-level. Do NOT declare global here — conditional assignment
+    # inside nested scope causes UnboundLocalError on reads before assignment runs.
+    # Write via globals() at the assignment site instead.
+    import websockets
+    while True:
+        # If SSH launcher is active but not yet ready, wait rather than hammering
+        # port 5454 with connections that will fail or get dropped mid-handshake.
+        # SDRConnect's WebSocket API takes several seconds to initialise after launch.
+        ssh_status = _ssh_state.get("status", "idle")
+        if ssh_status == "connecting":
+            await asyncio.sleep(2)
+            continue
+        try:
+            # max_size: the websockets library defaults to a 1 MiB incoming-frame
+            # limit. SDRConnect can emit much larger binary frames than that —
+            # e.g. ~2,000,034-byte frames seen with a directly USB-connected
+            # RSPdx (likely Full IQ / high sample-rate IQ payloads, far bigger
+            # than the nRSP-ST IQ Lite frames NEXUS was originally sized for).
+            # Without raising this, those frames trigger a 1009 "message too
+            # big" close, tearing the whole connection down every ~10-15s —
+            # which also explains why slower responses (e.g. valid_devices)
+            # never get a chance to arrive before the next reconnect.
+            async with websockets.connect(SDRCONNECT_WS, max_size=16 * 1024 * 1024) as ws:
+                log.info(f"Connected to SDRConnect at {SDRCONNECT_WS}")
+                globals()['_last_iq2_frame_time'] = time.perf_counter()  # w0.2.3: grace period start
+
+                # Enable spectrum stream
+                await ws.send(json.dumps({
+                    "event_type": "spectrum_enable",
+                    "property": "",
+                    "value": "true",
+                    "device": "primary",
+                }))
+
+                # REMOVED (this session): two unconditional early iq_stream_enable
+                # sends ("FIX ATTEMPT #6/#7", at 0.5s and 0.8s after connect,
+                # unconditionally for ANY device). These were added during
+                # nRSP-ST-only debugging to chase missing t==2 frames, before a
+                # real USB RSPdx was ever in the picture. They directly
+                # reintroduced the exact bug already fixed in w0.1.9 ("•
+                # iq_stream_enable gated — was sent unconditionally, crashing
+                # RSPdx in Compact mode. Now only sent for nRSP-ST in IQ
+                # Lite/Full IQ mode." — see version history above). With a real
+                # USB RSPdx now connected, these unconditional sends are the
+                # leading suspect for the new ~49s-then-1011-keeparive-timeout
+                # disconnect and the total absence of any property_changed/
+                # get_property_response JSON traffic afterward: SDRConnect
+                # likely errors or wedges internally on iq_stream_enable when
+                # sent to a device/mode that doesn't support IQ streaming
+                # (RSPdx Compact does not), rather than rejecting it cleanly.
+                # The already-existing, correctly-gated mechanism further below
+                # (`if is_nrsp and cur_mode in ('IQ Lite', 'Full IQ')`, inside
+                # rx()) remains the sole path that sends iq_stream_enable /
+                # device_stream_enable / set_primary_device_enable — it already
+                # excludes RSPdx entirely and only fires once the device's
+                # actual mode is confirmed via active_device, so it's safe to
+                # rely on alone.
+
+                # request_exclusive_control note:
+                # Sending it immediately on connect causes SDRConnect to crash
+                # (no close frame received — port 5454 disappears).
+                # A 3 s pause lets SDRConnect finish its own init sequence first.
+
+                # Brief settle before get_property queries.
+                # request_exclusive_control removed — not in SDRConnect WebSocket API spec.
+                # Sending unknown event_types causes SDRConnect to drop the connection.
+                # Control availability is read via the can_control property instead.
+                await asyncio.sleep(3.0)
+
+                # Broadcast decoder statuses (Stage 3: mutual exclusion placeholders)
+                for dec in DECODERS:
+                    slug = getattr(dec, 'slug', None) or 'decoder'
+                    name = getattr(dec, 'name', slug)
+                    try:
+                        await broadcast_json({"type": "decoder_status", "slug": slug, "active": (active_decoder_slug == slug)})
+                    except Exception:
+                        pass
+                # Query current state
+                for prop in ("device_vfo_frequency", "device_center_frequency",
+                             "device_sample_rate", "demodulator",
+                             "filter_bandwidth", "lna_state", "iq_streaming",
+                             "active_device", "valid_devices",
+                             "valid_antennas", "active_antenna"):
+                    await ws.send(json.dumps({
+                        "event_type": "get_property",
+                        "property": prop,
+                        "value": "",
+                        "device": "primary",
+                    }))
+
+                async def _auto_select_device():
+                    """Pick a device to select on connect, without hardcoding
+                    a specific unit's name in config.
+
+                    Priority:
+                      1. A directly-connected USB RSP (e.g. RSPdx) — these
+                         appear in valid_devices with NO mode suffix, unlike
+                         networked nRSP-ST entries which always end in
+                         "(IQ Lite)" / "(Compact)" / "(Full IQ)". A locally
+                         attached unit is almost always what's wanted, and a
+                         direct USB link is required for true Full IQ anyway.
+                      2. Fall back to default_device from SSH config, if set
+                         (lets a user pin a specific nRSP-ST/mode when no USB
+                         RSP is present).
+                      3. Otherwise send nothing — leave SDRConnect's own
+                         current selection alone rather than forcing one.
+
+                    Waits for valid_devices to actually arrive (requested
+                    above) before deciding — polls state rather than relying
+                    on a fixed delay, since the get_property_response can
+                    take longer than a flat sleep to come back, especially
+                    right after SDRConnect detects a freshly-plugged USB
+                    device. Falls through to default_device/no-op if it
+                    never shows up within the timeout.
+                    """
+                    import re as _re
+                    mode_suffix_re = _re.compile(
+                        r'\((IQ Lite|Full IQ|Compact)\)\s*$', _re.IGNORECASE)
+                    # SDRConnect built-in pseudo-devices — never real USB hardware,
+                    # but (like a directly-attached RSP) they carry no mode suffix,
+                    # so they'd otherwise be misidentified as the USB-connected RSP
+                    # by the "no mode suffix" heuristic below and force-selected
+                    # over the actual (networked) nRSP-ST, silently breaking device
+                    # detection/mode-selector visibility for remote-only setups.
+                    _non_hw_devices = {'iq file', 'demo', 'none', 'no device', 'simulator'}
+
+                    valid = ''
+                    for _ in range(20):           # up to ~5s, 0.25s steps
+                        valid = state.get('valid_devices', '')
+                        if valid:
+                            break
+                        await asyncio.sleep(0.25)
+                    else:
+                        log.info("valid_devices did not arrive within 5s — "
+                                 "proceeding with whatever is available")
+
+                    entries = [e.strip().strip("'\"") for e in valid.split(',') if e.strip()]
+                    usb_entry = next(
+                        (e for e in entries
+                         if not mode_suffix_re.search(e)
+                         and e.strip().lower() not in _non_hw_devices),
+                        None)
+
+                    if usb_entry:
+                        log.info(f"Auto-selecting USB-connected device: {usb_entry!r}")
+                        target = usb_entry
+                    else:
+                        _cfg_dd = (_ssh_live_cfg or _ssh_load_config()).get('default_device', '').strip()
+                        if _cfg_dd:
+                            log.info(f"No USB RSP present — auto-selecting "
+                                     f"configured default device: {_cfg_dd!r}")
+                            target = _cfg_dd
+                        else:
+                            log.info("No USB RSP and no default_device configured — "
+                                      "leaving SDRConnect's current device selection unchanged")
+                            target = None
+
+                    if target:
+                        try:
+                            await ws.send(json.dumps({
+                                "event_type": "selected_device_name",
+                                "property":   "",
+                                "value":      target,
+                                "device":     "primary",
+                            }))
+                        except Exception as _auto_sel_err:
+                            log.debug(f"Auto-select device send error: {_auto_sel_err}")
+                asyncio.create_task(_auto_select_device())
+
+                async def _recentre_lo_on_vfo():
+                    """On connect, align display so tune bar is centred.
+                    SDRConnect IQ Lite initialises with LO offset from VFO.
+                    Rather than moving the LO (which SDRConnect cascades back
+                    to the VFO, changing the tuned frequency), we update our
+                    local liveCenter to match the hardware LO, and re-broadcast
+                    state so the frontend draws the tune bar correctly.
+                    The VFO stays where it is — the display just re-anchors."""
+                    await asyncio.sleep(1.5)
+                    vfo = state.get('vfo_hz', 0)
+                    ctr = state.get('center_hz', 0)
+                    if vfo > 0 and ctr > 0 and abs(vfo - ctr) > 5000:
+                        log.info(f"Startup: LO={ctr/1e6:.4f} VFO={vfo/1e6:.4f} — "
+                                 f"broadcasting corrected state for tune bar alignment")
+                        await broadcast_json({"type": "state", **state})
+                asyncio.create_task(_recentre_lo_on_vfo())
+
+                async def rx():
+                    global last_ui_update
+                    _frame_counts = {}
+                    _broadcast_logged = False
+                    _iq_bounce_done = [False]  # list so inner scope can mutate; one bounce per connection
+                    # Debounce freq changes — band framing sends rapid-fire property_changed
+                    _last_freq_broadcast = [0.0]  # Use list so it's mutable in inner scope
+                    _pending_freq_update = [False]
+                    # IQ-Lite decimation state — 192kHz → 48kHz (factor 4)
+                    # Built lazily; rebuilt if scipy unavailable (fallback: simple slice)
+                    IQ_LITE_SR    = 192_000
+                    DECODER_SR    = 48_000
+                    DEC_FACTOR    = IQ_LITE_SR // DECODER_SR   # 4
+                    _iq_lite_sos  = None   # SOS anti-alias filter coefficients
+                    _iq_lite_zi_i = None   # persistent filter state — I channel
+                    _iq_lite_zi_q = None   # persistent filter state — Q channel
+                    if _HAVE_SCIPY:
+                        # Butterworth LPF: cutoff at 0.9 * Nyquist of output (21.6 kHz)
+                        # — passes audio/digital content, rejects aliases above 24 kHz
+                        _iq_lite_sos  = _scipy_signal.butter(
+                            5, 0.9 / DEC_FACTOR, btype='low', output='sos')
+                        _iq_lite_zi_i = _scipy_signal.sosfilt_zi(_iq_lite_sos) * 0.0
+                        _iq_lite_zi_q = _scipy_signal.sosfilt_zi(_iq_lite_sos) * 0.0
+                    # nRSP-ST FFT pipeline — shared by IQ Lite and Full IQ paths.
+                    # Mirrors the RTL-SDR FFT accumulator in rtl_bridge().
+                    # SR is set dynamically: 192kHz for IQ Lite, hw_sr for Full IQ.
+                    _nrsp_fft_size  = 1024
+                    _nrsp_win       = np.hanning(_nrsp_fft_size).astype(np.float32)
+                    _nrsp_fft_acc   = np.zeros(_nrsp_fft_size, dtype=np.float32)
+                    _nrsp_fft_avg   = np.zeros(_nrsp_fft_size, dtype=np.float32)
+                    _nrsp_frame_buf = bytearray(1 + _nrsp_fft_size)
+                    _nrsp_frame_buf[0] = 0x01
+                    _nrsp_fft_n     = 0
+                    _nrsp_fft_sr    = IQ_LITE_SR   # updated to hw_sr for Full IQ
+                    # CW Skimmer real-SNR candidate scan (2026-07-16, w032) —
+                    # see _cw_scan_candidates_from_mag()'s module-level comment.
+                    # Plain local (like _nrsp_fft_n etc. above) — persists
+                    # across loop iterations within this same connection.
+                    _skcand_last_scan = 0.0
+                    # Audio-band FFT (for RTTY scope + fldigi waterfall) — narrowband
+                    # FFT on the 48kSPS decimated IQ, centred on the fldigi/decoder
+                    # carrier. 4096-pt with 50% overlap gives ~11.7 Hz/bin resolution.
+                    _AUDIO_FFT_SIZE  = 4096
+                    # _AUDIO_FFT_OUT (was 256) REMOVED (2026-07-16, w032) — all three
+                    # audio_fft broadcast branches (IQ-Lite/Full IQ below, Compact-mode
+                    # near _AUDIO_FFT_SIZE_R) used to np.interp-resample their native
+                    # slice down to this fixed bin count before sending, which for the
+                    # complex-IQ branches (~512 native bins at ~11.7 Hz/bin) was
+                    # discarding half of the real resolution for no reason — the
+                    # frontend already reads bins.length dynamically. All three now
+                    # send their native slice unresampled; see the BUGFIX comments at
+                    # each broadcast site.
+                    _AUDIO_FFT_SPAN  = 3000    # ±Hz around carrier
+                    _AUDIO_FFT_DT    = 0.10    # 10 Hz update rate
+                    _afft_acc  = np.zeros(_AUDIO_FFT_SIZE, dtype=np.float32)
+                    _afft_n    = 0
+                    _afft_win  = np.hanning(_AUDIO_FFT_SIZE).astype(np.float32)
+                    _afft_last = 0.0
+                    # BUGFIX (mini-waterfall horizontal banding, June 2026): each
+                    # broadcast frame used to normalise its own log1p'd slice by
+                    # *its own* instantaneous max ("if _smx > 0: _slice *= 255/_smx").
+                    # Real noise has a few dB of frame-to-frame max jitter even when
+                    # nothing changes, so every row got rescaled to a different
+                    # brightness independent of its neighbours -- one bright/dark
+                    # horizontal line per row, visible as regular banding across the
+                    # whole mini-waterfall (worst in the noise floor, away from any
+                    # strong carrier, exactly as reported). Fix: track the ceiling
+                    # with a slow EMA across frames (same smoothing pattern as the
+                    # noise_floor trackers elsewhere in this file, e.g. MorseDecoder's
+                    # self.noise_floor = self.noise_floor*0.98 + pwr*0.02) and
+                    # normalise every row against that shared, stable ceiling instead
+                    # of its own frame. Shared between the IQ-Lite and Full IQ audio_fft
+                    # branches below so the same fix applies on both signal paths.
+                    _afft_disp_ceil = 1.0
+                    # ── CW mini-waterfall real zoom (2026-07-16, w032 — user question
+                    # "is there a way to improve waterfall resolution... how does
+                    # SDRconnect or other leading apps do it?"). Previously DS.cwWfZoom
+                    # was purely cosmetic: the frontend cropped and linearly
+                    # interpolated the SAME fixed-resolution ~512-bin base FFT, adding
+                    # zero real information when zoomed in. Genuine "zoom FFT" apps
+                    # (SDR#, CubicSDR, SDRuno) get finer Hz/bin by using a longer
+                    # observation window when zoomed — Hz/bin = sr/N, so a bigger N
+                    # (or lower sr) is the only real way to shrink it; this is the STFT
+                    # uncertainty principle (Δf·Δt ≥ 1), not a shortcut, so this
+                    # necessarily trades update speed for resolution at high zoom,
+                    # same as it would in any other app. Scoped to IQ-Lite/Full IQ
+                    # (the complex-IQ paths, where cw_dec's real signal comes from) —
+                    # Compact-mode's real-audio FFT is already close to native
+                    # resolution at its existing size (see _AUDIO_FFT_SIZE_R comment)
+                    # and its audio is already BW-filtered, so there's little left to
+                    # zoom into there. See _cw_wf_zoom command handler and the IQ-Lite/
+                    # Full IQ audio_fft broadcast sites below.
+                    _cwzoom_buf       = np.zeros(0, dtype=np.complex64)  # rolling raw IQ, only fed while zoomed
+                    _cwzoom_ceil      = 1.0    # separate EMA ceiling from the base path's _afft_disp_ceil —
+                                                # zoomed frames have different update cadence/characteristics
+                    _cwzoom_last      = 0.0
+                    _cwzoom_win_cache = {}      # {fft_size: hann_window} — rebuilt only when zoom level changes
+                    # BUGFIX (tone-scope resolution, June 2026): Full IQ used to run the
+                    # audio_fft 4096-pt FFT directly on hardware-rate IQ (e.g. 2 MSPS),
+                    # giving ~488 Hz/bin — far too coarse to separate RTTY mark/space
+                    # tones (170 Hz shift) or resolve any fine tone detail. IQ Lite gets
+                    # ~11.7 Hz/bin because it decimates to 48 kHz before the FFT. Apply
+                    # the same anti-alias decimation here so Full IQ's tone scope has
+                    # the same resolution regardless of hardware sample rate. Target
+                    # rate and filter are rebuilt lazily the first time we see the
+                    # actual hw sample rate (decimation factor depends on it).
+                    _fiq_afft_target_sr = 48_000
+                    _fiq_afft_dec       = 1       # decimation factor — set on first packet
+                    _fiq_afft_sos       = None
+                    _fiq_afft_zi_i      = None
+                    _fiq_afft_zi_q      = None
+                    _fiq_afft_src_sr    = 0       # hw sr the filter was built for
+                    # BUGFIX (audio_fft never broadcasts at low Full IQ sample
+                    # rates, June 2026): the FFT windowing loop below only ever
+                    # slides within a single packet's _fiq_c. At low hw rates
+                    # (e.g. 62.5 kSPS) each SDRConnect packet carries far fewer
+                    # than _AUDIO_FFT_SIZE (4096) samples, so the while loop's
+                    # body never runs even once -- _afft_n stays 0 forever and
+                    # audio_fft is never sent, even though there's no error (the
+                    # CW NEXUS waterfall just silently never receives data).
+                    # IQ-Lite has the identical pattern; carry leftover samples
+                    # across packets for both so partial packets accumulate
+                    # toward a full window instead of being discarded.
+                    _fiq_afft_carry = np.zeros(0, dtype=np.complex64)
+                    _iql_afft_carry = np.zeros(0, dtype=np.complex64)
+                    # BUGFIX (CW/RTTY mini-waterfall never starts in Compact mode,
+                    # 2026-07-15, w031): the t==1 branch below (PCM stereo audio —
+                    # the mode shown as "COMPACT" in the UI) never computed or
+                    # broadcast 'audio_fft' at all, unlike the IQ-Lite and Full IQ
+                    # branches above/below. _renderCwNexusWf() (frontend) only ever
+                    # draws in response to an 'audio_fft' message, so the mini-
+                    # waterfall stayed on its idle placeholder forever in Compact
+                    # mode even with the decoder ACTIVE and Skimmer channels
+                    # genuinely decoding — those are fed from cw_skimmer_pool
+                    # separately and never touch audio_fft either.
+                    # This is real (not complex-quadrature) demodulated audio, so it
+                    # gets its own one-sided np.fft.rfft accumulator (separate
+                    # arrays/state from _afft_acc etc. above, which are sized for
+                    # the two-sided fftshift'd FFT the complex-IQ branches use — the
+                    # output bin counts differ, so the arrays are not interchangeable).
+                    _AUDIO_FFT_SIZE_R  = 2048   # smaller than the IQ paths' 4096: real
+                                                 # audio only needs ~2.9kHz of usable
+                                                 # span (CW/RTTY tones), half the FFT
+                                                 # size still gives ~23 Hz/bin at 48kHz.
+                    _afft_win_r   = np.hanning(_AUDIO_FFT_SIZE_R).astype(np.float32)
+                    _afft_acc_r   = np.zeros(_AUDIO_FFT_SIZE_R // 2 + 1, dtype=np.float32)
+                    _afft_n_r     = 0
+                    _afft_last_r  = 0.0
+                    _afft_disp_ceil_r = 1.0
+                    _compact_afft_carry = np.zeros(0, dtype=np.float32)
+                    async for msg in ws:
+                        if isinstance(msg, bytes):
+                            if len(msg) >= 2:
+                                t = struct.unpack_from("<H", msg, 0)[0]
+                                _frame_counts[t] = _frame_counts.get(t, 0) + 1
+                                if sum(_frame_counts.values()) % 100 == 1:
+                                    log.info(f"SDRConnect frame types: {dict(_frame_counts)}  last_len={len(msg)}")
+                                p = msg[2:]
+                                # Auto CW detection disabled — decoders only active on user request
+                                if t == 3:  # spectrum FFT bins
+                                    now = time.perf_counter()
+                                    if (now - last_ui_update) > _UI_FRAME_DT:
+                                        await broadcast_binary(bytes([0x01]) + p)
+                                        if not _broadcast_logged:
+                                            log.info(f"Broadcast spectrum: {len(p)} bins to {len(clients)} client(s)")
+                                            _broadcast_logged = True
+                                        last_ui_update = now
+                                elif t == 1:  # PCM stereo audio 48kHz — standard RSPdx/non-nRSP path
+                                    # Payload: signed 16-bit LRLR interleaved @ 48kHz
+                                    # Downmix to mono complex (L+R)/2 for decoder compatibility
+                                    if len(p) >= 4:
+                                        s16 = np.frombuffer(p, dtype='<i2').astype(np.float32) / 32768.0
+                                        if len(s16) >= 2:
+                                            mono = ((s16[0::2] + s16[1::2]) * 0.5).astype(np.float32)
+                                            iq_c = (mono + 0j).astype(np.complex64)
+                                            if _rec_active and _rec_mode == 'audio':   # REC button, AUD mode
+                                                _rec_write_audio(mono, sr=48000)
+                                            cw_skimmer_pool.process_iq(iq_c, state.get('vfo_hz', 100_000_000) / 1e6, sr=48000)
+                                            if cw_dec.active:    cw_dec.process_iq(iq_c, sr=48000)
+                                            if rtty_dec.active:  rtty_dec.process_iq(iq_c, sr=48000)
+                                            if fax_dec.active:   fax_dec.process_iq(iq_c, sr=48000)
+                                            if sstv_dec.active:  sstv_dec.process_iq(iq_c, sr=48000)
+                                            if poc_dec.active:   poc_dec.process_iq(iq_c, sr=48000)
+                                            if acars_dec.active: acars_dec.process_iq(iq_c, sr=48000)
+                                            # NOTE (w030): ft8_dec (FT8Decoder) only tails WSJT-X's
+                                            # ALL.txt — it has no process()/process_iq() method. The
+                                            # call that used to be here (`ft8_dec.process_iq(iq_c, ...)`)
+                                            # threw AttributeError on every audio frame once FT8 bridge
+                                            # mode was enabled, which crashed this whole rx() loop and
+                                            # forced a 5s SDRConnect reconnect — silently, repeatedly,
+                                            # for as long as FT8 stayed active. Native/internal FT8
+                                            # decoding now happens client-side (ft8ts); this is where
+                                            # we feed it real audio instead.
+                                            if ft8_internal_active: _ft8_broadcast_audio(mono, sr=48000)
+                                            if wspr_dec.active:  wspr_dec.process_iq(iq_c, sr=48000, loop=loop)
+                                            # BUGFIX (2026-07-15, w031 live decoder-testing pass): this
+                                            # used to be multimon_dec.process(p) — p is raw LRLR stereo
+                                            # audio bytes here, not IQ, so process()'s FM discriminator
+                                            # was mixing L/R audio channels as if they were quadrature
+                                            # components (nonsense), on top of internally defaulting to
+                                            # the wrong (RF/hardware) sample rate. process_audio() skips
+                                            # the discriminator (this audio is already demodulated) and
+                                            # takes the real sr explicitly. See process_audio()'s
+                                            # docstring for the full story.
+                                            if multimon_dec.active:
+                                                multimon_dec.process_audio(mono, sr=48000)
+                                            if rivet_dec.active:
+                                                rivet_dec.process_audio(p, sample_rate=48000)
+                                            if freedv_dec.active:
+                                                freedv_dec.process_audio(p, sample_rate=48000)
+                                            _rtty_capture_feed(p)
+
+                                            # ── Audio-band FFT for CW/RTTY mini-waterfall (Compact mode) ──
+                                            # BUGFIX (2026-07-15, w031 — user-reported "CW mini-waterfall
+                                            # not starting" in Compact mode): this branch never computed
+                                            # or broadcast 'audio_fft' before, unlike the IQ-Lite/Full IQ
+                                            # branches below. _renderCwNexusWf() (frontend) only ever
+                                            # draws in response to an 'audio_fft' message, so the mini-
+                                            # waterfall stayed on its idle placeholder forever in Compact
+                                            # mode, even with the decoder ACTIVE and Skimmer channels
+                                            # genuinely decoding (those are fed from cw_skimmer_pool
+                                            # separately and never touch audio_fft either).
+                                            #
+                                            # `mono` here is real (not complex-quadrature) demodulated
+                                            # audio, so this uses a one-sided np.fft.rfft into its own
+                                            # accumulator (_afft_acc_r etc., declared above the main
+                                            # message loop) rather than the two-sided fftshift'd FFT the
+                                            # complex-IQ branches use — the output bin counts differ, so
+                                            # the arrays aren't interchangeable.
+                                            #
+                                            # There's also no VFO/LO offset to correct for any more: once
+                                            # SDRConnect has demodulated to audio, the signal sits at a
+                                            # fixed sidetone/mark frequency regardless of dial frequency,
+                                            # so this centres on the active decoder's own tone/mark
+                                            # setting instead of vfo_hz-center_hz (which is meaningful for
+                                            # raw RF-domain IQ but not for audio that's already been
+                                            # detected). Known limitation: with the default ~700 Hz CW
+                                            # tone and a 3 kHz span, the window clips against 0 Hz on the
+                                            # low side (there's no negative audio to show) — the waterfall
+                                            # still renders correctly, but the 0 Hz cursor line may sit
+                                            # slightly off-centre in that case rather than dead-centre.
+                                            _afft_buf_r = mono
+                                            if len(_compact_afft_carry):
+                                                _afft_buf_r = np.concatenate((_compact_afft_carry, mono))
+                                            _a_idx_r = 0
+                                            while _a_idx_r + _AUDIO_FFT_SIZE_R <= len(_afft_buf_r):
+                                                _afft_acc_r += np.abs(np.fft.rfft(
+                                                    _afft_buf_r[_a_idx_r:_a_idx_r + _AUDIO_FFT_SIZE_R] * _afft_win_r))
+                                                _afft_n_r += 1
+                                                _a_idx_r += _AUDIO_FFT_SIZE_R // 2   # 50% overlap
+                                            _compact_afft_carry = _afft_buf_r[_a_idx_r:]
+                                            _compact_now = time.perf_counter()
+                                            if _afft_n_r > 0 and (_compact_now - _afft_last_r) >= _AUDIO_FFT_DT:
+                                                _afft_avg_r = _afft_acc_r / _afft_n_r
+                                                _hz_per_bin_r = 48000 / _AUDIO_FFT_SIZE_R
+                                                if cw_dec.active:
+                                                    _carrier_hz_r = getattr(cw_dec, 'tone_hz', 700) or 700
+                                                elif rtty_dec.active:
+                                                    _carrier_hz_r = getattr(rtty_dec, 'mark', 2125) or 2125
+                                                else:
+                                                    _carrier_hz_r = 1500
+                                                _carrier_bin_r = int(round(_carrier_hz_r / _hz_per_bin_r))
+                                                _span_bins_r = int(round(_AUDIO_FFT_SPAN / _hz_per_bin_r))
+                                                _lo_bin_r = _carrier_bin_r - _span_bins_r
+                                                _hi_bin_r = _carrier_bin_r + _span_bins_r
+                                                # BUGFIX (2026-07-15, w031): clamping only the low side to 0
+                                                # (real audio has no negative Hz) used to shrink the window
+                                                # instead of shifting it, so the reported carrier_hz (the
+                                                # nominal CW tone/RTTY mark) no longer matched the middle of
+                                                # what actually got sliced — the frontend's ±span_hz axis
+                                                # assumes carrier_hz IS the centre of the bins array. Same
+                                                # bug class as the client-side tap fix earlier today. Shift
+                                                # the window up to keep the full requested width instead of
+                                                # clipping it, then report the real centre.
+                                                if _lo_bin_r < 0:
+                                                    _hi_bin_r -= _lo_bin_r
+                                                    _lo_bin_r = 0
+                                                _hi_bin_r = min(len(_afft_avg_r), _hi_bin_r)
+                                                _lo_bin_r = max(0, _lo_bin_r)
+                                                _slice_r = _afft_avg_r[_lo_bin_r:_hi_bin_r]
+                                                if len(_slice_r) > 0:
+                                                    _carrier_hz_r = (_lo_bin_r + _hi_bin_r) / 2.0 * _hz_per_bin_r
+                                                    _slice_r = np.log1p(_slice_r)
+                                                    _smx_r = _slice_r.max()
+                                                    if _smx_r > _afft_disp_ceil_r:
+                                                        _afft_disp_ceil_r = _smx_r
+                                                    else:
+                                                        _afft_disp_ceil_r = _afft_disp_ceil_r * 0.97 + _smx_r * 0.03
+                                                    if _afft_disp_ceil_r > 0:
+                                                        _slice_r = _slice_r * (255.0 / _afft_disp_ceil_r)
+                                                    np.clip(_slice_r, 0, 255, out=_slice_r)
+                                                    # BUGFIX (2026-07-16, w032 — user question "is there a way
+                                                    # to improve waterfall resolution"): this used to resample
+                                                    # _slice_r down to a fixed _AUDIO_FFT_OUT=256 via np.interp
+                                                    # regardless of its native length. For this Compact-mode
+                                                    # rfft (2048-pt @ 48kHz, ~23.4 Hz/bin) the native slice is
+                                                    # already ~256 bins, so the resample was close to a no-op
+                                                    # here — but removing it (see the IQ-Lite/Full IQ branches
+                                                    # below, where the same pattern WAS silently discarding
+                                                    # half the real resolution) keeps all three audio_fft
+                                                    # branches consistent: send the genuine native bins,
+                                                    # un-resampled, every time. The frontend already reads
+                                                    # bins.length dynamically rather than assuming 256 (see
+                                                    # _renderCwNexusWf/_renderCwNexusSpectrum/RTTY tone scope),
+                                                    # so no client-side change is needed.
+                                                    _bins_out_r = _slice_r.astype(np.uint8)
+                                                    asyncio.create_task(broadcast_json({
+                                                        "type":       "audio_fft",
+                                                        "bins":       _bins_out_r.tolist(),
+                                                        "carrier_hz": _carrier_hz_r,
+                                                        "span_hz":    _AUDIO_FFT_SPAN,
+                                                        "dial_hz":    state.get('wsjtx_hz', 0),
+                                                        "sr":         48000,
+                                                    }))
+                                                _afft_acc_r[:] = 0; _afft_n_r = 0
+                                                _afft_last_r = _compact_now
+                                elif t == 2:  # IQ stream — Full IQ (hardware SR) or IQ-Lite (192kHz)
+                                    globals()['_last_iq2_frame_time'] = time.perf_counter()
+                                    # w0.2.6 fix: a directly USB-connected RSPdx is mislabeled
+                                    # 'Compact' by the device-name handler above (placeholder —
+                                    # SDRConnect exposes no mode-variant name for it). But a
+                                    # real type-2 frame just arrived, which only happens for
+                                    # genuine raw IQ — so correct the label here, the moment we
+                                    # have direct proof, rather than waiting for the next
+                                    # device-name property update. Fixes both the cosmetic
+                                    # 'SDRConnect' status label and the frontend decoderStart()
+                                    # IQ-stream gate that was blocking AIS/POCSAG/ACARS/WEFAX/DAB
+                                    # on direct-USB RSPdx.
+                                    if not _is_nrsp_st and state.get('stream_mode') != 'Full IQ':
+                                        state['stream_mode'] = 'Full IQ'
+                                        asyncio.create_task(broadcast_json({"type": "state", **state}))
+                                    if state.get('iq_lite_capable'):
+                                        # IQ-Lite path: s16le interleaved IQ @ 192kHz
+                                        # Decimate 4× to 48kHz before feeding decoders.
+                                        # Also accumulate FFT at full 192kHz for spectrum display.
+                                        if len(p) >= 4:
+                                            raw = np.frombuffer(p, dtype='<i2').astype(np.float32) / 32768.0
+                                            i_in = raw[0::2]
+                                            q_in = raw[1::2]
+                                            # FFT accumulation at full IQ Lite rate (192kHz)
+                                            iq_raw = (i_in + 1j * q_in).astype(np.complex64)
+                                            _nrsp_fft_sr = IQ_LITE_SR
+                                            _nrsp_idx = 0
+                                            while _nrsp_idx + _nrsp_fft_size <= len(iq_raw):
+                                                _nrsp_fft_acc += np.abs(
+                                                    np.fft.fft(iq_raw[_nrsp_idx:_nrsp_idx+_nrsp_fft_size] * _nrsp_win))
+                                                _nrsp_fft_n += 1
+                                                _nrsp_idx += _nrsp_fft_size
+                                            # Broadcast spectrum at display rate
+                                            _nrsp_now = time.perf_counter()
+                                            if _nrsp_fft_n > 0 and (_nrsp_now - last_ui_update) > _UI_FRAME_DT:
+                                                np.divide(_nrsp_fft_acc, _nrsp_fft_n, out=_nrsp_fft_avg)
+                                                _nrsp_shifted = np.fft.fftshift(_nrsp_fft_avg)
+                                                # CW Skimmer real-SNR candidate scan (2026-07-16, w032) —
+                                                # must run BEFORE log1p/rescale below mutates _nrsp_shifted
+                                                # in place, since this needs genuine linear magnitude to
+                                                # compute real dB. Throttled to _SKCAND_SCAN_DT (slower than
+                                                # the display's own _UI_FRAME_DT cadence) and only runs at
+                                                # all when the frontend has Skimmer detection switched on.
+                                                if state.get('cw_skimmer_detect') and \
+                                                        (_nrsp_now - _skcand_last_scan) >= _SKCAND_SCAN_DT:
+                                                    _skcand_last_scan = _nrsp_now
+                                                    _skcands = _cw_scan_candidates_from_mag(
+                                                        _nrsp_shifted, IQ_LITE_SR / _nrsp_fft_size,
+                                                        state.get('vfo_hz', 0), _nrsp_now)
+                                                    asyncio.create_task(broadcast_json({
+                                                        "type": "skimmer_candidates",
+                                                        "candidates": [
+                                                            {"freq_mhz": round(c["freq_hz"] / 1e6, 4),
+                                                             "snr_db": c["snr_db"],
+                                                             "width_khz": round(c["width_hz"] / 1000.0, 2)}
+                                                            for c in _skcands
+                                                        ],
+                                                        "span_hz": IQ_LITE_SR,
+                                                        "center_mhz": round(state.get('vfo_hz', 0) / 1e6, 4),
+                                                    }))
+                                                np.log1p(_nrsp_shifted, out=_nrsp_shifted)
+                                                _mx = _nrsp_shifted.max()
+                                                if _mx > 0:
+                                                    np.multiply(_nrsp_shifted, 255.0 / _mx, out=_nrsp_shifted)
+                                                # w0.2.3: .tobytes() required — same numpy 2.x fix
+                                                # as Full IQ path, applied here for consistency
+                                                # even though this branch is currently unreachable.
+                                                _nrsp_frame_buf[1:] = _nrsp_shifted.astype(np.uint8).tobytes()
+                                                asyncio.create_task(broadcast_binary(bytes(_nrsp_frame_buf)))
+                                                last_ui_update = _nrsp_now
+                                                _nrsp_fft_acc[:] = 0; _nrsp_fft_n = 0
+                                            if _HAVE_SCIPY and _iq_lite_sos is not None:
+                                                i_f, _iq_lite_zi_i = _scipy_signal.sosfilt(
+                                                    _iq_lite_sos, i_in, zi=_iq_lite_zi_i)
+                                                q_f, _iq_lite_zi_q = _scipy_signal.sosfilt(
+                                                    _iq_lite_sos, q_in, zi=_iq_lite_zi_q)
+                                                iq_c = (i_f[::DEC_FACTOR] + 1j * q_f[::DEC_FACTOR]).astype(np.complex64)
+                                            else:
+                                                # scipy unavailable — simple decimation (no anti-alias)
+                                                iq_c = (i_in[::DEC_FACTOR] + 1j * q_in[::DEC_FACTOR]).astype(np.complex64)
+                                            # ── Audio-band FFT (for RTTY scope + fldigi waterfall) ──────
+                                            # 4096-pt FFT on the 48kSPS decimated IQ gives ~11.7 Hz/bin
+                                            # over 0–24kHz. We extract ±3kHz around the carrier and send
+                                            # the native (unresampled) uint8 bins as 'audio_fft' at ~10 Hz.
+                                            # BUGFIX (June 2026): prepend leftover samples carried from
+                                            # the previous packet (see _iql_afft_carry note above) into
+                                            # a separate buffer for windowing only -- iq_c itself must
+                                            # stay untouched since it's fed to cw_dec/rtty_dec/etc. below.
+                                            _cw_wf_zoom = state.get('cw_wf_zoom', 1) or 1
+                                            if _cw_wf_zoom <= 1:
+                                                # Base path (unchanged) — also drop any buffered zoomed-FFT
+                                                # samples so a later zoom-in starts fresh rather than mixing
+                                                # in stale audio from before the zoom-out.
+                                                if len(_cwzoom_buf):
+                                                    _cwzoom_buf = np.zeros(0, dtype=np.complex64)
+                                                _afft_win_buf = iq_c
+                                                if len(_iql_afft_carry):
+                                                    _afft_win_buf = np.concatenate((_iql_afft_carry, iq_c))
+                                                _a_idx = 0
+                                                while _a_idx + _AUDIO_FFT_SIZE <= len(_afft_win_buf):
+                                                    _afft_acc += np.abs(np.fft.fft(
+                                                        _afft_win_buf[_a_idx:_a_idx+_AUDIO_FFT_SIZE] * _afft_win))
+                                                    _afft_n += 1
+                                                    _a_idx += _AUDIO_FFT_SIZE // 2   # 50% overlap
+                                                _iql_afft_carry = _afft_win_buf[_a_idx:]
+                                                # Broadcast at 10 Hz
+                                                if _afft_n > 0 and (_nrsp_now - _afft_last) >= _AUDIO_FFT_DT:
+                                                    _afft_avg = _afft_acc / _afft_n
+                                                    # Shift so DC (carrier=0 Hz audio) is at centre
+                                                    _afft_shifted = np.fft.fftshift(_afft_avg)
+                                                    # Hz per bin at DECODER_SR
+                                                    _hz_per_bin = DECODER_SR / _AUDIO_FFT_SIZE  # ~11.7 Hz
+                                                    # Carrier offset in audio Hz (IQ Lite LO = dial_hz,
+                                                    # so carrier offset = fldigi carrier Hz; for CW NEXUS
+                                                    # with no fldigi, DC is already the VFO — see
+                                                    # _audio_fft_center_hz(dc_is_vfo=True))
+                                                    _carrier_hz = _audio_fft_center_hz(dc_is_vfo=True)
+                                                    # Bin index of carrier in shifted FFT
+                                                    _carrier_bin = _AUDIO_FFT_SIZE // 2 + round(_carrier_hz / _hz_per_bin)
+                                                    # Extract ±span around carrier
+                                                    _span_bins = round(_AUDIO_FFT_SPAN / _hz_per_bin)
+                                                    _lo_bin = max(0, _carrier_bin - _span_bins)
+                                                    _hi_bin = min(_AUDIO_FFT_SIZE, _carrier_bin + _span_bins)
+                                                    _slice  = _afft_shifted[_lo_bin:_hi_bin]
+                                                    if len(_slice) > 0:
+                                                        # Log-scale, normalise to 0–255 against a slow-tracked
+                                                        # ceiling (not this frame's own max — see
+                                                        # _afft_disp_ceil bugfix note above) to stop every row
+                                                        # being rescaled independently, which produced
+                                                        # horizontal banding in the mini-waterfall.
+                                                        _slice = np.log1p(_slice)
+                                                        _smx = _slice.max()
+                                                        if _smx > _afft_disp_ceil:
+                                                            _afft_disp_ceil = _smx              # track up fast (new peak)
+                                                        else:
+                                                            _afft_disp_ceil = _afft_disp_ceil * 0.97 + _smx * 0.03  # decay slow
+                                                        if _afft_disp_ceil > 0: _slice = _slice * (255.0 / _afft_disp_ceil)
+                                                        np.clip(_slice, 0, 255, out=_slice)
+                                                        # BUGFIX (2026-07-16, w032 — user question "is there a
+                                                        # way to improve waterfall resolution"): this used to
+                                                        # resample _slice down to a fixed _AUDIO_FFT_OUT=256 via
+                                                        # np.interp regardless of its native length, discarding
+                                                        # about half the real resolution before broadcast.
+                                                        # Sending the native slice directly (no resample) roughly
+                                                        # doubles genuine displayed resolution for free. The
+                                                        # frontend already reads bins.length dynamically rather
+                                                        # than assuming 256.
+                                                        _bins_out = _slice.astype(np.uint8)
+                                                        asyncio.create_task(broadcast_json({
+                                                            "type":       "audio_fft",
+                                                            "bins":       _bins_out.tolist(),
+                                                            "carrier_hz": _carrier_hz,
+                                                            "span_hz":    _AUDIO_FFT_SPAN,
+                                                            "dial_hz":    state.get('wsjtx_hz', 0),
+                                                            "sr":         DECODER_SR,
+                                                        }))
+                                                    _afft_acc[:] = 0; _afft_n = 0
+                                                    _afft_last = _nrsp_now
+                                            else:
+                                                # ── Real zoom FFT (2026-07-16, w032) ────────────────────
+                                                # See the _cwzoom_buf module comment near _AUDIO_FFT_SIZE.
+                                                # Hz/bin = sr/N, so a genuinely finer zoomed view needs a
+                                                # genuinely bigger N (here, N = base size × zoom level) run
+                                                # over the most recent N samples — not a bigger N computed
+                                                # less often via overlap-averaging like the base path above,
+                                                # since at high zoom the window itself is already long
+                                                # enough that overlap-averaging would only add latency for
+                                                # little benefit. This IS a real time/frequency trade-off
+                                                # (STFT uncertainty, Δf·Δt ≥ 1): the window duration grows
+                                                # with zoom (4096/48kHz≈85ms at 1×, up to 32768/48kHz≈683ms
+                                                # at 8×), so higher zoom updates more slowly and blurs fast
+                                                # keying more — expected, matches real panadapter behaviour.
+                                                # Drop the base path's own carry buffer while zoomed (it's
+                                                # not read here) so a few-hundred-sample-old leftover can't
+                                                # get reintroduced as a stale prefix the moment zoom returns
+                                                # to 1× later.
+                                                if len(_iql_afft_carry):
+                                                    _iql_afft_carry = np.zeros(0, dtype=np.complex64)
+                                                _cwzoom_buf = (np.concatenate((_cwzoom_buf, iq_c))
+                                                               if len(_cwzoom_buf) else iq_c.copy())
+                                                _cwz_n = _AUDIO_FFT_SIZE * _cw_wf_zoom
+                                                if len(_cwzoom_buf) > _cwz_n:
+                                                    _cwzoom_buf = _cwzoom_buf[-_cwz_n:]
+                                                _cwz_now = time.perf_counter()
+                                                if (len(_cwzoom_buf) >= _cwz_n
+                                                        and (_cwz_now - _cwzoom_last) >= _AUDIO_FFT_DT):
+                                                    _cwz_win = _cwzoom_win_cache.get(_cwz_n)
+                                                    if _cwz_win is None:
+                                                        _cwz_win = np.hanning(_cwz_n).astype(np.float32)
+                                                        _cwzoom_win_cache[_cwz_n] = _cwz_win
+                                                    _cwz_mag = np.abs(np.fft.fft(_cwzoom_buf * _cwz_win))
+                                                    _cwz_shifted = np.fft.fftshift(_cwz_mag)
+                                                    _cwz_hzbin = DECODER_SR / _cwz_n
+                                                    _cwz_carrier = _audio_fft_center_hz(dc_is_vfo=True)
+                                                    _cwz_cbin = _cwz_n // 2 + round(_cwz_carrier / _cwz_hzbin)
+                                                    _cwz_spanbins = round(_AUDIO_FFT_SPAN / _cwz_hzbin)
+                                                    _cwz_lo = max(0, _cwz_cbin - _cwz_spanbins)
+                                                    _cwz_hi = min(_cwz_n, _cwz_cbin + _cwz_spanbins)
+                                                    _cwz_slice = _cwz_shifted[_cwz_lo:_cwz_hi]
+                                                    if len(_cwz_slice) > 0:
+                                                        _cwz_slice = np.log1p(_cwz_slice)
+                                                        _cwz_smx = float(_cwz_slice.max())
+                                                        if _cwz_smx > _cwzoom_ceil:
+                                                            _cwzoom_ceil = _cwz_smx
+                                                        else:
+                                                            _cwzoom_ceil = _cwzoom_ceil * 0.97 + _cwz_smx * 0.03
+                                                        if _cwzoom_ceil > 0:
+                                                            _cwz_slice = _cwz_slice * (255.0 / _cwzoom_ceil)
+                                                        np.clip(_cwz_slice, 0, 255, out=_cwz_slice)
+                                                        asyncio.create_task(broadcast_json({
+                                                            "type":       "audio_fft",
+                                                            "bins":       _cwz_slice.astype(np.uint8).tolist(),
+                                                            "carrier_hz": _cwz_carrier,
+                                                            "span_hz":    _AUDIO_FFT_SPAN,
+                                                            "dial_hz":    state.get('wsjtx_hz', 0),
+                                                            "sr":         DECODER_SR,
+                                                        }))
+                                                    _cwzoom_last = _cwz_now
+                                            # ────────────────────────────────────────────────────────────
+                                            cw_skimmer_pool.process_iq(iq_c, state.get('vfo_hz', 100_000_000) / 1e6, sr=DECODER_SR)
+                                            if cw_dec.active:    cw_dec.process_iq(iq_c, sr=DECODER_SR)
+                                            if rtty_dec.active:  rtty_dec.process_iq(iq_c, sr=DECODER_SR)
+                                            if fax_dec.active:   fax_dec.process_iq(iq_c, sr=DECODER_SR)
+                                            if sstv_dec.active:  sstv_dec.process_iq(iq_c, sr=DECODER_SR)
+                                            if poc_dec.active:   poc_dec.process_iq(iq_c, sr=DECODER_SR)
+                                            if acars_dec.active: acars_dec.process_iq(iq_c, sr=DECODER_SR)
+                                            # See w030 note above (~line 6198): ft8_dec has no
+                                            # process_iq(); this used to crash the loop whenever
+                                            # FT8 bridge mode was active. Native decode feed instead.
+                                            if ft8_internal_active: _ft8_broadcast_audio(iq_c.real, sr=DECODER_SR)
+                                            if wspr_dec.active:  wspr_dec.process_iq(iq_c, sr=DECODER_SR, loop=loop)
+                                            # BUGFIX (2026-07-15, w031 live decoder-testing pass): IQ Lite
+                                            # never delivers real IQ frames on this hardware (see notes
+                                            # elsewhere in this file) — p here is demodulated audio, same
+                                            # as iq_c's fake-complex shim just above, not genuine raw IQ.
+                                            # process_audio() (no discriminator, explicit sr) is correct
+                                            # here; the old process(p) call ran a meaningless discriminator
+                                            # over audio and used the wrong default sample rate.
+                                            if multimon_dec.active: multimon_dec.process_audio(p, sr=DECODER_SR)
+                                            if rivet_dec.active: rivet_dec.process_audio(p, sample_rate=DECODER_SR)
+                                            if freedv_dec.active: freedv_dec.process_audio(p, sample_rate=DECODER_SR)
+                                            # BUGFIX (June 2026): was _rtty_capture_feed(p) — raw,
+                                            # un-decimated 192kHz interleaved IQ bytes, not the
+                                            # decimated real-equivalent signal analyse() expects.
+                                            # Feed the real part of the already-decimated iq_c
+                                            # (48kHz, same signal the live decoder uses) instead.
+                                            _rtty_capture_feed(
+                                                np.clip(iq_c.real * 32768.0, -32768, 32767)
+                                                  .astype('<i2').tobytes(),
+                                                sr=DECODER_SR)
+                                    else:
+                                        # Full IQ path: hardware sample rate.
+                                        # Decoders fed via process() shims below using raw p.
+                                        #
+                                        # w0.2.3.1: spectrum FFT recompute + broadcast DISABLED.
+                                        # SDRConnect's own native type-3 spectrum (handled above,
+                                        # broadcast unconditionally for every stream mode) is
+                                        # already correct and smooth for Full IQ — it's the exact
+                                        # same spectrum SDRConnect itself displays. Recomputing our
+                                        # own FFT from raw IQ here and ALSO broadcasting it as a
+                                        # competing 0x01 spectrum frame caused the two independent
+                                        # sources (512-bin native vs 1024-bin self-computed, with
+                                        # different scaling) to interleave on the frontend —
+                                        # visible as erratic/jumping spectrum once the numpy
+                                        # .tobytes() fix made this broadcast actually succeed
+                                        # (previously it silently crashed every time, so only the
+                                        # native spectrum was ever shown — accidentally smooth).
+                                        # This recompute was only ever needed for IQ Lite (where
+                                        # native spectrum SR might not match the decoder-rate
+                                        # stream) — never reachable in production anyway, since
+                                        # IQ Lite delivers no type-2 frames at all (see ticket).
+                                        # Kept the computation code below, commented, in case a
+                                        # genuine future need arises (e.g. a higher-resolution
+                                        # alternate view) — re-enable deliberately, not by accident.
+                                        pass
+                                        # ── Audio-band FFT (for RTTY scope + fldigi waterfall) ──
+                                        # Full IQ equivalent of the IQ-Lite audio_fft block above.
+                                        # Raw p is full-rate int16 IQ centred on the dial frequency
+                                        # (state['hw_sample_rate']); the fldigi carrier is an audio
+                                        # offset from that dial, exactly as in IQ Lite — only the
+                                        # sample rate differs, so the same ±span/bin math applies.
+                                        try:
+                                            if len(p) >= 4:
+                                                _fiq_raw = np.frombuffer(p, dtype='<i2').astype(np.float32) / 32768.0
+                                                _fiq_i   = _fiq_raw[0::2]
+                                                _fiq_q   = _fiq_raw[1::2]
+                                                _fiq_sr  = state.get('hw_sample_rate') or state.get('sample_rate', 2_000_000)
+                                                if _rec_active and _rec_mode == 'iq':   # REC button, IQ mode
+                                                    # Tap the RAW hardware-rate samples here, before any of
+                                                    # NEXUS's own anti-alias/decimation filtering below --
+                                                    # this is the same signal SDRConnect delivered, byte for
+                                                    # byte, so a capture here is a fair, apples-to-apples
+                                                    # input for an external decoder (e.g. AIS-catcher's -r
+                                                    # file input with -ga FORMAT CF32) to compare against.
+                                                    _rec_write_iq((_fiq_i + 1j * _fiq_q).astype(np.complex64), sr=_fiq_sr)
+                                                # (Re)build the decimation filter if the hw sample rate
+                                                # changed (e.g. device reconnect at a different rate) or
+                                                # this is the first packet. Decimation factor is chosen so
+                                                # the post-decimation rate is as close as possible to the
+                                                # target (48kHz) without going below it, mirroring IQ Lite.
+                                                if _HAVE_SCIPY and (_fiq_afft_sos is None or _fiq_sr != _fiq_afft_src_sr):
+                                                    _fiq_afft_dec = max(1, int(_fiq_sr // _fiq_afft_target_sr))
+                                                    if _fiq_afft_dec > 1:
+                                                        _fiq_afft_sos  = _scipy_signal.butter(
+                                                            5, 0.9 / _fiq_afft_dec, btype='low', output='sos')
+                                                        _fiq_afft_zi_i = _scipy_signal.sosfilt_zi(_fiq_afft_sos) * 0.0
+                                                        _fiq_afft_zi_q = _scipy_signal.sosfilt_zi(_fiq_afft_sos) * 0.0
+                                                    else:
+                                                        _fiq_afft_sos = False  # sentinel: hw rate already <= target, no decimation needed
+                                                    _fiq_afft_src_sr = _fiq_sr
+                                                # BUGFIX (w0.2.6, July 2026): was `if _fiq_afft_sos is not False:`
+                                                # which evaluates True when _fiq_afft_sos is None (the initial
+                                                # value at line 6419). When _HAVE_SCIPY=False the filter-build
+                                                # block above (guarded by `if _HAVE_SCIPY and ...`) is skipped,
+                                                # so _fiq_afft_sos stays None forever. `None is not False = True`
+                                                # then fell through to call _scipy_signal.sosfilt() which
+                                                # NameErrors because scipy was never imported — exception caught
+                                                # at line 6736, logged 3 times then silently swallowed, _fiq_c
+                                                # never built, audio_fft never broadcast, CW waterfall blank.
+                                                # Fix: add `is not None` so the None initial value correctly
+                                                # routes to the no-scipy raw-IQ fallback instead of crashing.
+                                                if _fiq_afft_sos is not None and _fiq_afft_sos is not False:
+                                                    _fiq_if, _fiq_afft_zi_i = _scipy_signal.sosfilt(
+                                                        _fiq_afft_sos, _fiq_i, zi=_fiq_afft_zi_i)
+                                                    _fiq_qf, _fiq_afft_zi_q = _scipy_signal.sosfilt(
+                                                        _fiq_afft_sos, _fiq_q, zi=_fiq_afft_zi_q)
+                                                    _fiq_c     = (_fiq_if[::_fiq_afft_dec] + 1j * _fiq_qf[::_fiq_afft_dec]).astype(np.complex64)
+                                                    _fiq_afft_sr = _fiq_sr / _fiq_afft_dec
+                                                else:
+                                                    # No scipy (None), scipy unavailable on first packet before
+                                                    # filter is built, or hw rate already at/below target (False
+                                                    # sentinel). Use raw IQ as-is (no anti-alias decimation).
+                                                    _fiq_c     = (_fiq_i + 1j * _fiq_q).astype(np.complex64)
+                                                    _fiq_afft_sr = _fiq_sr
+                                                # Prepend any leftover samples from previous packet(s)
+                                                # that didn't fill a full window -- see carry-buffer
+                                                # bugfix note above. Without this, low-rate Full IQ
+                                                # streams (small per-packet sample counts) never
+                                                # accumulate enough samples in a single packet to
+                                                # complete one _AUDIO_FFT_SIZE window.
+                                                if len(_fiq_afft_carry):
+                                                    _fiq_c = np.concatenate((_fiq_afft_carry, _fiq_c))
+                                                # BUGFIX (w0.2.6, July 2026): when CW NEXUS is active in
+                                                # Full IQ, _audio_fft_center_hz() returns vfo_hz-center_hz
+                                                # (the VFO's audio offset from the hardware LO). After
+                                                # decimating to ~50 kHz the audio passband is only ±25 kHz;
+                                                # if the VFO is tuned more than that from the hardware
+                                                # center (common on HF with VFO-only in-span jogs that
+                                                # leave the LO fixed), _carrier_bin falls outside [0, 4096]
+                                                # and the extracted slice is empty — audio_fft never
+                                                # broadcasts and the CW waterfall goes blank as soon as
+                                                # the decoder is started (pressing Start Decode).
+                                                # Fix: apply a complex frequency shift to a separate FFT
+                                                # buffer so the VFO signal sits at DC before the FFT is
+                                                # computed, then report carrier_hz=0. This mirrors exactly
+                                                # what IQ Lite already does (dc_is_vfo=True → 0 Hz) and
+                                                # what MorseDecoder.process_iq() does internally. _fiq_c
+                                                # itself is left unshifted so all decoders below and the
+                                                # carry buffer continue to use the original signal; the
+                                                # shift is re-applied fresh on every packet so phase
+                                                # discontinuities between packets don't accumulate (fine
+                                                # for a magnitude-based waterfall display).
+                                                _cw_wf_zoom = state.get('cw_wf_zoom', 1) or 1
+                                                if _cw_wf_zoom <= 1:
+                                                    if len(_cwzoom_buf):
+                                                        _cwzoom_buf = np.zeros(0, dtype=np.complex64)
+                                                    _fiq_afft_src = _fiq_c
+                                                    _vfo_off_fft = _audio_fft_center_hz()
+                                                    _carrier_hz_fft = _vfo_off_fft
+                                                    # BUGFIX (2026-07-20, user report: RTTY tone scope
+                                                    # "jumping"/"worse" after restart): this only ever
+                                                    # re-centered the Full-IQ audio_fft feed for CW — when
+                                                    # RTTY was the active decoder instead, _carrier_hz_fft
+                                                    # was left as the raw VFO-offset-from-LO (0 whenever the
+                                                    # VFO sits exactly on the hardware center, as in the live
+                                                    # repro) instead of the RTTY mark tone the Compact-mode
+                                                    # audio_fft broadcaster (_carrier_hz_r, above) already
+                                                    # centers on. An nRSP-ST device streams Compact-mode
+                                                    # audio continuously regardless of display mode (same
+                                                    # fact behind the FT8 Full-IQ fix elsewhere in this
+                                                    # file), so the frontend's one RTTY tone scope was
+                                                    # receiving two disagreeing 'audio_fft' broadcasts —
+                                                    # different center, sample rate, and bin count —
+                                                    # flickering between them read as the scope "jumping".
+                                                    # Mirror the CW branch, but center on the live mark tone.
+                                                    if (_vfo_off_fft != 0
+                                                            and ((active_decoder_slug == 'cw' and cw_dec.active) or
+                                                                 (active_decoder_slug == 'rtty' and rtty_dec.active))):
+                                                        _n_s = len(_fiq_c)
+                                                        _t_s = np.arange(_n_s, dtype=np.float32) / _fiq_afft_sr
+                                                        _fiq_afft_src = (_fiq_c * np.exp(
+                                                            -1j * 2 * np.pi * _vfo_off_fft * _t_s
+                                                        )).astype(np.complex64)
+                                                        _carrier_hz_fft = (
+                                                            (getattr(rtty_dec, 'mark', 2125) or 2125)
+                                                            if active_decoder_slug == 'rtty' else 0.0)
+                                                    elif active_decoder_slug == 'rtty' and rtty_dec.active:
+                                                        # VFO already at hardware center (offset 0) — no
+                                                        # rotation needed, but still report the mark tone as
+                                                        # centre instead of falling through to 0.
+                                                        _carrier_hz_fft = getattr(rtty_dec, 'mark', 2125) or 2125
+                                                    _a_idx = 0
+                                                    while _a_idx + _AUDIO_FFT_SIZE <= len(_fiq_afft_src):
+                                                        _afft_acc += np.abs(np.fft.fft(
+                                                            _fiq_afft_src[_a_idx:_a_idx+_AUDIO_FFT_SIZE] * _afft_win))
+                                                        _afft_n += 1
+                                                        _a_idx += _AUDIO_FFT_SIZE // 2   # 50% overlap
+                                                    _fiq_afft_carry = _fiq_c[_a_idx:]   # carry from UNSHIFTED _fiq_c
+                                                    _fiq_now = time.perf_counter()
+                                                    if _afft_n > 0 and (_fiq_now - _afft_last) >= _AUDIO_FFT_DT:
+                                                        _afft_avg = _afft_acc / _afft_n
+                                                        _afft_shifted = np.fft.fftshift(_afft_avg)
+                                                        _hz_per_bin = _fiq_afft_sr / _AUDIO_FFT_SIZE
+                                                        _carrier_hz = _carrier_hz_fft
+                                                        _carrier_bin = _AUDIO_FFT_SIZE // 2 + round(_carrier_hz / _hz_per_bin)
+                                                        _span_bins = round(_AUDIO_FFT_SPAN / _hz_per_bin)
+                                                        _lo_bin = max(0, _carrier_bin - _span_bins)
+                                                        _hi_bin = min(_AUDIO_FFT_SIZE, _carrier_bin + _span_bins)
+                                                        _slice = _afft_shifted[_lo_bin:_hi_bin]
+                                                        if len(_slice) > 0:
+                                                            # Same shared slow-tracked-ceiling fix as the IQ-Lite
+                                                            # branch above (_afft_disp_ceil bugfix note) — avoids
+                                                            # per-row independent rescaling / horizontal banding.
+                                                            _slice = np.log1p(_slice)
+                                                            _smx = _slice.max()
+                                                            if _smx > _afft_disp_ceil:
+                                                                _afft_disp_ceil = _smx
+                                                            else:
+                                                                _afft_disp_ceil = _afft_disp_ceil * 0.97 + _smx * 0.03
+                                                            if _afft_disp_ceil > 0: _slice = _slice * (255.0 / _afft_disp_ceil)
+                                                            np.clip(_slice, 0, 255, out=_slice)
+                                                            # BUGFIX (2026-07-16, w032): same fix as the IQ-Lite
+                                                            # branch above — send the native ~512-bin slice
+                                                            # (~11.7 Hz/bin) directly instead of resampling it down
+                                                            # to a fixed _AUDIO_FFT_OUT=256, which was discarding
+                                                            # half the real resolution before broadcast. See the
+                                                            # detailed comment on the IQ-Lite branch's version of
+                                                            # this fix, above.
+                                                            _bins_out = _slice.astype(np.uint8)
+                                                            # BUGFIX (2026-07-20, user report: markers/spectrum
+                                                            # "still jumping" after the centering fix above):
+                                                            # centering on the right tone wasn't enough — this
+                                                            # broadcaster and the Compact-mode one (_carrier_hz_r,
+                                                            # far above) were STILL two independent sources
+                                                            # racing for the same tone scope, each at a different
+                                                            # native sample rate/bin count (48000/256 vs
+                                                            # _fiq_afft_sr/~512), so alternating between them kept
+                                                            # visibly changing the trace's resolution/shape even
+                                                            # once both agreed on where the centre was. An
+                                                            # nRSP-ST device's Compact-mode broadcast already
+                                                            # covers CW/RTTY correctly and is the *only* one the
+                                                            # frontend needs — this Full-IQ broadcast exists for
+                                                            # direct-USB devices (e.g. RSPdx) that get no
+                                                            # Compact-mode stream at all (same distinction the
+                                                            # FT8 Full-IQ fix already relies on). Stop sending
+                                                            # this one whenever the Compact broadcast is already
+                                                            # covering it, instead of just realigning it.
+                                                            if not _is_nrsp_st:
+                                                                asyncio.create_task(broadcast_json({
+                                                                    "type":       "audio_fft",
+                                                                    "bins":       _bins_out.tolist(),
+                                                                    "carrier_hz": _carrier_hz,
+                                                                    "span_hz":    _AUDIO_FFT_SPAN,
+                                                                    "dial_hz":    state.get('wsjtx_hz', 0),
+                                                                    "sr":         _fiq_afft_sr,
+                                                                }))
+                                                        _afft_acc[:] = 0; _afft_n = 0
+                                                        _afft_last = _fiq_now
+                                                else:
+                                                    # ── Real zoom FFT (2026-07-16, w032) — same technique as
+                                                    # the IQ-Lite branch's zoom path above; see its detailed
+                                                    # comment. Accumulates the UNSHIFTED _fiq_c (which already
+                                                    # has this packet's carry prepended, above) into a rolling
+                                                    # buffer, then applies the same carrier-to-DC frequency
+                                                    # shift the base path uses, just over a longer window.
+                                                    if len(_fiq_afft_carry):
+                                                        _fiq_afft_carry = np.zeros(0, dtype=np.complex64)
+                                                    _cwzoom_buf = (np.concatenate((_cwzoom_buf, _fiq_c))
+                                                                   if len(_cwzoom_buf) else _fiq_c.copy())
+                                                    _cwz_n = _AUDIO_FFT_SIZE * _cw_wf_zoom
+                                                    if len(_cwzoom_buf) > _cwz_n:
+                                                        _cwzoom_buf = _cwzoom_buf[-_cwz_n:]
+                                                    _cwz_now = time.perf_counter()
+                                                    if (len(_cwzoom_buf) >= _cwz_n
+                                                            and (_cwz_now - _cwzoom_last) >= _AUDIO_FFT_DT):
+                                                        _vfo_off_cwz = _audio_fft_center_hz()
+                                                        _cwz_carrier = _vfo_off_cwz
+                                                        _cwz_src = _cwzoom_buf
+                                                        # BUGFIX (2026-07-20): same RTTY-blind-spot fix as the
+                                                        # non-zoom Full-IQ audio_fft block above — see its
+                                                        # comment for the full story.
+                                                        if (_vfo_off_cwz != 0
+                                                                and ((active_decoder_slug == 'cw' and cw_dec.active) or
+                                                                     (active_decoder_slug == 'rtty' and rtty_dec.active))):
+                                                            _cwz_t = np.arange(_cwz_n, dtype=np.float32) / _fiq_afft_sr
+                                                            _cwz_src = (_cwzoom_buf * np.exp(
+                                                                -1j * 2 * np.pi * _vfo_off_cwz * _cwz_t
+                                                            )).astype(np.complex64)
+                                                            _cwz_carrier = (
+                                                                (getattr(rtty_dec, 'mark', 2125) or 2125)
+                                                                if active_decoder_slug == 'rtty' else 0.0)
+                                                        elif active_decoder_slug == 'rtty' and rtty_dec.active:
+                                                            _cwz_carrier = getattr(rtty_dec, 'mark', 2125) or 2125
+                                                        _cwz_win = _cwzoom_win_cache.get(_cwz_n)
+                                                        if _cwz_win is None:
+                                                            _cwz_win = np.hanning(_cwz_n).astype(np.float32)
+                                                            _cwzoom_win_cache[_cwz_n] = _cwz_win
+                                                        _cwz_mag = np.abs(np.fft.fft(_cwz_src * _cwz_win))
+                                                        _cwz_shifted = np.fft.fftshift(_cwz_mag)
+                                                        _cwz_hzbin = _fiq_afft_sr / _cwz_n
+                                                        _cwz_cbin = _cwz_n // 2 + round(_cwz_carrier / _cwz_hzbin)
+                                                        _cwz_spanbins = round(_AUDIO_FFT_SPAN / _cwz_hzbin)
+                                                        _cwz_lo = max(0, _cwz_cbin - _cwz_spanbins)
+                                                        _cwz_hi = min(_cwz_n, _cwz_cbin + _cwz_spanbins)
+                                                        _cwz_slice = _cwz_shifted[_cwz_lo:_cwz_hi]
+                                                        if len(_cwz_slice) > 0:
+                                                            _cwz_slice = np.log1p(_cwz_slice)
+                                                            _cwz_smx = float(_cwz_slice.max())
+                                                            if _cwz_smx > _cwzoom_ceil:
+                                                                _cwzoom_ceil = _cwz_smx
+                                                            else:
+                                                                _cwzoom_ceil = _cwzoom_ceil * 0.97 + _cwz_smx * 0.03
+                                                            if _cwzoom_ceil > 0:
+                                                                _cwz_slice = _cwz_slice * (255.0 / _cwzoom_ceil)
+                                                            np.clip(_cwz_slice, 0, 255, out=_cwz_slice)
+                                                            # BUGFIX (2026-07-20): same "stop competing with the
+                                                            # Compact-mode broadcast on nRSP-ST" fix as the
+                                                            # non-zoom Full-IQ audio_fft block above.
+                                                            if not _is_nrsp_st:
+                                                                asyncio.create_task(broadcast_json({
+                                                                    "type":       "audio_fft",
+                                                                    "bins":       _cwz_slice.astype(np.uint8).tolist(),
+                                                                    "carrier_hz": _cwz_carrier,
+                                                                    "span_hz":    _AUDIO_FFT_SPAN,
+                                                                    "dial_hz":    state.get('wsjtx_hz', 0),
+                                                                    "sr":         _fiq_afft_sr,
+                                                                }))
+                                                        _cwzoom_last = _cwz_now
+                                        except Exception as _fiq_afft_err:
+                                            globals()['_fiq_afft_err_count'] = globals().get('_fiq_afft_err_count', 0) + 1
+                                            if globals()['_fiq_afft_err_count'] <= 3:
+                                                log.warning(f"Full IQ audio_fft error "
+                                                            f"(#{globals()['_fiq_afft_err_count']}): {_fiq_afft_err}")
+                                                log.warning(traceback.format_exc())
+                                        # try:
+                                        #     if len(p) >= 4:
+                                        #         _fiq_raw = np.frombuffer(p, dtype='<i2').astype(np.float32) / 32768.0
+                                        #         _fiq_c   = (_fiq_raw[0::2] + 1j * _fiq_raw[1::2]).astype(np.complex64)
+                                        #         _nrsp_fft_sr = state.get('hw_sample_rate', 2_000_000)
+                                        #         _nrsp_idx = 0
+                                        #         while _nrsp_idx + _nrsp_fft_size <= len(_fiq_c):
+                                        #             _nrsp_fft_acc += np.abs(
+                                        #                 np.fft.fft(_fiq_c[_nrsp_idx:_nrsp_idx+_nrsp_fft_size] * _nrsp_win))
+                                        #             _nrsp_fft_n += 1
+                                        #             _nrsp_idx += _nrsp_fft_size
+                                        #         _nrsp_now = time.perf_counter()
+                                        #         if _nrsp_fft_n > 0 and (_nrsp_now - last_ui_update) > _UI_FRAME_DT:
+                                        #             np.divide(_nrsp_fft_acc, _nrsp_fft_n, out=_nrsp_fft_avg)
+                                        #             _nrsp_shifted = np.fft.fftshift(_nrsp_fft_avg)
+                                        #             np.log1p(_nrsp_shifted, out=_nrsp_shifted)
+                                        #             _mx = _nrsp_shifted.max()
+                                        #             if _mx > 0:
+                                        #                 np.multiply(_nrsp_shifted, 255.0 / _mx, out=_nrsp_shifted)
+                                        #             _nrsp_frame_buf[1:] = np.ascontiguousarray(
+                                        #                 _nrsp_shifted, dtype=np.uint8).tobytes()
+                                        #             asyncio.create_task(broadcast_binary(bytes(_nrsp_frame_buf)))
+                                        #             last_ui_update = _nrsp_now
+                                        #             _nrsp_fft_acc[:] = 0; _nrsp_fft_n = 0
+                                        # except Exception as _fiq_err:
+                                        #     globals()['_fiq_err_count'] = globals().get('_fiq_err_count', 0) + 1
+                                        #     if globals()['_fiq_err_count'] <= 3:
+                                        #         log.warning(f"Full IQ FFT/broadcast error "
+                                        #                     f"(#{globals()['_fiq_err_count']}): {_fiq_err}")
+                                        #         log.warning(traceback.format_exc())
+                                        # BUGFIX (June 2026, v3): cw_dec.process(p)/rtty_dec.process(p)
+                                        # fed the decoder's bytes-shim, which re-derives its own iq_c
+                                        # from RAW p (the undecimated, unfiltered hardware-rate IQ)
+                                        # at sr=state['sample_rate'] (the true hw rate, e.g. 2 MSPS).
+                                        # That's mathematically a valid signal, but with NO anti-alias
+                                        # filtering or decimation — at high hw rates the Goertzel tone
+                                        # detectors end up comparing the desired mark/space energy
+                                        # against the full broadband spectrum (other signals, images,
+                                        # noise across the whole multi-MHz span) instead of the clean,
+                                        # filtered ~48-62kHz-equivalent baseband the scope/handles and
+                                        # autodetect already use (_fiq_c/_fiq_afft_sr, built just above
+                                        # with a proper anti-alias low-pass before decimation). The
+                                        # mismatch is invisible on the scope (which reads the *filtered*
+                                        # signal and looks correctly aligned) while the live decoder
+                                        # silently decodes garbage against the noisier raw signal —
+                                        # worse the higher the hw sample rate climbs above the ~48kHz
+                                        # decimation target (matches the reported symptom: only
+                                        # 62.5kSPS, closest to that target, decoded cleanly). Fix: feed
+                                        # the decoders from the same filtered _fiq_c/_fiq_afft_sr the
+                                        # scope and autodetect already use, instead of raw p.
+                                        # BUGFIX (RTTY Full IQ VFO offset, June 2026): _fiq_c's DC is
+                                        # the hardware center/LO, not the VFO/dial frequency (see
+                                        # _audio_fft_center_hz() docstring) — RttyDecoder.process_iq()
+                                        # Goertzels self.mark/(self.mark-self.shift) with no VFO term
+                                        # of its own, so without this offset it listens at the wrong
+                                        # absolute frequency relative to _fiq_c whenever vfo_hz !=
+                                        # center_hz. Same quantity the scope/waterfall already add via
+                                        # _audio_fft_center_hz(dc_is_vfo=False) to keep the mark/space
+                                        # handles aligned with the real signal.
+                                        _fiq_vfo_off = state.get('vfo_hz', 0) - state.get('center_hz', 0)
+                                        if locals().get('_fiq_c') is not None and len(_fiq_c):
+                                            if not globals().get('_diag_logged_fiqc_branch', False):
+                                                log.info(f"[SKIMMER-DIAG] Full IQ branch: _fiq_c path taken, len={len(_fiq_c)}, sr={_fiq_afft_sr}")
+                                                globals()['_diag_logged_fiqc_branch'] = True
+                                            # Skimmer pool's tone_hz = (channel_mhz - vfo_mhz)*1e6 assumes
+                                            # DC == vfo_hz (true for the RTL and IQ-Lite paths). _fiq_c's
+                                            # DC is the hardware center_hz instead, so feed the pool the
+                                            # center frequency (in MHz) here rather than vfo_mhz — same
+                                            # _fiq_vfo_off correction RTTY already needs above.
+                                            cw_skimmer_pool.process_iq(_fiq_c, state.get('center_hz', 0) / 1e6, sr=_fiq_afft_sr)
+                                            if cw_dec.active:   cw_dec.process_iq(_fiq_c, sr=_fiq_afft_sr)
+                                            if rtty_dec.active: rtty_dec.process_iq(_fiq_c, sr=_fiq_afft_sr, vfo_offset_hz=_fiq_vfo_off)
+                                            # Native AIS GMSK/HDLC decoder (see AisDecoder above,
+                                            # rtl-ais-ported 2026-07-19) -- decodes the whole baseband
+                                            # carrier directly, no VFO-offset correction needed (unlike
+                                            # RTTY's offset-tone-pair detection above). Coexists with the
+                                            # UDP fallback path (ais_udp_server) and aisstream.io -- all
+                                            # call _ais_update_vessel()/_ais_broadcast() and merge into
+                                            # the same ais_vessels dict, so running concurrently is safe.
+                                            _ais_active_gate = state.get('ais_active', False)
+                                            if _ais_active_gate:
+                                                ais_dec.process_iq(_fiq_c, sr=_fiq_afft_sr)
+                                                for decoded in ais_dec.drain_vessel_updates():
+                                                    mmsi = _ais_update_vessel(decoded)
+                                                    if mmsi:
+                                                        asyncio.create_task(_ais_broadcast())
+                                                # Experimental Dire Wolf-derived second front end
+                                                # (w033 fork, 2026-07-19) -- shares ais_dec's own
+                                                # .active gate above (_ais_active_gate), feeds the
+                                                # SAME _ais_update_vessel()/ais_vessels merge-by-MMSI
+                                                # path, tagged 'direwolf' so the frontend can show
+                                                # which decoder(s) confirmed each vessel. See
+                                                # AisDecoderDireWolf's docstring for validation
+                                                # results (exact CRC-OK match on 2/3 real captures).
+                                                ais_dec_dw.process_iq(_fiq_c, sr=_fiq_afft_sr)
+                                                for decoded in ais_dec_dw.drain_vessel_updates():
+                                                    mmsi = _ais_update_vessel(decoded)
+                                                    if mmsi:
+                                                        asyncio.create_task(_ais_broadcast())
+                                                # DIAG (2026-07-17, temporary -- see AisDecoder DC/CFO
+                                                # BUGFIX note): rate-limited so this is safe to leave
+                                                # in. frames_seen>0 with frames_crc_ok==0 means HDLC
+                                                # frame sync IS finding 0x7E-delimited candidates but
+                                                # every one is failing CRC (bit-level demod problem --
+                                                # what the DC/CFO fix targets); frames_seen==0 means
+                                                # the PLL/slicer isn't finding valid frames at all
+                                                # (deeper sync problem, or genuinely no AIS energy).
+                                                _now_aisdiag = time.time()
+                                                if (_now_aisdiag - globals().get('_ais_diag_last', 0)) > 5.0:
+                                                    globals()['_ais_diag_last'] = _now_aisdiag
+                                                    _clip_pct = (100.0 * ais_dec.clip_samples / ais_dec.total_samples) \
+                                                                if ais_dec.total_samples else 0.0
+                                                    log.info(f"[AIS-DIAG] frames_seen={ais_dec.frames_seen} "
+                                                             f"frames_crc_ok={ais_dec.frames_crc_ok} "
+                                                             f"vessels={len(ais_vessels)} "
+                                                             f"msg_types={ais_dec.msg_type_counts} "
+                                                             f"all_msg_types={ais_dec.all_msg_type_counts} "
+                                                             f"clip%={_clip_pct:.3f} max|iq|={ais_dec.max_abs_iq:.3f}")
+                                                    log.info(f"[AIS-DW-DIAG] frames_seen={ais_dec_dw.frames_seen} "
+                                                             f"frames_crc_ok={ais_dec_dw.frames_crc_ok}")
+                                        else:
+                                            if not globals().get('_diag_logged_rawp_branch', False):
+                                                log.info("[SKIMMER-DIAG] Full IQ branch: FELL BACK to raw-p path (_fiq_c missing) — skimmer pool NOT fed")
+                                                globals()['_diag_logged_rawp_branch'] = True
+                                            # _fiq_c not yet built this packet (e.g. scipy unavailable
+                                            # and len(p)<4, or the audio_fft try-block raised) — fall
+                                            # back to the old raw-p shim rather than dropping the
+                                            # packet entirely.
+                                            if cw_dec.active: cw_dec.process(p)
+                                            if rtty_dec.active: rtty_dec.process(p)
+                                        if fax_dec.active: fax_dec.process(p)
+                                        if sstv_dec.active: sstv_dec.process(p)
+                                        if poc_dec.active: poc_dec.process(p)
+                                        if acars_dec.active: acars_dec.process(p)
+                                        # See w030 note near line 6198: ft8_dec has no process()/
+                                        # process_iq() — the call that used to be here threw
+                                        # AttributeError on every Full IQ packet once FT8 bridge
+                                        # mode was active, crashing this rx() loop. Native decode
+                                        # feed (using _fiq_c, same as the RTTY capture feed below)
+                                        # replaces it — see the `if locals().get('_fiq_c')` block.
+                                        # This is genuine raw hardware IQ (the "old raw-p shim" noted
+                                        # above) at state's real sample rate — process()'s FM
+                                        # discriminator is the correct pipeline here, unlike the
+                                        # Compact-mode/IQ-Lite call sites. Pass sr explicitly (2026-07-15)
+                                        # instead of relying on process()'s state.get() fallback, so this
+                                        # call site can't silently break if that default ever changes.
+                                        if multimon_dec.active: multimon_dec.process(p, sr=state.get('sample_rate', 2_000_000))
+                                        # BUGFIX (June 2026, v2): was _rcap_real — the raw real
+                                        # part of the UNDECIMATED hardware-rate IQ (e.g. 2 MSPS),
+                                        # fed to analyse() with sr=hardware-rate. analyse() only
+                                        # searches a 300-3000 Hz band of whatever it's handed, so
+                                        # at multi-MHz sample rate that band is nowhere near
+                                        # where the demodulated RTTY tones actually live (they
+                                        # only land near 300-3000 Hz of the *decimated baseband*
+                                        # signal, same as IQ Lite) — guaranteed "No signal" in
+                                        # Full IQ regardless of how strong the real tones are.
+                                        # Fix: reuse _fiq_c — the already decimated/demodulated
+                                        # complex baseband IQ computed just above for the
+                                        # audio_fft broadcast (DC = hardware LO, same frame the
+                                        # waterfall and rtty_dec.process_iq() both use) — and its
+                                        # true post-decimation rate _fiq_afft_sr. This is exactly
+                                        # the IQ-Lite branch's approach (real part of iq_c at
+                                        # DECODER_SR), just using Full IQ's own decimated signal.
+                                        # Guarantees autodetect's analysis searches the same Hz
+                                        # frame the visible spectrum/handles are drawn in, so a
+                                        # detected mark/space lands where the signal actually is.
+                                        if locals().get('_fiq_c') is not None and len(_fiq_c):
+                                            _rcap_real = _fiq_c.real
+                                            _rtty_capture_feed(
+                                                np.clip(_rcap_real * 32768.0, -32768, 32767)
+                                                  .astype('<i2').tobytes(),
+                                                sr=_fiq_afft_sr)
+                                            # BUGFIX (2026-07-19, w033 — user-reported "ft8 internal no
+                                            # longer decodes when running despite strong signal incoming",
+                                            # SECOND and actual root cause, superseding this same day's
+                                            # first attempt at this fix). This branch used to also call
+                                            # `_ft8_broadcast_audio(_rcap_real, sr=_fiq_afft_sr)` here
+                                            # whenever ft8_internal_active — the first fix attempt
+                                            # resampled that to a true 48000 Hz, on the theory that a
+                                            # sample-rate mismatch was silently breaking Costas sync.
+                                            # That was real but not the actual blocker: `_rcap_real` is
+                                            # `_fiq_c.real` — the real part of Full IQ's wideband complex
+                                            # baseband centered on the *hardware LO*, not on the tuned VFO
+                                            # (see `_fiq_vfo_off` a few lines below, which every other
+                                            # consumer of `_fiq_c` — RTTY, the CW skimmer pool, AIS — has
+                                            # to explicitly correct for). It is not a demodulated
+                                            # single-channel USB audio signal at all, so FT8's tones don't
+                                            # sit anywhere near the 200-3000 Hz band `ft8ts` searches.
+                                            # Live-confirmed via a Chrome-side hook on
+                                            # `ft8HandleAudioFrame()`: with Full IQ active, incoming 0x02
+                                            # frames alternated 1:1 between this branch's near-silent,
+                                            # variable-length output and a second, healthy, fixed-length
+                                            # (960-sample) stream — meaning SDRConnect keeps sending its
+                                            # own correctly VFO-centered demodulated audio (the Compact-
+                                            # mode `t == 4` branch below) *concurrently* with Full IQ's raw
+                                            # hardware stream, regardless of which display mode is
+                                            # selected in the UI. Both were landing in the browser's single
+                                            # `ft8AudioBuffer`, so every 15s window was a scrambled
+                                            # interleaving of real audio and irrelevant wideband noise —
+                                            # confirmed live: switching the engine mode from Full IQ to
+                                            # Compact (nothing else changed) produced a real decode
+                                            # (IU7BSQ/P FV9MQR/P R JL76, France) within one cycle. Fix
+                                            # (superseded below, same day, w033): stop broadcasting FT8
+                                            # audio from this branch at all — reasoned that the
+                                            # Compact-mode broadcast (the `t == 4` branch below) already
+                                            # supplies correct, VFO-centered audio to the FT8 buffer
+                                            # independently of Full IQ.
+                                            #
+                                            # BUGFIX (2026-07-20, w033 — user report: "ive just started
+                                            # ft8 internal, and it not showing decodes again like last
+                                            # time"). That reasoning only holds for networked nRSP-ST
+                                            # units, which genuinely stream Compact-mode audio in
+                                            # parallel regardless of display mode. A directly-connected
+                                            # RSPdx (state['device_type'] == 'RSPdx', not 'nRSP-ST' —
+                                            # this user's actual hardware) has no Compact-mode audio
+                                            # stream from SDRConnect at all, in any display mode — live
+                                            # packet-level capture on this exact session (Chrome-side
+                                            # counter on handleBinaryFrame) showed zero 0x02 audio frames
+                                            # over a 15+ second FT8-enabled window with a strong on-screen
+                                            # FT8 signal. Removing this branch's broadcast left RSPdx/
+                                            # direct-USB users with NO path to feed the FT8 decoder at
+                                            # all in Full IQ — the only mode they have (SDRConnect
+                                            # exposes no Compact/IQ-Lite variant for this connection
+                                            # type; see the rspdx-strip badge in the frontend).
+                                            #
+                                            # Fix: restore this branch's broadcast, but correct the bug
+                                            # the original (pre-2026-07-19) version actually had — feed
+                                            # it `_fiq_c` after mixing out `_fiq_vfo_off` (computed just
+                                            # above), not raw `_fiq_c.real`. `_fiq_c`'s DC is the hardware
+                                            # LO/center frequency; multiplying by exp(-j*2*pi*offset*n/sr)
+                                            # shifts the tuned VFO frequency down to DC before the real
+                                            # part is taken, the same correction RTTY/the CW skimmer pool
+                                            # already apply to their own *interpretation* of this signal
+                                            # (they pass the offset as a parameter into their own Goertzel
+                                            # targets instead, since they don't need a real-valued audio
+                                            # signal out). No running NCO phase is kept across packets —
+                                            # ft8ts only needs correct tone frequencies within each ~0.16s
+                                            # analysis window, the same block-boundary tolerance every
+                                            # other _fiq_c consumer in this file already accepts.
+                                            if ft8_internal_active:
+                                                _fiq_n = np.arange(len(_fiq_c), dtype=np.float64)
+                                                _fiq_mix = np.exp(-1j * 2.0 * np.pi * _fiq_vfo_off
+                                                                   * _fiq_n / _fiq_afft_sr)
+                                                _ft8_broadcast_audio(
+                                                    (_fiq_c * _fiq_mix).real.astype(np.float32),
+                                                    sr=_fiq_afft_sr)
+                                elif t == 4:  # Compact mode audio IQ
+                                    if cw_dec.active: cw_dec.process(p)
+                                    if rtty_dec.active: rtty_dec.process(p)
+                                    _rtty_capture_feed(p, sr=state.get('sample_rate', 48000))
+                                    if fax_dec.active: fax_dec.process(p)
+                                    if sstv_dec.active: sstv_dec.process(p)
+                                    if poc_dec.active: poc_dec.process(p)
+                                    if acars_dec.active: acars_dec.process(p)
+                                    # See w030 note near line 6198 — ft8_dec has no process().
+                                    # NOTE: fixed 48000, not state.get('sample_rate') — that key
+                                    # holds the RF/hardware sample rate (e.g. 500000 for 500 kSPS),
+                                    # not the demodulated-audio rate `p` is actually at here. Copied
+                                    # from _rtty_capture_feed's call two lines up when this was
+                                    # added, which has the same pre-existing mislabel — not fixed
+                                    # there to stay in scope, but not worth propagating into new code.
+                                    if ft8_internal_active:
+                                        _ft8_broadcast_audio(p, sr=48000)
+                                    # BUGFIX (2026-07-15, w031 live decoder-testing pass): same class of
+                                    # bug the comment above already flagged for _rtty_capture_feed's sr —
+                                    # p is demodulated audio at 48000Hz here, not raw IQ. process_audio()
+                                    # (no discriminator, explicit sr=48000) replaces the old process(p),
+                                    # which ran a meaningless discriminator over audio and defaulted to
+                                    # the RF/hardware sample rate internally.
+                                    if multimon_dec.active: multimon_dec.process_audio(p, sr=48000)
+                                    if rivet_dec.active: rivet_dec.process_audio(p, sample_rate=48000)
+                                    if freedv_dec.active: freedv_dec.process_audio(p, sample_rate=48000)
+                                else:
+                                    # Log unknown frame types — helps discover SDRConnect API
+                                    if _frame_counts.get(t, 0) <= 3:
+                                        log.info(f"Unknown frame type {t}: len={len(msg)}, "
+                                                 f"first_bytes={list(msg[:8])}")
+                        else:
+                            # msg may be str (JSON text) or dict (pre-parsed by some websockets versions)
+                            try:
+                                d = json.loads(msg) if isinstance(msg, str) else msg
+                                if not isinstance(d, dict):
+                                    continue
+                            except (json.JSONDecodeError, TypeError, ValueError):
+                                continue
+                            event_type = d.get('event_type', '')
+                            prop = d.get('property', '') or event_type
+                            val  = d.get('value')
+                            # Verbose per-message trace — debug level only (this fires
+                            # multiple times/sec, mostly signal_power/signal_snr churn,
+                            # so it's not appropriate at INFO for normal operation).
+                            log.debug(f"SDRConnect msg: event_type={event_type!r} prop={prop!r} "
+                                      f"val={str(val)[:120]!r}")
+                            # Handle signal_power / signal_snr push notifications
+                            if event_type in ('signal_power', 'signal_snr') or prop in ('signal_power', 'signal_snr'):
+                                try:
+                                    fval = float(val)
+                                    if event_type == 'signal_power' or prop == 'signal_power':
+                                        state['signal_power'] = fval
+                                    else:
+                                        state['signal_snr'] = fval
+                                    await broadcast_json({"type": "state", **state})
+                                except (TypeError, ValueError):
+                                    pass
+                            # Log exclusive control responses and update can_control state
+                            elif event_type in ('exclusive_control_response', 'request_exclusive_control_response',
+                                                'exclusive_control', 'have_exclusive_control', 'control_granted',
+                                                'control_denied', 'control_status'):
+                                granted = val in (True, 'true', '1', 1, 'True', 'granted')
+                                state['can_control'] = granted
+                                log.info(f"Control {'granted' if granted else 'denied'}: event={event_type} val={val!r}")
+                                await broadcast_json({"type": "control_status", "can_control": granted,
+                                                      "nrsp_st": _is_nrsp_st})
+                            # Handle both property_changed and get_property_response events
+                            elif event_type in ('property_changed', 'get_property_response', 'set_property') or prop:
+                                if isinstance(prop, str):
+                                    if prop in ('vfo_frequency','device_vfo_frequency','vfo_hz'):
+                                        if val is not None:
+                                            # Ignore SDRConnect VFO echoes during the ignore window
+                                            # (same window used to suppress center_hz echoes after a tune)
+                                            if time.time() < state.get('ignore_center_until', 0):
+                                                log.debug(f"Ignoring VFO echo from SDRConnect (ignore window active): {int(float(val))/1e6:.4f} MHz")
+                                            else:
+                                                old_vfo = state.get('vfo_hz', 0)
+                                                state['vfo_hz'] = int(float(val))
+                                                if state['vfo_hz'] != old_vfo:
+                                                    log.info(f"VFO update from SDRConnect: {old_vfo/1e6:.4f} MHz → {state['vfo_hz']/1e6:.4f} MHz")
+                                                hits = sigint.lookup(state['vfo_hz'])
+                                                if hits:
+                                                    await broadcast_json({"type": "hint", "text": hits[0].get('name', hits[0].get('station', ''))})
+                                                # Debounce: only broadcast if 150ms since last freq update
+                                                now = time.perf_counter()
+                                                if (now - _last_freq_broadcast[0]) > 0.15:
+                                                    await broadcast_json({"type": "state", **state})
+                                                    _last_freq_broadcast[0] = now
+                                                else:
+                                                    _pending_freq_update[0] = True
+                                    elif prop in ('center_frequency','device_center_frequency','center_hz'):
+                                        # Ignore center_hz updates if in vfo_only ignore window or _vfo_only_mode flag
+                                        if val is not None and not state.get('_vfo_only_mode', False) and time.time() >= state.get('ignore_center_until', 0):
+                                            old_center = state.get('center_hz', 0)
+                                            state['center_hz'] = int(float(val))
+                                            if state['center_hz'] != old_center:
+                                                log.info(f"Center update from SDRConnect: {old_center/1e6:.4f} MHz → {state['center_hz']/1e6:.4f} MHz")
+                                            # Debounce: only broadcast if 150ms since last freq update
+                                            now = time.perf_counter()
+                                            if (now - _last_freq_broadcast[0]) > 0.15:
+                                                await broadcast_json({"type": "state", **state})
+                                                _last_freq_broadcast[0] = now
+                                                # Only re-query sample rate occasionally (not on every center change)
+                                                # This prevents cascading updates during band framing
+                                                if (now - _last_freq_broadcast[0]) > 2.0:
+                                                    await sdr_queue.put(json.dumps({
+                                                        "event_type": "get_property",
+                                                        "property":   "device_sample_rate",
+                                                        "value":      "",
+                                                        "device":     "primary",
+                                                    }))
+                                            else:
+                                                _pending_freq_update[0] = True
+                                        elif val is not None:
+                                            # Being ignored — log why
+                                            vfo_only_mode = state.get('_vfo_only_mode', False)
+                                            ignore_window_active = time.time() < state.get('ignore_center_until', 0)
+                                            if vfo_only_mode or ignore_window_active:
+                                                log.debug(f"Ignoring center_hz update (vfo_only_mode={vfo_only_mode}, ignore_window={ignore_window_active})")
+                                    elif prop in ('sample_rate','device_sample_rate','rate',
+                                                  'iq_sampling_rate','iq_rate','rf_rate',
+                                                  'hardware_sample_rate'):
+                                        if val is not None:
+                                            # Guard: ignore SDRConnect responses for 3 s after
+                                            # the user changed the rate to prevent snap-back
+                                            if time.time() - _sr_set_time > 3.0:
+                                                hw_sr = int(float(val))
+                                                # IQ Lite: device sends 192 kHz channel IQ
+                                                # regardless of hardware sample rate — report
+                                                # 192 kHz to the frontend so the freq axis,
+                                                # zoom labels, and tune line are all correct.
+                                                state['sample_rate'] = (
+                                                    192_000 if state.get('iq_lite_capable')
+                                                    else hw_sr
+                                                )
+                                                state['hw_sample_rate'] = hw_sr
+                                                await broadcast_json({"type": "state", **state})
+                                    elif prop in ('demodulator', 'device_demodulator', 'mode', 'demod'):
+                                        if val is not None:
+                                            state['mode'] = str(val).upper()
+                                            await broadcast_json({"type": "state", **state})
+                                    elif prop in ('filter_bandwidth', 'bandwidth', 'device_bandwidth', 'bw'):
+                                        if val is not None:
+                                            try:
+                                                state['bandwidth_hz'] = int(float(val))
+                                                await broadcast_json({"type": "state", **state})
+                                            except (ValueError, TypeError):
+                                                pass
+                                    elif prop in ('lna_state', 'lna', 'gain', 'device_lna_state'):
+                                        if val is not None:
+                                            try:
+                                                state['gain_lna'] = int(float(val))
+                                                await broadcast_json({"type": "state", **state})
+                                            except (ValueError, TypeError):
+                                                pass
+                                    elif prop in ('audio_volume_percent', 'audio_volume', 'volume'):
+                                        # Mirrors SDRConnect's real volume into state so a freshly-
+                                        # connected (or reconnecting) browser shows the actual value
+                                        # instead of NEXUS's hardcoded 80% UI default.
+                                        if val is not None:
+                                            try:
+                                                state['audio_volume_pct'] = max(0, min(100, int(float(val))))
+                                                await broadcast_json({"type": "state", **state})
+                                            except (ValueError, TypeError):
+                                                pass
+                                    elif prop in ('audio_mute', 'audio_muted', 'mute'):
+                                        if val is not None:
+                                            state['audio_muted'] = val in (True, 'true', '1', 1, 'True')
+                                            await broadcast_json({"type": "state", **state})
+                                    elif prop in ('iq_streaming', 'iq_stream', 'full_iq', 'streaming_mode'):
+                                        # SDRConnect reports True/False or "true"/"false"/"1"/"0"
+                                        streaming = val in (True, 'true', '1', 1, 'True', 'full', 'FullIQ')
+                                        state['iq_streaming'] = streaming
+                                        await broadcast_json({"type": "state", **state})
+                                    elif prop in ('active_device', 'device_name', 'device_display_name'):
+                                        if val is not None and str(val).lower() not in ('refreshing...', 'refreshing', ''):
+                                            state['active_device'] = str(val)
+                                            # nRSP-ST detection: solely by device name.
+                                            is_nrsp = 'nrsp' in str(val).lower()
+                                            globals()['_is_nrsp_st'] = is_nrsp
+                                            state['device_type'] = 'nRSP-ST' if is_nrsp else 'RSPdx'
+                                            if not is_nrsp:
+                                                # Non-nRSP device (e.g. directly USB-connected
+                                                # RSPdx): clear IQ Lite state so UI strips and
+                                                # stream mode buttons hide correctly (SDRConnect
+                                                # exposes no selectable mode variants for a direct
+                                                # USB device the way it does for nRSP-ST).
+                                                #
+                                                # w0.2.6 fix: 'Compact' here is only a PROVISIONAL
+                                                # placeholder label, not a true bandwidth/IQ
+                                                # indicator — direct-USB RSPdx actually streams
+                                                # real Full IQ (confirmed via the large ~2MB
+                                                # type-2 binary frames it sends; see max_size
+                                                # override + comments in sdr_bridge()). If real
+                                                # type-2 IQ frames have already been observed
+                                                # recently for this connection, report 'Full IQ'
+                                                # immediately instead of regressing back to
+                                                # 'Compact' on every device-name property update.
+                                                # This also fixes IQ-dependent decoders (AIS,
+                                                # POCSAG, ACARS, WEFAX, DAB) incorrectly refusing
+                                                # to start on direct-USB RSPdx because the
+                                                # frontend's decoderStart() gate trusted the
+                                                # (wrong) 'Compact' label.
+                                                state['iq_lite_capable'] = False
+                                                _recent_iq2 = (time.perf_counter() - _last_iq2_frame_time) < 3.0
+                                                state['stream_mode'] = 'Full IQ' if _recent_iq2 else 'Compact'
+                                            # Extract stream mode from device name suffix.
+                                            # SDRConnect reports e.g. 'nRSP-ST (240517b350) (IQ Lite)'
+                                            # This is authoritative — always parse it, don't rely on
+                                            # state['stream_mode'] which may be stale from previous mode.
+                                            val_lower = str(val).lower()
+                                            if '(iq lite)' in val_lower or 'iq lite' in val_lower:
+                                                detected_mode = 'IQ Lite'
+                                            elif '(full iq)' in val_lower or 'full iq' in val_lower:
+                                                detected_mode = 'Full IQ'
+                                            elif '(compact)' in val_lower or val_lower.endswith('compact'):
+                                                detected_mode = 'Compact'
+                                            elif is_nrsp and state.get('stream_mode') is None:
+                                                detected_mode = 'IQ Lite'   # default for nRSP-ST
+                                            else:
+                                                detected_mode = state.get('stream_mode')  # unchanged
+                                            if detected_mode:
+                                                state['stream_mode'] = detected_mode
+                                            cur_mode = state.get('stream_mode')
+                                            # w0.2.3: IQ Lite NEVER delivers type-2 IQ frames —
+                                            # confirmed via SDRplay's own RawIqWriter client,
+                                            # decoded packet capture, and direct SDRplay support
+                                            # confirmation (IQ Lite/Compact are decoder-rate
+                                            # demodulated-audio-only modes, not raw IQ). The old
+                                            # 192kHz IQ-Lite decode branch below is permanently
+                                            # unreachable now — left in place, harmless.
+                                            state['iq_lite_capable'] = False
+                                            # Update reported sample_rate immediately on mode change.
+                                            # Don't wait for device_sample_rate property to arrive.
+                                            if cur_mode == 'IQ Lite':
+                                                state['sample_rate'] = 192_000
+                                            elif state.get('hw_sample_rate'):
+                                                state['sample_rate'] = state['hw_sample_rate']
+                                            log.info(f"Device: {val!r} — type: {state['device_type']} "
+                                                     f"mode: {cur_mode!r} iq_lite: {state['iq_lite_capable']}")
+                                            await broadcast_json({
+                                                "type":        "device_caps",
+                                                "device_name": str(val),
+                                                "device_type": state['device_type'],
+                                                "iq_lite":     is_nrsp,
+                                                "stream_mode": cur_mode,
+                                            })
+                                            await broadcast_json({"type": "state", **state})
+                                            # Auto stream-mode DISABLED (w0.2.0 fix attempt #5):
+                                            # this used to fire selected_device_name automatically
+                                            # whenever the detected mode didn't match
+                                            # preferred_stream_mode — including while SDRConnect
+                                            # was already live-streaming. Per direct confirmation,
+                                            # SDRConnect cannot switch IQ Lite/Full IQ/Compact mode
+                                            # while running: it requires a manual stop → select →
+                                            # play cycle in SDRConnect's own UI. Sending
+                                            # selected_device_name to a running device is a no-op
+                                            # at best (same-mode resend) and destabilizing at worst
+                                            # (observed: triggered "fulliq stopped due to
+                                            # insufficient bandwidth" when it fired against a
+                                            # genuinely different live mode during testing).
+                                            # NEXUS now only observes whatever mode SDRConnect is
+                                            # already in; it never attempts to change it. Mode is
+                                            # managed entirely in SDRConnect's own UI.
+                                            if is_nrsp:
+                                                _cfg = _ssh_live_cfg or _ssh_load_config()
+                                                _pref = _cfg.get('preferred_stream_mode', 'Full IQ')
+                                                if _pref not in ('Compact', 'IQ Lite', 'Full IQ'):
+                                                    _pref = 'IQ Lite'
+                                                if cur_mode != _pref:
+                                                    log.info(f"nRSP-ST mode is {cur_mode!r}, "
+                                                             f"preferred is {_pref!r} — NOT "
+                                                             f"auto-switching (requires manual "
+                                                             f"stop/select/play in SDRConnect UI)")
+                                                    asyncio.create_task(broadcast_json({
+                                                        "type": "stream_mode_mismatch",
+                                                        "current_mode":   cur_mode,
+                                                        "preferred_mode": _pref,
+                                                        "msg": (f"SDRConnect is in {cur_mode} mode "
+                                                                f"(preferred: {_pref}). To switch, "
+                                                                f"stop SDRConnect, select the "
+                                                                f"{_pref} device variant, then "
+                                                                f"press Play."),
+                                                    }))
+                                            # Only request IQ stream for IQ-capable devices/modes.
+                                            # RSPdx Compact does NOT support IQ streaming.
+                                            #
+                                            # NOTE (w0.2.0 fix, corrected): per the official
+                                            # SDRconnect WebSocket API spec v1.0.3
+                                            # (sdrplay.com/docs/SDRconnect_WebSocket_API.pdf),
+                                            # iq_stream_enable IS a real, correctly-named event —
+                                            # our first two fix attempts (re-sending
+                                            # selected_device_name, then bouncing Compact→IQ Lite)
+                                            # were based on the wrong premise that it wasn't.
+                                            # selected_device_name only *selects* a device; it was
+                                            # never meant to start streaming.
+                                            # The actual missing piece: a separate event_type
+                                            # device_stream_enable ("Set streaming status of
+                                            # selected device") that NEXUS never sent at all. The
+                                            # spec distinguishes "is the device streaming" from "is
+                                            # IQ data routed to this WebSocket" — iq_stream_enable
+                                            # likely only controls the latter and is a no-op if the
+                                            # device itself was never told to start. Send both, and
+                                            # rely on the (also previously unused) read-only
+                                            # 'started' property as authoritative confirmation
+                                            # (queried separately below).
+                                            #
+                                            # FIX ATTEMPT #4: even with device_stream_enable +
+                                            # iq_stream_enable sent and 'started' confirmed True
+                                            # twice, t==2 frames still never arrived while t==3
+                                            # (spectrum) flowed unconditionally. The spec has one
+                                            # remaining event we'd never sent:
+                                            # set_primary_device_enable — "Filter events and
+                                            # binary data from Primary Device". This is the only
+                                            # documented lever that gates *binary data* (not just
+                                            # "streaming" status) per-client. If a fresh WS
+                                            # connection defaults to filtering primary-device
+                                            # binary data, that exactly explains spectrum (sent
+                                            # via the separate always-on spectrum_enable path)
+                                            # flowing while IQ (t==2) never does. Send it first,
+                                            # before device_stream_enable/iq_stream_enable.
+                                            # w0.2.6 fix (CW/RTTY/WEFAX/etc. silent-no-IQ bug):
+                                            # this enable handshake was previously gated to
+                                            # `is_nrsp` only, on the assumption that a directly
+                                            # USB-connected RSPdx streams real type-2 IQ frames
+                                            # unconditionally with no enable step needed. That
+                                            # assumption was wrong, or at least incomplete — users
+                                            # on direct-USB RSPdx saw `_check_iq_mode()`'s "no IQ
+                                            # data received in 3+ seconds" warning fire the moment
+                                            # any IQ-consuming decoder (CW, RTTY, ...) was started,
+                                            # even with the Full IQ badge showing — the device-name
+                                            # property handler's reactive 'Full IQ' relabel (see
+                                            # _last_iq2_frame_time, just above) requires a type-2
+                                            # frame to have ALREADY arrived once, but for a fresh
+                                            # connection none may ever arrive without this same
+                                            # set_primary_device_enable / device_stream_enable /
+                                            # iq_stream_enable sequence SDRConnect's WebSocket API
+                                            # spec documents as gating *binary data* per-client —
+                                            # nothing in the spec restricts it to networked
+                                            # nRSP-ST devices. Send it for ANY device once per
+                                            # connection; harmless no-op if the device was already
+                                            # streaming, but closes the gap for direct-USB RSPdx.
+                                            if cur_mode in ('IQ Lite', 'Full IQ', 'Compact') and not _iq_bounce_done[0]:
+                                                _iq_bounce_done[0] = True  # guard: only do this once
+                                                                           # per connection
+                                                _iq_mode = cur_mode  # capture for closure
+                                                async def _deferred_iq_enable(_mode=_iq_mode):
+                                                    # BUGFIX (w0.2.6, July 2026): was 2.0s. The full
+                                                    # enable sequence (set_primary_device_enable +
+                                                    # device_stream_enable + iq_stream_enable + sleeps)
+                                                    # takes ~1.1s to complete, so at 2.0s the first
+                                                    # type-2 IQ frame arrives at ~3.1-3.6s from
+                                                    # connection. _check_iq_mode()'s 3.0s threshold
+                                                    # fired just before IQ started — a false alarm.
+                                                    # Reduced to 1.0s so the sequence completes by
+                                                    # ~2.1s (well inside the 6.0s warning threshold).
+                                                    await asyncio.sleep(1.0)
+                                                    try:
+                                                        await ws.send(json.dumps({
+                                                            "event_type": "set_primary_device_enable",
+                                                            "property":   "",
+                                                            "value":      "true",
+                                                            "device":     "primary",
+                                                        }))
+                                                        log.info("set_primary_device_enable sent "
+                                                                 f"(nRSP-ST {_mode} confirmed active)")
+                                                        await asyncio.sleep(0.3)
+                                                        await ws.send(json.dumps({
+                                                            "event_type": "device_stream_enable",
+                                                            "property":   "",
+                                                            "value":      "true",
+                                                            "device":     "primary",
+                                                        }))
+                                                        log.info("device_stream_enable sent "
+                                                                 f"(nRSP-ST {_mode} confirmed active)")
+                                                        await asyncio.sleep(0.3)
+                                                        await ws.send(json.dumps({
+                                                            "event_type": "iq_stream_enable",
+                                                            "property":   "",
+                                                            "value":      "true",
+                                                            "device":     "primary",
+                                                        }))
+                                                        log.info("iq_stream_enable sent "
+                                                                 f"(nRSP-ST {_mode} confirmed active)")
+                                                        await asyncio.sleep(0.3)
+                                                        # w030 fix (July 2026, user-confirmed via a
+                                                        # standalone reference client that decodes FT8
+                                                        # fine on this exact nRSP-ST in Compact mode):
+                                                        # audio (type-1) frames are gated by a SEPARATE
+                                                        # event, audio_stream_enable — completely
+                                                        # independent of iq_stream_enable above. Without
+                                                        # it, SDRConnect sends spectrum only, forever,
+                                                        # regardless of device mode (Compact/IQ Lite/
+                                                        # Full IQ) — this had nothing to do with Full IQ
+                                                        # being required, despite what the type-2 IQ
+                                                        # warning nearby seemed to imply. Confirmed live:
+                                                        # user's reference tool sent this + audio_mute=
+                                                        # false and got real audio, a real waterfall, and
+                                                        # 41 real FT8 decodes on Compact mode; NEXUS
+                                                        # (missing this call) got zero audio frames ever,
+                                                        # 9000+ consecutive spectrum-only frames logged.
+                                                        await ws.send(json.dumps({
+                                                            "event_type": "audio_stream_enable",
+                                                            "property":   "",
+                                                            "value":      "true",
+                                                            "device":     "primary",
+                                                        }))
+                                                        log.info("audio_stream_enable sent "
+                                                                 f"(nRSP-ST {_mode} confirmed active)")
+                                                        await asyncio.sleep(0.2)
+                                                        await ws.send(json.dumps({
+                                                            "event_type": "set_property",
+                                                            "property":   "audio_mute",
+                                                            "value":      "false",
+                                                            "device":     "primary",
+                                                        }))
+                                                        await asyncio.sleep(0.2)
+                                                        # w030 fix (July 2026): audio_mute=false alone
+                                                        # wasn't enough — live-tested end to end (real
+                                                        # audio frames, correct 720000-sample/15s windows,
+                                                        # zero decode errors) and still got 0 FT8 decodes
+                                                        # for 8 straight cycles despite the reference tool
+                                                        # getting 41 decodes minutes earlier on the same
+                                                        # band. Measured the actual streamed samples:
+                                                        # real signal, not silence (RMS ~0.033, no
+                                                        # clipping) — but SDRConnect's audio_volume_percent
+                                                        # has a strongly non-linear response below ~42%
+                                                        # (the reference tool carries its own correction
+                                                        # formula for exactly this:
+                                                        # `0.8070 / (0.0301 * 10**(0.034*pct))`, which
+                                                        # only equals 1.0 — i.e. no correction needed —
+                                                        # once pct > 42). NEXUS never sets this property at
+                                                        # all, so it inherits whatever SDRConnect's
+                                                        # last-remembered/default volume is, which can sit
+                                                        # well inside that attenuated low-volume range and
+                                                        # quietly scale down the actual streamed PCM bytes
+                                                        # (not just local playback level) enough to break
+                                                        # FT8 sync while still "looking like" real audio.
+                                                        # Set it explicitly, safely above the non-linear
+                                                        # zone, instead of reimplementing the correction
+                                                        # curve client-side. NOTE: tried 75 first, live —
+                                                        # that clipped hard (samples pinned at +/-0.9999,
+                                                        # confirmed via a live audio_volume_percent probe
+                                                        # sent from the browser while a NEXUS instance was
+                                                        # already running, no restart needed for that
+                                                        # test). 45 measured clean at the time: 0% samples
+                                                        # above 0.95, RMS ~0.166.
+                                                        #
+                                                        # w030 fix (2026-07-12, user-reported "if its too
+                                                        # high in nexus i hear distortion"): 45 turned out
+                                                        # to still be too close to the edge in practice —
+                                                        # a strong station can clip even when the *average*
+                                                        # RMS looks clean, since RMS is a session average
+                                                        # and doesn't catch brief peaks. Also found the
+                                                        # frontend's main toolbar VOL control
+                                                        # (adjustVolume(), independent of this connect-time
+                                                        # value) defaults to 80% and can override this at
+                                                        # any time with zero clip protection of its own —
+                                                        # so this value only ever holds until the user (or
+                                                        # a stale UI default) touches VOL. Dropped to 25,
+                                                        # matching the reference tool's (WebsocketFT48_v1)
+                                                        # own proven-safe default. Real protection against
+                                                        # clipping from either path now lives client-side:
+                                                        # ft8HandleAudioFrame() in the HTML scans every
+                                                        # audio packet's raw samples and auto-reduces this
+                                                        # same property in real time the instant it sees a
+                                                        # clipped sample — see its comment for the full
+                                                        # design (ported from the reference tool's own
+                                                        # auto-reduce-on-clip + gain-compensation logic).
+                                                        await ws.send(json.dumps({
+                                                            "event_type": "set_property",
+                                                            "property":   "audio_volume_percent",
+                                                            "value":      "25",
+                                                            "device":     "primary",
+                                                        }))
+                                                        log.info("audio_volume_percent=25 sent "
+                                                                 f"(nRSP-ST {_mode} confirmed active)")
+                                                        await asyncio.sleep(0.5)
+                                                        await ws.send(json.dumps({
+                                                            "event_type": "get_property",
+                                                            "property":   "started",
+                                                            "value":      "",
+                                                            "device":     "primary",
+                                                        }))
+                                                    except Exception as _iq_err:
+                                                        log.debug(f"IQ stream enable deferred send error: {_iq_err}")
+                                                asyncio.create_task(_deferred_iq_enable())
+                                            elif cur_mode in ('IQ Lite', 'Full IQ', 'Compact'):
+                                                log.debug("IQ stream enable already sent this "
+                                                           "connection — skipping re-trigger from "
+                                                           "active_device echo")
+                                            else:
+                                                log.info(f"IQ stream force-start skipped — "
+                                                         f"device {val!r} mode {cur_mode!r} "
+                                                         f"does not support IQ streaming")
+                                    elif prop in ('can_control',):
+                                        granted = val in (True, 'true', '1', 1, 'True')
+                                        state['can_control'] = granted
+                                        log.info(f"can_control property: {granted}")
+                                        await broadcast_json({"type": "control_status",
+                                                              "can_control": granted,
+                                                              "nrsp_st": _is_nrsp_st})
+                                    elif prop in ('valid_devices',):
+                                        if val is not None:
+                                            state['valid_devices'] = str(val)
+                                            log.info(f"SDRConnect available devices: {val!r}")
+                                    elif prop in ('valid_antennas',):
+                                        if val is not None:
+                                            state['valid_antennas'] = str(val)
+                                            log.info(f"SDRConnect available antennas: {val!r}")
+                                            await broadcast_json({"type": "state", **state})
+                                    elif prop in ('active_antenna',):
+                                        if val is not None:
+                                            state['active_antenna'] = str(val)
+                                            log.info(f"SDRConnect active antenna: {val!r}")
+                                            await broadcast_json({"type": "state", **state})
+                                    elif prop in ('started',):
+                                        # Read-only "Device streaming status" per official
+                                        # WebSocket API spec — authoritative confirmation of
+                                        # whether SDRConnect's device is actually streaming,
+                                        # independent of frame-type observation.
+                                        is_started = val in (True, 'true', '1', 1, 'True')
+                                        log.info(f"SDRConnect 'started' property: {is_started} "
+                                                 f"(raw={val!r})")
+                                    # ── RDS properties (SDRConnect WFM decoder) ──────────
+                                    elif prop in ('rds_ps', 'rds_programme_service', 'programme_service'):
+                                        state['rds_ps'] = str(val or '').strip()
+                                        await broadcast_json({"type": "state", **state})
+                                    elif prop in ('rds_rt', 'rds_radiotext', 'radio_text', 'radiotext'):
+                                        state['rds_radiotext'] = str(val or '').strip()
+                                        await broadcast_json({"type": "state", **state})
+                                    elif prop in ('rds_pi', 'pi_code', 'rds_pi_code'):
+                                        state['rds_pi'] = str(val or '').strip()
+                                    elif prop in ('rds_pty', 'pty', 'programme_type'):
+                                        state['rds_pty'] = str(val or '').strip()
+                                    # ── Catch-all: log unknown properties so we can discover the API ──
+                                    elif prop and val is not None and prop not in ('error','status','connected'):
+                                        # PY-23: debug only — f-string not built at INFO level.
+                                        log.debug(f"SDRConnect property: {prop!r} = {str(val)[:80]!r}")
+                            # ── Log completely unknown event_types (helps discover control flow) ──
+                            elif event_type and event_type not in (
+                                    'signal_power', 'signal_snr', 'property_changed',
+                                    'get_property_response', 'set_property', 'spectrum_data'):
+                                # PY-23: debug only — f-string not built at INFO level.
+                                log.debug(f"SDRConnect unknown event: {event_type!r} prop={prop!r} val={str(val)[:60]!r}")
+                        
+                        # Flush pending frequency update if debounce window has passed
+                        if _pending_freq_update[0]:
+                            now = time.perf_counter()
+                            if (now - _last_freq_broadcast[0]) > 0.15:
+                                await broadcast_json({"type": "state", **state})
+                                _last_freq_broadcast[0] = now
+                                _pending_freq_update[0] = False
+
+                async def tx():
+                    while True:
+                        cmd = await sdr_queue.get()
+                        await ws.send(cmd)
+
+                await asyncio.gather(rx(), tx())
+        except Exception as e:
+            log.warning(f"SDRConnect bridge error: {e} — retrying in 5s")
+            log.warning("Full traceback (w0.2.3 diagnostic):\n" + traceback.format_exc())
+            await asyncio.sleep(5)
+
+
+# ── BROWSER COMMAND HANDLER ───────────────────────────────────────────
+async def rtl_bridge():
+    """
+    RTL-SDR bridge via rtl_tcp protocol.
+
+    rtl_tcp streams raw 8-bit unsigned interleaved IQ over TCP.
+    Protocol:
+      - Server sends 12-byte header: magic "RTL0" (4) + tuner_type (4) + gain_count (4)
+      - Client sends 5-byte commands: cmd_id (1) + value (4, big-endian)
+      - Server then streams continuous IQ: uint8 pairs [I, Q, I, Q, ...]
+      - Convert: float = (uint8 - 127.5) / 127.5  → range -1..+1
+
+    Command IDs:
+      0x01 = set centre frequency (Hz)
+      0x02 = set sample rate (Hz)
+      0x03 = set gain mode (0=auto, 1=manual)
+      0x04 = set tuner gain (tenths of dB)
+      0x05 = set freq correction (ppm)
+      0x08 = set AGC mode
+
+    Default rtl_tcp: 127.0.0.1:1234
+    Start with: rtl_tcp -a 127.0.0.1 -p 1234
+    """
+    global last_ui_update, _rtl_writer, _rtl_streaming, _rtl_write_lock, _rtl_sock
+    AUDIO_SR   = 48_000      # Target audio rate for decoders
+
+    while True:
+        if state.get('engine', 'SDRCONNECT') != 'RTLSDR':
+            await asyncio.sleep(1)
+            continue
+        if _rtl_streaming:
+            # Another instance of rtl_bridge is already connected — wait
+            await asyncio.sleep(1)
+            continue
+        try:
+            import subprocess
+
+            # ── Auto-launch rtl_tcp if not already running ───────────
+            # Only attempt on localhost — never try to launch on remote hosts
+            _rtl_proc = None
+            if RTL_TCP_HOST in ('127.0.0.1', 'localhost', '::1'):
+                # Check if rtl_tcp is already running AND listening on our port.
+                # Process list alone is not enough — a zombie/stale process can appear
+                # in tasklist without actually holding the port open.
+                # Check if rtl_tcp is running WITHOUT connecting to it.
+                # Any TCP connect causes rtl_tcp to drop its current client (single-client).
+                # Use netstat on Windows / ss on Linux to inspect listening ports.
+                _already_up = False
+                try:
+                    if sys.platform == 'win32':
+                        _ns = subprocess.check_output(
+                            ['netstat', '-ano', '-p', 'TCP'],
+                            text=True, stderr=subprocess.DEVNULL, timeout=3)
+                        # Look for LISTENING on our port
+                        _already_up = f':{RTL_TCP_PORT} ' in _ns and 'LISTENING' in _ns
+                    else:
+                        _ns = subprocess.check_output(
+                            ['ss', '-tln'],
+                            text=True, stderr=subprocess.DEVNULL, timeout=3)
+                        _already_up = f':{RTL_TCP_PORT}' in _ns
+                except Exception:
+                    _already_up = False
+                if _already_up:
+                    log.info(f"RTL-TCP: port {RTL_TCP_PORT} is listening, skipping auto-launch")
+
+                if not _already_up:
+                    # Try to launch rtl_tcp — check hardcoded common locations first,
+                    # then fall back to PATH. Hardcoded paths work even when Thonny/IDE
+                    # doesn't inherit the updated Windows environment PATH.
+                    _rtl_exe = None
+                    _rtl_candidates = [
+                        r'C:\rtl-sdr\rtl_tcp.exe',                         # common Windows extract location
+                        r'C:\rtl-sdr-64bit\rtl_tcp.exe',
+                        r'C:\Program Files\rtl-sdr\rtl_tcp.exe',
+                        r'C:\Program Files (x86)\rtl-sdr\rtl_tcp.exe',
+                        str(Path.home() / 'rtl-sdr' / 'rtl_tcp.exe'),
+                        '/opt/homebrew/bin/rtl_tcp',                        # macOS Apple Silicon
+                        '/usr/local/bin/rtl_tcp',                           # macOS Intel / Linux
+                        '/usr/bin/rtl_tcp',                                 # Linux
+                        'rtl_tcp', 'rtl_tcp.exe',                          # PATH fallback
+                    ]
+                    log.info("RTL-TCP: searching for rtl_tcp executable...")
+                    for _candidate in _rtl_candidates:
+                        try:
+                            if Path(_candidate).is_file():
+                                _rtl_exe = _candidate
+                                log.info(f"RTL-TCP: found rtl_tcp at {_candidate}")
+                                break
+                        except Exception:
+                            pass
+                        # Also try running it (covers bare PATH names like 'rtl_tcp')
+                        if not Path(_candidate).is_absolute():
+                            try:
+                                subprocess.run([_candidate, '--help'],
+                                               capture_output=True, timeout=2)
+                                _rtl_exe = _candidate
+                                log.info(f"RTL-TCP: found rtl_tcp on PATH as '{_candidate}'")
+                                break
+                            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                                pass
+                    if not _rtl_exe:
+                        log.warning(f"RTL-TCP: rtl_tcp not found in any of: "
+                                    f"{[c for c in _rtl_candidates if Path(c).is_absolute()]}")
+
+                    if _rtl_exe:
+                        _rtl_proc = subprocess.Popen(
+                            [_rtl_exe, '-a', RTL_TCP_HOST, '-p', str(RTL_TCP_PORT),
+                             '-s', str(state.get('rtl_sr', 1_024_000)), '-n', '50'],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                        log.info(f"RTL-TCP: launched rtl_tcp (pid={_rtl_proc.pid}), "
+                                 f"waiting for it to start...")
+                        await asyncio.sleep(3.0)   # give it time to open the device (Windows needs more than 1.5s)
+                    else:
+                        log.warning("RTL-TCP: rtl_tcp not found in common locations or PATH — "
+                                    "install rtl-sdr tools and ensure rtl_tcp is in PATH")
+                        await broadcast_json({
+                            "type": "rtl_status", "connected": False,
+                            "msg": ("rtl_tcp not found. Install rtl-sdr tools: "
+                                    "macOS: brew install librtlsdr  "
+                                    "Linux: apt install rtl-sdr  "
+                                    "Windows: download from osmocom.org/rtl-sdr")
+                        })
+                        await asyncio.sleep(10)
+                        continue
+
+            log.info(f"RTL-TCP: connecting to {RTL_TCP_HOST}:{RTL_TCP_PORT}")
+            # Use a raw blocking socket in a thread — asyncio's ProactorEventLoop on
+            # Windows adds enough overhead to high-throughput TCP reads that rtl_tcp's
+            # send buffer fills and it RSTs the connection. Raw socket + thread avoids this.
+            import socket as _socket
+            try:
+                _sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+                _sock.settimeout(5.0)
+                _sock.connect((RTL_TCP_HOST, RTL_TCP_PORT))
+                # Maximise OS receive buffer so we never stall rtl_tcp
+                _sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_RCVBUF, 1024 * 1024)
+                _sock.settimeout(None)  # blocking mode after connect
+            except Exception as _ce:
+                log.warning(f"RTL-TCP: connection failed: {_ce}")
+                await asyncio.sleep(3)
+                continue
+
+            # Read 12-byte RTL0 header (blocking, in thread)
+            try:
+                hdr = await asyncio.get_running_loop().run_in_executor(
+                    None, lambda: _sock.recv(12))
+            except Exception as _he:
+                log.warning(f"RTL-TCP: header read failed: {_he}")
+                _sock.close()
+                await asyncio.sleep(3)
+                continue
+            if len(hdr) < 12 or hdr[:4] != b'RTL0':
+                log.warning(f"RTL-TCP: bad magic {hdr[:4]!r}")
+                _sock.close()
+                await asyncio.sleep(3)
+                continue
+            tuner = int.from_bytes(hdr[4:8], 'big')
+            log.info(f"RTL-TCP: connected, tuner type={tuner}")
+
+            # Send initial commands
+            def rtl_cmd(cmd_id: int, value: int) -> bytes:
+                return bytes([cmd_id]) + value.to_bytes(4, 'big')
+
+            freq_hz = state.get('vfo_hz', 100_000_000)
+
+            # Use rate from state if already set (user changed it), else default 2.048 MSPS
+            # 2.048 MSPS is the most stable rate for R820T-based dongles
+            RTL_SR   = state.get('rtl_sr', 250_000)   # 250kHz — largest audio batches, least GIL pressure
+            FFT_SIZE = 1024
+
+            # Pre-allocate hanning window once - reused every FFT call (saves ~0.5ms/call)
+            _win = np.hanning(FFT_SIZE).astype(np.float32)
+
+            # Direct sampling mode: 0=off (normal IQ), 1=I-branch, 2=Q-branch
+            # Required for HF (<~28 MHz); normal quadrature for VHF/UHF
+            ds_mode = 2 if freq_hz < 28_000_000 else 0
+            state['rtl_direct_sampling'] = ds_mode
+
+            # Send initial setup commands via raw socket (thread-safe, no asyncio overhead)
+            _rtl_write_lock = asyncio.Lock()
+            _rtl_sock       = _sock                        # expose as global for gain handler
+            _rtl_streaming  = True
+
+            def _rtl_send(*cmds):
+                """Send one or more 5-byte rtl_tcp commands atomically."""
+                _sock.sendall(b''.join(cmds))
+
+            # R820T discrete gain table (29 values, tenths of dB)
+            RTL_GAINS = [0,9,14,27,37,77,87,125,144,157,166,197,207,229,
+                         254,280,297,328,338,364,372,386,402,421,434,439,445,480,496]
+            state['rtl_gains'] = RTL_GAINS
+
+            # Initial gain: index 20 = 37.2 dB — good for FM broadcast on VHF
+            # Use gainByIndex (cmd 0x0D) — most reliable method for R820T
+            _INIT_IDX = 20
+            # Minimal command set — avoid USB contention that causes worker cond timeout.
+            # Only send what's essential: sample rate, direct sampling, frequency.
+            # Leave gain in AGC mode (rtl_tcp default) — user can adjust via slider.
+            _rtl_send(
+                rtl_cmd(0x02, RTL_SR),    # sample rate
+                rtl_cmd(0x09, ds_mode),   # direct sampling
+                rtl_cmd(0x01, freq_hz),   # centre frequency
+            )
+            state['gain_lna']  = _INIT_IDX     # UI uses index directly now
+            state['rtl_gain_idx'] = _INIT_IDX
+            log.info(f"RTL-TCP: gain index {_INIT_IDX} = {RTL_GAINS[_INIT_IDX]/10:.1f} dB, AGC off")
+            await broadcast_json({"type": "rtl_gain_info",
+                                  "gains": RTL_GAINS,
+                                  "idx": _INIT_IDX,
+                                  "db": RTL_GAINS[_INIT_IDX] / 10.0})
+
+            # Expose a writer-compatible object for the VFO/gain handlers
+            # We wrap _rtl_send so existing code calling _rtl_writer.write() + drain() works
+            class _RtlWriter:
+                def is_closing(self): return _rtl_sock is None or _rtl_sock.fileno() == -1
+                def write(self, data): self._buf = getattr(self, '_buf', b'') + data
+                async def drain(self):
+                    if hasattr(self, '_buf') and self._buf:
+                        try: _rtl_sock.sendall(self._buf)
+                        except Exception: pass
+                        self._buf = b''
+                def close(self):
+                    try: _rtl_sock.shutdown(_socket.SHUT_RDWR)
+                    except Exception: pass
+                    try: _rtl_sock.close()
+                    except Exception: pass
+
+            _rtl_writer = _RtlWriter()
+
+            state['sample_rate']  = RTL_SR
+            state['rtl_sr']       = RTL_SR
+            state['bandwidth_hz'] = RTL_SR       # BW display = sample rate span
+            state['iq_streaming'] = True
+            await broadcast_json({"type": "state", **state,
+                                  "rtl_connected": True, "rtl_sr": RTL_SR,
+                                  "rtl_direct_sampling": ds_mode,
+                                  "bandwidth_hz": RTL_SR})
+            log.info(f"RTL-TCP: streaming at {RTL_SR/1e6:.3f} MSPS, "
+                     f"direct_sampling={'Q-branch' if ds_mode==2 else 'I-branch' if ds_mode==1 else 'off'}")
+
+            # Streaming: dedicated OS thread reads raw socket as fast as possible.
+            # Processing runs in the asyncio event loop but only when data is ready.
+            # This matches SDR#'s architecture: blocking recv() in a thread, signal
+            # the event loop when a batch is ready. Avoids all asyncio TCP overhead.
+            TCP_READ  = 65536   # 64k reads drain OS buffer quickly at 4MB/s
+            NEED      = FFT_SIZE * 8 * 2
+
+            import threading, collections
+            _ring      = collections.deque()
+            _audio_ring = collections.deque()  # separate copy for audio demod
+            _ring_lock = threading.Lock()
+            _ring_event = asyncio.Event()
+            _stop_reader = threading.Event()
+            logged   = False
+
+            def _blocking_reader():
+                """OS thread: recv IQ → FFT ring only. Audio handled by worker process."""
+                accumulated = 0
+                while not _stop_reader.is_set():
+                    try:
+                        data = _rtl_sock.recv(TCP_READ)
+                    except Exception as _re:
+                        log.warning(f"RTL-TCP: read exception: {_re}")
+                        break
+                    if not data:
+                        log.warning("RTL-TCP: connection closed by rtl_tcp")
+                        break
+                    with _ring_lock:
+                        _ring.append(data)
+                        _audio_ring.append(data)
+                        accumulated += len(data)
+                    if accumulated >= NEED:
+                        accumulated = 0
+                        _loop.call_soon_threadsafe(_ring_event.set)
+                _stop_reader.set()
+                _loop.call_soon_threadsafe(_ring_event.set)
+
+
+            _audio_queue = collections.deque(maxlen=8)  # created before thread starts
+            import queue as _queue_mod
+
+            # sounddevice: dedicated demod+audio thread connects directly to rtl_tcp
+            # This thread does all numpy/scipy work — GIL released during C extension calls
+            _sd_stream = None
+            _sd_queue  = None
+            if _HAVE_SOUNDDEVICE:
+                try:
+                    _sd_stream = _sounddevice.RawOutputStream(
+                        samplerate=48_000, channels=1, dtype='float32',
+                        blocksize=0, latency='high')
+                    _sd_stream.start()
+                    _iq_raw_queue = _queue_mod.Queue(maxsize=512)
+                    _sd_queue = _iq_raw_queue  # non-None = sounddevice active
+
+                    def _demod_audio_thread():
+                        """Read from _audio_ring, demodulate, write to sounddevice."""
+                        try:
+                            from scipy import signal as ss
+                            dec_r = max(1, RTL_SR // 48_000)
+                            # OPT-1: SOS form + persistent zi across batches
+                            sos_wfm_t = ss.butter(5, 15e3/(RTL_SR/2), btype='low', output='sos')
+                            alpha     = 0.7578
+                            sos_de_t  = ss.butter(1, (1 - alpha) / 2, btype='high', output='sos')
+                            zi_wfm_t  = ss.sosfilt_zi(sos_wfm_t) * 0.0
+                            zi_de_t   = ss.sosfilt_zi(sos_de_t)  * 0.0
+                            have_sc = True
+                        except ImportError:
+                            have_sc = False
+                            dec_r = max(1, RTL_SR // 48_000)
+
+                        NEED_D = 16384
+                        raw_buf = bytearray()
+                        acc = []; acc_len = 0
+                        PREFILL = 48_000
+                        WRITE_SZ = 48_000
+                        prefilled = False
+                        _t0 = time.perf_counter()
+                        log.info("RTL-TCP: demod thread started, buffering audio...")
+
+                        cur_sr_cached = RTL_SR  # track SR changes
+                        while not _stop_reader.is_set():
+                            with _ring_lock:
+                                while _audio_ring:
+                                    raw_buf.extend(_audio_ring.popleft())
+                            if len(raw_buf) < NEED_D:
+                                time.sleep(0.004)
+                                continue
+                            raw = bytes(raw_buf[:NEED_D])
+                            del raw_buf[:NEED_D]
+                            # Recompute filter on SR change, reset states
+                            cur_sr_now = state.get('rtl_sr', RTL_SR)
+                            if cur_sr_now != cur_sr_cached:
+                                cur_sr_cached = cur_sr_now
+                                dec_r = max(1, cur_sr_now // 48_000)
+                                if have_sc:
+                                    sos_wfm_t = ss.butter(5, 15e3/(cur_sr_now/2), btype='low', output='sos')
+                                    zi_wfm_t  = ss.sosfilt_zi(sos_wfm_t) * 0.0
+                                    zi_de_t   = ss.sosfilt_zi(sos_de_t)  * 0.0
+                            iq_u8 = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
+                            iq_f  = (iq_u8 - 127.5) / 127.5
+                            iq_c  = (iq_f[0::2] + 1j*iq_f[1::2]).astype(np.complex64)
+                            prod  = iq_c[1:] * np.conj(iq_c[:-1])
+                            disc  = (0.5 * np.angle(prod)).astype(np.float32)
+                            if have_sc:
+                                filt, zi_wfm_t = ss.sosfilt(sos_wfm_t, disc, zi=zi_wfm_t)
+                                audio = filt[::dec_r].astype(np.float32)
+                                out64, zi_de_t = ss.sosfilt(sos_de_t, audio.astype(np.float64), zi=zi_de_t)
+                                pcm   = np.clip(out64.astype(np.float32) * 1.0, -1.0, 1.0)
+                            else:
+                                pcm = np.clip(disc[::dec_r] * 1.0, -1.0, 1.0)
+                            acc.append(pcm)
+                            acc_len += len(pcm)
+                            if not prefilled and acc_len >= PREFILL:
+                                _el = time.perf_counter() - _t0
+                                _rt = (acc_len / 48000) / _el if _el > 0 else 0
+                                log.info(f"RTL-TCP: audio ready ({acc_len} smp in {_el:.1f}s = {_rt:.2f}x realtime)")
+                                prefilled = True
+                            if prefilled and acc_len >= WRITE_SZ:
+                                out2 = np.concatenate(acc)
+                                _sd_stream.write(out2[:WRITE_SZ].tobytes())
+                                rem = out2[WRITE_SZ:]
+                                acc = [rem] if len(rem) > 0 else []
+                                acc_len = len(rem)
+
+
+
+
+
+                    _audio_thread = threading.Thread(target=_demod_audio_thread, daemon=True)
+                    _audio_thread.start()
+                    log.info("RTL-TCP: sounddevice audio output started (direct to speakers)")
+                except Exception as _sde:
+                    log.warning(f"RTL-TCP: sounddevice failed: {_sde}")
+                    _sd_stream = None
+                    _sd_queue  = None
+
+            _loop   = asyncio.get_running_loop()
+            _thread = threading.Thread(target=_blocking_reader, daemon=True)
+            _thread.start()
+
+            fft_acc        = np.zeros(FFT_SIZE, dtype=np.float32)
+            _fft_avg       = np.zeros(FFT_SIZE, dtype=np.float32)  # PY-04: reuse buffer
+            _frame_buf     = bytearray(1 + FFT_SIZE)               # PY-02: pre-alloc frame
+            _frame_buf[0]  = 0x01
+            fft_n          = 0
+            last_audio_send = 0.0
+            # OPT-4: decimation filter cache — populated on first use
+            _dec_sos_cached = None
+            _dec_zi_cached  = None
+            _dec_r_cached   = None
+            proc_buf       = bytearray()
+            _active_fft    = FFT_SIZE   # track what size is currently allocated
+
+            # Time-driven processor: poll ring every 8ms regardless of reader signals.
+            # This gives steady ~125 checks/sec, decoupled from TCP read cadence.
+            # Waterfall frames sent at MAX_UI_FPS (30fps) by time gate inside loop.
+            POLL_INTERVAL = 0.016   # 16ms poll — matches Windows timer resolution, ~60fps ceiling
+
+            while state.get('engine') == 'RTLSDR' and not _stop_reader.is_set():
+                await asyncio.sleep(POLL_INTERVAL)
+
+                # ── Dynamic FFT size (scales with browser vizZoom) ──────────
+                # Browser sends set_fft_size when zoom changes; we reallocate
+                # the window and accumulator so resolution improves at zoom-in.
+                desired_fft = state.get('rtl_fft_size', 1024)
+                if desired_fft != _active_fft:
+                    FFT_SIZE    = desired_fft
+                    _win        = np.hanning(FFT_SIZE).astype(np.float32)
+                    fft_acc     = np.zeros(FFT_SIZE, dtype=np.float32)
+                    _fft_avg    = np.zeros(FFT_SIZE, dtype=np.float32)  # PY-04
+                    _frame_buf  = bytearray(1 + FFT_SIZE)               # PY-02
+                    _frame_buf[0] = 0x01
+                    fft_n       = 0
+                    NEED        = FFT_SIZE * 8 * 2   # keep trigger proportional
+                    proc_buf.clear()                  # discard data sized for old FFT
+                    _active_fft = FFT_SIZE
+                    logged      = False               # re-log the new size
+                    log.info(f"RTL-TCP: FFT resized → {FFT_SIZE} bins "
+                             f"({RTL_SR/FFT_SIZE:.1f} Hz/bin)")
+
+                # Send any audio chunks queued by the demod thread
+                while _audio_queue:
+                    audio_frame = _audio_queue.popleft()
+                    asyncio.create_task(broadcast_binary(audio_frame))
+
+                # Drain ring into proc_buf (FFT only — audio handled in reader thread)
+                with _ring_lock:
+                    while _ring:
+                        proc_buf.extend(_ring.popleft())
+
+                if len(proc_buf) < NEED:
+                    continue
+
+                raw = bytes(proc_buf[:NEED])
+                del proc_buf[:NEED]
+
+                # Convert IQ — PY-07: single multiply avoids two intermediate arrays.
+                iq_u8 = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
+                np.subtract(iq_u8, 127.5, out=iq_u8)
+                np.multiply(iq_u8, 1.0 / 127.5, out=iq_u8)  # iq_f in-place
+                iq_c  = (iq_u8[0::2] + 1j * iq_u8[1::2]).astype(np.complex64)
+
+                # FFT accumulate
+                idx = 0; n = len(iq_c)
+                while idx + FFT_SIZE <= n:
+                    # PY-05: fftshift moved to display path — called once per frame
+                    # not once per FFT chunk. np.abs of complex is the hot inner op.
+                    fft_acc += np.abs(np.fft.fft(iq_c[idx:idx+FFT_SIZE] * _win))
+                    fft_n += 1; idx += FFT_SIZE
+
+                # Send spectrum frame at fixed display rate — fire-and-forget
+                now = time.perf_counter()
+                if fft_n > 0 and (now - last_ui_update) > _UI_FRAME_DT:
+                    # PY-04+PY-05+PY-06: divide into buffer, shift once, log1p in-place.
+                    np.divide(fft_acc, fft_n, out=_fft_avg)       # PY-04: no temp array
+                    avg = np.fft.fftshift(_fft_avg)                # PY-05: shift once per frame
+                    np.log1p(avg, out=avg)                         # in-place log1p
+                    mx = avg.max()
+                    if mx > 0:
+                        np.multiply(avg, 255.0 / mx, out=avg)
+                        bins_u8 = avg.astype(np.uint8)
+                    else:
+                        bins_u8 = np.zeros(FFT_SIZE, dtype=np.uint8)
+                    # PY-02: write into pre-allocated bytearray — no extra byte objects.
+                    # w0.2.3: .tobytes() required — see Full IQ path fix, same numpy
+                    # 2.x direct-array-to-bytearray-slice incompatibility applies here.
+                    _frame_buf[1:] = bins_u8.tobytes()
+                    asyncio.create_task(broadcast_binary(bytes(_frame_buf)))
+                    if not logged:
+                        log.info(f"RTL-TCP: broadcasting spectrum "
+                                 f"({FFT_SIZE} bins @ {RTL_SR/1e6:.3f} MSPS)")
+                        logged = True
+                    last_ui_update = now
+                    fft_acc[:] = 0; fft_n = 0
+
+                # Audio is now produced in _blocking_reader thread at constant rate.
+                # Decoder feed uses decimated IQ from FFT batch.
+                cur_sr = state.get('rtl_sr', RTL_SR)
+                dec_r = max(1, cur_sr // 48_000)
+                if dec_r > 1 and _HAVE_SCIPY:
+                    # OPT-4: cache SOS decimation filter — recompute only on dec_r change
+                    if dec_r != _dec_r_cached:
+                        nyq = 0.5 / dec_r
+                        _dec_sos_cached = _scipy_signal.butter(5, nyq * 0.8, output='sos')
+                        _dec_zi_cached  = _scipy_signal.sosfilt_zi(_dec_sos_cached).astype(np.complex64)
+                        _dec_r_cached   = dec_r
+                    dec_filt, _dec_zi_cached = _scipy_signal.sosfilt(
+                        _dec_sos_cached, iq_c, zi=_dec_zi_cached)
+                    dec = dec_filt[::dec_r]
+                else:
+                    dec = iq_c[::dec_r]
+                # OPT-6: pass complex64 directly — eliminates float32→int16→bytes→float32 round-trip
+                dec_c = dec.astype(np.complex64)
+                # BUGFIX (June 2026): dec_r = cur_sr // 48_000 is an integer
+                # floor division, so the actual post-decimation rate
+                # (cur_sr / dec_r) is only exactly 48000 when cur_sr happens
+                # to be a multiple of 48000 (true for the 250kHz default,
+                # NOT true in general — e.g. 2.048 MSPS / 42 ≈ 48762 Hz).
+                # cw_dec.process_iq()/rtty_dec.process_iq() both defaulted
+                # to sr=48000 here with no sr= passed, so any cur_sr that
+                # doesn't divide evenly fed wrong-frequency Goertzel bins
+                # and wrong bit timing to RTTY (and CW's tone detector) —
+                # a real source of garbled decode on this path. Compute and
+                # pass the true rate explicitly, same convention as the
+                # SDRConnect Full-IQ/IQ-Lite call sites already use.
+                _rtl_dec_sr = cur_sr / dec_r
+                auto_cw_detector.process_iq(dec_c)
+                vfo_mhz = state.get('vfo_hz', 100_000_000) / 1e6
+                # BUGFIX (June 2026): this call was missing sr=_rtl_dec_sr,
+                # silently falling back to process_iq()'s sr=48000 default
+                # below. Same root cause as the cw_dec/rtty_dec fix directly
+                # above (cur_sr // dec_r integer floor division means the
+                # true post-decimation rate is only exactly 48000 when
+                # cur_sr happens to divide evenly) — every Skimmer pool
+                # channel's Goertzel offset mixdown and lowpass corner were
+                # computed against the wrong sample rate on any RTL-SDR
+                # capture rate that doesn't divide evenly into 48000,
+                # silently degrading/breaking Skimmer decode on this path
+                # while the main CW decoder (which does pass sr= here) kept
+                # working correctly — explaining a "Skimmer pool decodes
+                # worse than main CW on RTL-SDR" type symptom.
+                cw_skimmer_pool.process_iq(dec_c, vfo_mhz, sr=_rtl_dec_sr)
+                if cw_dec.active:    cw_dec.process_iq(dec_c, sr=_rtl_dec_sr)
+                if rtty_dec.active:  rtty_dec.process_iq(dec_c, sr=_rtl_dec_sr)
+                if fax_dec.active:   fax_dec.process_iq(dec_c)
+                if sstv_dec.active:  sstv_dec.process_iq(dec_c, sr=_rtl_dec_sr)
+                if poc_dec.active:   poc_dec.process_iq(dec_c)
+                if acars_dec.active: acars_dec.process_iq(dec_c)
+                # See w030 note near line 6198 — ft8_dec (ALL.txt tailer) has
+                # no process()/process_iq(); this call used to throw on every
+                # RTL-SDR decimated packet once FT8 bridge mode was active.
+                if ft8_internal_active: _ft8_broadcast_audio(dec_c.real, sr=_rtl_dec_sr)
+                # BUGFIX (2026-07-15, w031 live decoder-testing pass): this passed
+                # state.get('sample_rate') — the raw/undecimated RTL-SDR hardware
+                # rate — while dec_c is already decimated to _rtl_dec_sr, exactly
+                # the same bug class already fixed for cw_dec/rtty_dec/
+                # cw_skimmer_pool two lines above (and documented as such nearby).
+                # Wrong sr here means wsprd's dial-frequency mixing and 12kHz
+                # decimation math both run on a badly wrong assumption of the
+                # input rate, corrupting WSPR decode timing on RTL-SDR.
+                if wspr_dec.active:  wspr_dec.process_iq(dec_c, sr=_rtl_dec_sr, loop=asyncio.get_running_loop())
+                if multimon_dec.active and multimon_dec._proc and multimon_dec._proc.poll() is None:
+                    # RTL path: dec_c is already demodulated float audio — resample to 22050 Hz
+                    try:
+                        _mm_audio = dec_c.real.astype(np.float64)
+                        _mm_sr_in = float(state.get('sample_rate', 48000)) / 2
+                        _mm_n_out = max(1, int(round(len(_mm_audio) * multimon_dec.MULTIMON_RATE / _mm_sr_in)))
+                        _mm_x_out = np.linspace(0, len(_mm_audio) - 1, _mm_n_out, dtype=np.float64)
+                        _mm_res   = np.interp(_mm_x_out, np.arange(len(_mm_audio), dtype=np.float64), _mm_audio)
+                        _mm_peak  = float(np.max(np.abs(_mm_res)))
+                        if _mm_peak > 0:
+                            _mm_res = _mm_res / _mm_peak * 0.9
+                        multimon_dec._proc.stdin.write((_mm_res * 32767).astype(np.int16).tobytes())
+                        multimon_dec._proc.stdin.flush()
+                        # Heartbeat: send audio peak + uptime every ~2 s
+                        _mm_now = time.monotonic()
+                        if _mm_now - getattr(multimon_dec, '_last_hb', 0) >= 2.0:
+                            multimon_dec._last_hb = _mm_now
+                            _mm_st = multimon_dec.get_status()
+                            _mm_st['audio_peak'] = round(min(1.0, _mm_peak), 3)
+                            asyncio.run_coroutine_threadsafe(
+                                broadcast_json(_mm_st), asyncio.get_running_loop())
+                    except Exception:
+                        pass
+
+            _stop_reader.set()
+            _thread.join(timeout=2)
+            if _sd_stream is not None:
+                try: _sd_stream.stop(); _sd_stream.close()
+                except Exception: pass
+
+            # Clean up raw socket
+            try: _rtl_sock.close()
+            except Exception: pass
+            _rtl_sock      = None
+            _rtl_writer    = None
+            _rtl_streaming = False
+            log.info("RTL-TCP: disconnected")
+            if _rtl_proc and _rtl_proc.poll() is None:
+                _rtl_proc.terminate()
+                log.info("RTL-TCP: terminated auto-launched rtl_tcp")
+            state['iq_streaming'] = False
+            await broadcast_json({"type": "state", **state})
+
+        except ConnectionRefusedError:
+            _rtl_streaming = False
+            log.warning(f"RTL-TCP: connection refused at {RTL_TCP_HOST}:{RTL_TCP_PORT} "
+                        f"— is rtl_tcp running? Is an RTL-SDR dongle plugged in?")
+            if _rtl_proc and _rtl_proc.poll() is None:
+                _rtl_proc.terminate()
+            await broadcast_json({"type": "rtl_status", "connected": False,
+                                  "msg": (f"rtl_tcp refused connection at "
+                                          f"{RTL_TCP_HOST}:{RTL_TCP_PORT} — "
+                                          "is an RTL-SDR dongle plugged in?")})
+            await asyncio.sleep(5)
+        except Exception as e:
+            _rtl_streaming = False
+            log.warning(f"RTL-TCP bridge error: {e}")
+            try:
+                if _rtl_proc and _rtl_proc.poll() is None:
+                    _rtl_proc.terminate()
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+
+
+async def _check_iq_mode():
+    """Warn browser if no real type-2 IQ frames have arrived recently — covers
+    both Compact AND IQ Lite modes (neither delivers raw IQ; confirmed w0.2.3
+    via SDRplay's own RawIqWriter client + packet capture + direct SDRplay
+    support confirmation). Frame-count based rather than trusting SDRConnect's
+    self-reported iq_streaming/full_iq/streaming_mode property, since that
+    property may not accurately reflect whether type-2 frames are actually
+    flowing (this was the exact failure mode that went undetected before).
+    Not applicable when using RTL-SDR engine — rtl_tcp always streams IQ."""
+    if state.get('engine', 'SDRCONNECT') == 'RTLSDR':
+        return   # RTL-SDR always has IQ
+    # BUGFIX (w0.2.6, July 2026): was 3.0s. The IQ enable sequence
+    # (deferred 1s + 3 sends × 0.3-0.5s = ~2.1s total from device detect)
+    # now completes well within 6.0s, so this only fires for genuine
+    # IQ-absent situations (Compact mode, IQ Lite, or connection problems)
+    # rather than as a false alarm right as the handshake completes.
+    no_iq_frames = (time.perf_counter() - _last_iq2_frame_time) > 6.0
+    if no_iq_frames:
+        cur_mode = state.get('stream_mode', 'unknown')
+        await broadcast_json({
+            "type": "iq_mode_warning",
+            "msg": (f"No IQ data received in the last 3+ seconds (mode: {cur_mode}). "
+                    "IQ Lite and Compact modes do not deliver raw IQ on the nRSP-ST — "
+                    "decoders need Full IQ mode. Switch SDRConnect to Full IQ mode, "
+                    "connect the RSPdx directly via USB, or switch to RTL-SDR engine.")
+        })
+
+
+async def _auto_set_stream_mode(mode: str, state: dict):
+    """Auto-select stream mode on nRSP-ST detect. Small delay ensures
+    valid_devices has arrived from SDRConnect before we try to match."""
+    await asyncio.sleep(1.5)
+    import re as _re
+    active = state.get('active_device', '')
+    base = _re.sub(r'\s*\((IQ Lite|Full IQ|Compact)\)\s*$', '',
+                   active, flags=_re.IGNORECASE).strip()
+    mode_suffix = f'({mode})'
+    valid = state.get('valid_devices', '')
+    target_entry = None
+    for entry in (e.strip() for e in valid.split(',') if e.strip()):
+        if entry.startswith(base) and entry.endswith(mode_suffix):
+            target_entry = entry
+            break
+    if not target_entry:
+        target_entry = f"{base} {mode_suffix}" if base else mode
+    log.info(f"Auto stream mode: selecting {target_entry!r}")
+    await sdr_queue.put(json.dumps({
+        "event_type": "selected_device_name",
+        "property": "", "value": target_entry, "device": "primary",
+    }))
+
+
+async def browser_handler(ws):
+    global sigint, _sr_set_time, bookmarks, logbook, _fldigi_xmlrpc, _fldigi_rx_offset, active_decoder_slug, _fldigi_carrier_hz
+    # Sync rigctld default to current VFO so fldigi Hamlib doesn't start at 14 MHz
+    if state.get('vfo_hz', 0) > 0:
+        state['wsjtx_hz'] = state['vfo_hz']
+    clients.add(ws)
+    log.info(f"Browser connected ({len(clients)} total)")
+    await ws.send(json.dumps({"type": "state", **state,
+                               "wsjtx_rigctl_port": config.get('wsjtx_rigctl_port', 4532),
+                               "server_version": VERSION}))
+    await ws.send(json.dumps({"type": "bookmarks", "bookmarks": bookmarks}))
+    await ws.send(json.dumps({"type": "logbook", "entries": logbook}))
+    # Send fldigi connection state if already connected (browser may have joined late)
+    if _fldigi_xmlrpc is not None:
+        await ws.send(json.dumps({
+            "type": "fldigi_status", "connected": True,
+            "running": state.get('fldigi_active', False),
+            "mode": state.get('fldigi_mode', 'PSK31'),
+            "silent": True,   # suppress toast — not a new connection event
+        }))
+    # Send cached DX spots immediately so a late-joining browser doesn't have
+    # to wait up to 90s for the next dx_spots_poller() cycle
+    if _dx_spots_cache:
+        await ws.send(json.dumps({"type": "dx_spots", "spots": _dx_spots_cache}))
+    # Send SSH launcher status so wizard shows correct state on reconnect
+    with _ssh_state_lock:
+        _s = dict(_ssh_state)
+    await ws.send(json.dumps({"type": "ssh_status",
+                               "status": _s["status"], "error": _s["error"]}))
+    if _s["log"]:
+        await ws.send(json.dumps({"type": "ssh_log_replay", "log": _s["log"][-50:]}))
+    # Re-query live state from SDRConnect so browser always gets current values,
+    # not stale bridge defaults (handles case where browser connects after startup).
+    if sdr_queue is not None:
+        for prop in ("device_vfo_frequency", "device_center_frequency",
+                     "device_sample_rate", "lna_state",
+                     "audio_volume_percent", "audio_mute"):
+            sdr_queue.put_nowait(json.dumps({"event_type": "get_property", "property": prop,
+                                             "value": "", "device": "primary"}))
+    try:
+        async for raw in ws:
+            try:
+                d = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            cmd = d.get('cmd', '')
+
+# ── Tuning ──────────────────────────────────────────────
+
+            if cmd == 'tune':
+                # Convert to clean integer to avoid scientific notation strings
+                freq_hz = int(float(d.get('freq_mhz', 10)) * 1e6)
+
+                def _sdr_prop(prop, value):
+                    """Send a set_property command to SDRConnect.
+                    Requires exclusive control to be granted first.
+                    Uses snake_case property names matching the API responses.
+                    """
+                    return json.dumps({
+                        "event_type": "set_property",
+                        "property":   prop,
+                        "value":      str(value),
+                        "device":     "primary",
+                    })
+
+                # Check if this is a VFO-only tune BEFORE processing
+                is_vfo_only = d.get('vfo_only', False)
+
+                # 1. Update Center Frequency (The Hardware LO) — UNLESS vfo_only mode
+                if not is_vfo_only:
+                    # Normal full retune: move both LO and VFO (waterfall pans to new frequency)
+                    log.info(f"SDRConnect tune → {freq_hz/1e6:.6f} MHz  "
+                             f"(set_property / device_center_frequency / '{freq_hz}')")
+                    await sdr_queue.put(_sdr_prop("device_center_frequency", freq_hz))
+                else:
+                    # VFO-only mode: keep LO locked, only move VFO (waterfall stays in place)
+                    log.info(f"VFO-only tune → {freq_hz/1e6:.6f} MHz  "
+                             f"(LO stays at {state.get('center_hz')/1e6:.6f} MHz)")
+
+                # 2. Update VFO Frequency (the listening marker) — always, in both modes
+                await sdr_queue.put(_sdr_prop("device_vfo_frequency", freq_hz))
+
+                # 3. Update Mode — send immediately, then re-send 300ms after LO move
+                # to handle SDRConnect resetting demodulator state on LO change.
+                if 'mode' in d:
+                    mode = str(d['mode']).upper()
+                    await sdr_queue.put(_sdr_prop("demodulator", mode))
+                    state['mode'] = mode
+                    # Clear RDS when leaving WFM
+                    if mode != 'WFM':
+                        state['rds_ps'] = ''
+                        state['rds_radiotext'] = ''
+                        state['rds_pi'] = ''
+                        state['rds_pty'] = ''
+                    # Re-assert demodulator after LO move — nRSP-ST can drop audio
+                    # when device_center_frequency changes while WFM is active
+                    if not is_vfo_only:
+                        async def _reassert_mode(m=mode, bw=int(d.get('bw_hz', state.get('bandwidth_hz', 200000)))):
+                            await asyncio.sleep(0.35)
+                            await sdr_queue.put(_sdr_prop("demodulator", m))
+                            await sdr_queue.put(_sdr_prop("filter_bandwidth", bw))
+                        asyncio.create_task(_reassert_mode())
+
+                # 4. Update bandwidth if provided
+                if 'bw_hz' in d:
+                    bw = int(d['bw_hz'])
+                    await sdr_queue.put(_sdr_prop("filter_bandwidth", bw))
+                    state['bandwidth_hz'] = bw
+
+                # Update local freq state and broadcast consolidated state update
+                state['vfo_hz'] = freq_hz
+
+                # Sync fldigi display when LO moves (vfo_only tunes are within-span
+                # micro-adjustments — don't spam fldigi on every small step)
+                if not is_vfo_only and _fldigi_xmlrpc is not None:
+                    try:
+                        # Compute dial so actual signal = freq_hz:
+                        #   USB: dial = freq - carrier   LSB: dial = freq + carrier
+                        # Use cached sideband to avoid an await before setting wsjtx_hz —
+                        # any await here would let the rigctld poller race in and read a
+                        # stale wsjtx_hz value, causing fldigi to jump to the wrong freq.
+                        _px_lo = _fldigi_xmlrpc
+                        _cached_sb = state.get('fldigi_sideband', 'USB')
+                        _dial_lo = freq_hz - _fldigi_carrier_hz if _cached_sb != 'LSB' else freq_hz + _fldigi_carrier_hz
+                        # Set wsjtx_hz to DIAL freq immediately (before any await) so
+                        # Hamlib CAT polling always returns the correct dial value.
+                        state['wsjtx_hz'] = int(_dial_lo)
+                        # Now push to fldigi asynchronously — event loop can yield here safely
+                        await _xrpc(_px_lo.main.set_frequency, float(_dial_lo))
+                        asyncio.create_task(_fldigi_retune(freq_hz))
+                        log.info(f"fldigi: LO sync → dial {_dial_lo/1e6:.4f} MHz "
+                                 f"(carrier {_fldigi_carrier_hz} Hz, actual {freq_hz/1e6:.4f} MHz)")
+                    except Exception as _fe:
+                        log.debug(f"fldigi freq sync error: {_fe}")
+                else:
+                    # No fldigi or vfo_only: wsjtx_hz tracks raw signal freq for WSJT-X
+                    state['wsjtx_hz'] = freq_hz
+
+                # VFO-ONLY MODE: If client specifies vfo_only=true, do NOT move center frequency
+                # This allows the waterfall to stay locked while tuning within the visible span
+                if not is_vfo_only:
+                    # Normal full retune: move both VFO and center (waterfall pans)
+                    state['center_hz'] = freq_hz
+                # else: vfo_only=true, so center_hz stays put (waterfall locked)
+
+                # Mark vfo_only mode to prevent SDRConnect device updates from changing center_hz
+                state['_vfo_only_mode'] = is_vfo_only
+
+                # Always set ignore window to suppress VFO/center echo from SDRConnect after any tune
+                state['ignore_center_until'] = time.time() + 0.8
+                if is_vfo_only:
+                    log.info(f"VFO-only tune: vfo_hz={state['vfo_hz']/1e6:.4f} MHz, center_hz={state['center_hz']/1e6:.4f} MHz (LOCKED), ignore window=0.8s")
+                else:
+                    log.debug(f"Full tune: ignore window=0.8s to suppress SDRConnect echoes")
+
+                # If RTL-SDR engine is active, retune rtl_tcp live
+                if state.get('engine') == 'RTLSDR' and _rtl_writer and not _rtl_writer.is_closing():
+                    def _rc(cid, val): return bytes([cid]) + val.to_bytes(4, 'big')
+                    new_ds = 2 if freq_hz < 28_000_000 else 0
+                    old_ds = state.get('rtl_direct_sampling', 0)
+                    if new_ds != old_ds:
+                        state['rtl_direct_sampling'] = new_ds
+                        log.info(f"RTL-TCP: direct_sampling mode change "
+                                 f"({'HF Q-branch' if new_ds==2 else 'VHF/UHF off'}) "
+                                 f"— closing writer to trigger reconnect")
+                        _rtl_writer.close()
+                    else:
+                        if _rtl_write_lock:
+                            async with _rtl_write_lock:
+                                _rtl_writer.write(_rc(0x01, freq_hz))
+                                await _rtl_writer.drain()
+                        else:
+                            _rtl_writer.write(_rc(0x01, freq_hz))
+                            await _rtl_writer.drain()
+                    await broadcast_json({"type": "state", **state,
+                                         "rtl_direct_sampling": state['rtl_direct_sampling']})
+                else:
+                    await broadcast_json({"type": "state", **state})
+
+            elif cmd == 'set_sample_rate':
+                rate = int(d['rate_hz'])
+                if state.get('engine') == 'RTLSDR' and _rtl_writer and not _rtl_writer.is_closing():
+                    # Valid RTL-SDR sample rates (outside 225-300 kHz and 900-2400 kHz
+                    # ranges can cause dropped samples — stick to known-good values)
+                    RTL_VALID = {250_000, 1_024_000, 1_536_000, 1_792_000,
+                                 1_920_000, 2_048_000, 2_400_000}
+                    if rate not in RTL_VALID:
+                        # Snap to nearest valid rate
+                        rate = min(RTL_VALID, key=lambda r: abs(r - rate))
+                        log.warning(f"RTL-TCP: rate {d['rate_hz']} not in valid set, "
+                                    f"snapped to {rate}")
+                    def _rc(cid, val): return bytes([cid]) + val.to_bytes(4, 'big')
+                    if _rtl_write_lock:
+                        async with _rtl_write_lock:
+                            _rtl_writer.write(_rc(0x02, rate))
+                            await _rtl_writer.drain()
+                    else:
+                        _rtl_writer.write(_rc(0x02, rate))
+                        await _rtl_writer.drain()
+                    state['sample_rate']  = rate
+                    state['rtl_sr']       = rate
+                    state['bandwidth_hz'] = rate  # BW display tracks SR for RTL-SDR
+                    log.info(f"RTL-TCP: sample rate → {rate/1e6:.3f} MSPS")
+                    await broadcast_json({"type": "state", **state})
+                else:
+                    log.info(f"SDRConnect sample rate → {rate/1e6:.4f} MSPS  (set_property / device_sample_rate / '{rate}')")
+                    _sr_set_time = time.time()   # snap-back guard starts now
+                    await sdr_queue.put(json.dumps({
+                        "event_type": "set_property",
+                        "property":   "device_sample_rate",
+                        "value":      str(rate),
+                        "device":     "primary",
+                    }))
+                    state['sample_rate'] = rate
+                    await broadcast_json({"type": "state", **state})
+
+            elif cmd == 'set_fft_size':
+                # Resize RTL-SDR FFT to improve spectral resolution at high zoom.
+                # Ignored by SDRConnect path — it delivers its own fixed bin count.
+                # Browser sends this whenever vizZoom changes: size = 1024 * vizZoom.
+                import math as _math
+                req = int(d.get('size', 1024))
+                req = max(512, min(16384, req))                # hard limits
+                req = 2 ** round(_math.log2(max(1, req)))      # round to power-of-two
+                state['rtl_fft_size'] = req
+                log.debug(f"RTL-TCP: FFT size requested → {req} bins")
+
+            elif cmd == 'set_mode':
+                mode = str(d.get('mode', '')).upper()
+                await sdr_queue.put(json.dumps({
+                    "event_type": "set_property",
+                    "property":   "demodulator",
+                    "value":      mode,
+                    "device":     "primary",
+                }))
+                if mode:
+                    state['mode'] = mode
+                    await broadcast_json({"type": "state", **state})
+
+            elif cmd == 'sdr_send':
+                # Pass a raw JSON message directly to SDRConnect WebSocket.
+                # Used by UI device selector to send selected_device_name etc.
+                raw = d.get('payload', '')
+                if raw and sdr_queue is not None:
+                    await sdr_queue.put(raw)
+
+            elif cmd == 'set_stream_mode':
+                # nRSP-ST only — switch between Compact / IQ Lite / Full IQ.
+                # Selects the exact device entry from valid_devices that matches
+                # the requested mode. valid_devices contains entries like:
+                #   'nRSP-ST (240517b350) (IQ Lite)'
+                #   'nRSP-ST (240517b350) (Compact)'
+                # Do NOT construct the name from active_device — active_device
+                # already contains the mode suffix and appending another suffix
+                # produces an invalid selector that SDRConnect silently ignores.
+                new_mode = str(d.get('stream_mode', 'IQ Lite'))
+                if new_mode not in ('Compact', 'IQ Lite', 'Full IQ'):
+                    log.warning(f"set_stream_mode: unknown mode {new_mode!r}, ignoring")
+                else:
+                    # Find the exact device name for this mode from valid_devices.
+                    # Match against the base name of the currently active device
+                    # (everything before the last mode suffix in parentheses) so
+                    # we select the right unit on systems with multiple nRSP-STs.
+                    import re as _re
+                    active = state.get('active_device', '')
+                    # Strip trailing mode suffix from active_device to get base name
+                    # e.g. 'nRSP-ST (240517b350) (Compact)' → 'nRSP-ST (240517b350)'
+                    base = _re.sub(
+                        r'\s*\((IQ Lite|Full IQ|Compact)\)\s*$', '',
+                        active, flags=_re.IGNORECASE).strip()
+                    mode_suffix = f'({new_mode})'
+                    valid = state.get('valid_devices', '')
+                    target_entry = None
+                    for entry in (e.strip() for e in valid.split(',') if e.strip()):
+                        if entry.startswith(base) and entry.endswith(mode_suffix):
+                            target_entry = entry
+                            break
+                    # Fallback: construct from base name directly
+                    if not target_entry:
+                        target_entry = f"{base} {mode_suffix}" if base else new_mode
+                    log.info(f"set_stream_mode: {state.get('stream_mode')!r} → {new_mode!r} "
+                             f"(selecting: {target_entry!r})")
+                    await sdr_queue.put(json.dumps({
+                        "event_type": "selected_device_name",
+                        "property":   "",
+                        "value":      target_entry,
+                        "device":     "primary",
+                    }))
+                    # Update state immediately so UI responds without waiting for
+                    # the device to re-report active_device
+                    state['stream_mode']     = new_mode
+                    state['iq_lite_capable'] = (new_mode == 'IQ Lite')
+                    if new_mode == 'IQ Lite':
+                        state['sample_rate'] = 192_000
+                    elif state.get('hw_sample_rate'):
+                        state['sample_rate'] = state['hw_sample_rate']
+                    await broadcast_json({"type": "state", **state})
+                    await broadcast_json({"type": "stream_mode_changed",
+                                          "stream_mode": new_mode,
+                                          "iq_lite": new_mode == 'IQ Lite'})
+
+            elif cmd == 'set_bw':
+                bw = int(d.get('bw_hz', 3000))
+                await sdr_queue.put(json.dumps({
+                    "event_type": "set_property",
+                    "property":   "filter_bandwidth",
+                    "value":      str(bw),
+                    "device":     "primary",
+                }))
+                state['bandwidth_hz'] = bw
+                await broadcast_json({"type": "state", **state})
+            elif cmd == 'activate_decoder':
+                slug = d.get('slug', '')
+                if slug and any(getattr(dec, 'slug', None) == slug for dec in DECODERS):
+                    active_decoder_slug = slug
+                    for dec in DECODERS:
+                        s2 = getattr(dec, 'slug', '')
+                        await broadcast_json({"type": "decoder_status", "slug": s2, "active": (s2 == slug)})
+                    await broadcast_json({"type": "decoder_status", "slug": slug, "active": True})
+                else:
+                    await broadcast_json({"type": "decoder_status", "slug": slug, "active": False})
+            elif cmd == 'deactivate_decoder':
+                active_decoder_slug = None
+                for dec in DECODERS:
+                    s2 = getattr(dec, 'slug', '')
+                    await broadcast_json({"type": "decoder_status", "slug": s2, "active": False})
+
+            elif cmd == 'set_lna_gain':
+                # Overload-reduce button sends delta relative to current gain index
+                delta = int(d.get('delta', 0))
+                cur_idx = state.get('rtl_gain_idx', 20)
+                if cur_idx >= 0:
+                    RTL_GAINS = state.get('rtl_gains', [0,9,14,27,37,77,87,125,144,157,166,
+                                                         197,207,229,254,280,297,328,338,364,
+                                                         372,386,402,421,434,439,445,480,496])
+                    new_idx = max(0, min(len(RTL_GAINS)-1, cur_idx + delta))
+                    if new_idx != cur_idx:
+                        # Re-use set_gain logic via recursive dispatch
+                        d['lna'] = new_idx
+                        cmd = 'set_gain'
+                        # fall through to set_gain below
+                    else:
+                        log.debug("set_lna_gain: already at limit")
+                        continue
+
+            elif cmd == 'set_gain':
+                # lna value is now a gain INDEX (0-28) for R820T, or -1 for AGC
+                idx = int(d.get('lna', 20))
+                RTL_GAINS = state.get('rtl_gains',
+                    [0,9,14,27,37,77,87,125,144,157,166,197,207,229,
+                     254,280,297,328,338,364,372,386,402,421,434,439,445,480,496])
+                db = 0.0  # initialise for use in both branches
+                if state.get('engine') == 'RTLSDR' and _rtl_sock:
+                    def _rc(cid, val): return bytes([cid]) + val.to_bytes(4, 'big')
+                    try:
+                        if idx < 0:  # AGC mode
+                            _rtl_sock.sendall(_rc(0x03, 0) + _rc(0x08, 1))
+                            state['gain_lna'] = -1
+                            state['rtl_gain_idx'] = -1
+                            log.info("RTL-TCP: gain set to AGC mode")
+                        else:
+                            idx = max(0, min(28, idx))
+                            # Send both cmd 0x04 (tenths dB) and 0x0D (index)
+                            # for maximum rtl_tcp version compatibility
+                            _rtl_sock.sendall(
+                                _rc(0x03, 1) +               # manual gain mode
+                                _rc(0x08, 0) +               # disable RTL AGC
+                                _rc(0x04, RTL_GAINS[idx]) +  # gain in tenths dB
+                                _rc(0x0D, idx)               # gain by index
+                            )
+                            state['gain_lna'] = idx
+                            state['rtl_gain_idx'] = idx
+                            db = RTL_GAINS[idx] / 10.0
+                            log.info(f"RTL-TCP: gain index {idx} = {db:.1f} dB")
+                            # Broadcast dedicated gain update so UI stays in sync
+                            await broadcast_json({"type": "rtl_gain_info",
+                                                  "gains": RTL_GAINS,
+                                                  "idx": idx, "db": db})
+                    except Exception as _ge:
+                        log.warning(f"RTL-TCP: gain send failed: {_ge}")
+                else:
+                    state["gain_lna"] = idx
+                    await sdr_queue.put(json.dumps({
+                        "event_type": "set_property",
+                        "property":   "lna_state",
+                        "value":      str(idx),
+                        "device":     "primary",
+                    }))
+
+            elif cmd == 'set_antenna':
+                # nRSP-ST / RSPdx antenna port select — SDRConnect WebSocket API
+                # property "active_antenna" (string, e.g. "Antenna A" / "Antenna B" /
+                # "Antenna C"). Valid names come from the read-only "valid_antennas"
+                # property, queried on connect and re-broadcast to the frontend as
+                # state['valid_antennas'] — the UI builds its picker from that list
+                # rather than a hardcoded set, since exact names/counts vary by
+                # RSP model (e.g. RSPdx has Antenna A/B/C, RSP1A has none exposed).
+                ant = str(d.get('antenna', '')).strip()
+                if ant:
+                    state['active_antenna'] = ant
+                    await sdr_queue.put(json.dumps({
+                        "event_type": "set_property",
+                        "property":   "active_antenna",
+                        "value":      ant,
+                        "device":     "primary",
+                    }))
+                    log.info(f"SDRConnect antenna → {ant!r} (set_property / active_antenna)")
+                    await broadcast_json({"type": "state", **state})
+
+            elif cmd == 'set_rtl_direct_sampling':
+                # Manual override: 0=off, 1=I-branch, 2=Q-branch
+                # Sending cmd 0x09 mid-stream kills rtl_tcp — reconnect instead
+                ds = int(d.get('mode', 0))
+                state['rtl_direct_sampling'] = ds
+                log.info(f"RTL-TCP: direct_sampling manually set → {ds} — closing writer to reconnect")
+                if _rtl_writer and not _rtl_writer.is_closing():
+                    log.warning(f"RTL-TCP: manual DS close — writer same as active? {_rtl_writer is writer if 'writer' in dir() else 'unknown'}")
+                    _rtl_writer.close()
+                await broadcast_json({"type": "state", **state,
+                                     "rtl_direct_sampling": ds})
+
+            elif cmd == 'set_engine':
+                engine = d.get('engine', 'SDRCONNECT').upper()
+                state["engine"] = engine
+                if engine == 'RTLSDR':
+                    state['iq_streaming'] = True   # RTL always streams IQ
+                    log.info(f"Engine switched to RTL-SDR (rtl_tcp at {RTL_TCP_HOST}:{RTL_TCP_PORT})")
+                else:
+                    log.info("Engine switched to SDRConnect")
+                await broadcast_json({"type": "state", **state})
+
+            # ── State / Config ───────────────────────────────────────
+            elif cmd == 'get_state':
+                await ws.send(json.dumps({"type": "state", **state}))
+
+            # ── PSK Reporter spot upload (2026-07-15) ───────────────────
+            elif cmd == 'psk_reporter_config':
+                psk_uploader.configure(
+                    enabled=bool(d.get('enabled', False)),
+                    callsign=d.get('callsign', ''),
+                    locator=d.get('locator', ''),
+                    loop=asyncio.get_running_loop(),
+                )
+                await ws.send(json.dumps({
+                    "type": "psk_reporter_status",
+                    "enabled": psk_uploader.enabled,
+                    "callsign": psk_uploader.callsign,
+                    "locator": psk_uploader.locator,
+                }))
+
+            elif cmd == 'ft8_internal_spot':
+                # FT8 INTERNAL (2026-07-15) — closes the gap flagged in
+                # CHANGELOG.md: the client-side ft8ts decoder (a Web Worker
+                # running entirely in the browser) never sent a single
+                # decode to this process, so psk_uploader.spot() — wired up
+                # for the WSJT-X bridge, native WSPR, and CW Skimmer, all of
+                # which decode backend-side — was never reachable for FT8
+                # INTERNAL's decodes at all. This process is the only place
+                # that can actually open the UDP socket to
+                # report.pskreporter.info, so the browser forwards just
+                # enough of each decode here (see the matching frontend
+                # comment on appendFT8Decode() for why: freq is computed
+                # client-side as dial+audio-offset, gated to only the
+                # 'internal' FT8 source to avoid double-reporting the
+                # WSJT-X-bridge path, which already reports via its own
+                # ALL.txt-tailing FT8Decoder). No-ops via psk_uploader.spot()
+                # itself if reporting isn't enabled.
+                psk_uploader.spot(
+                    d.get('call', ''),
+                    float(d.get('freq_hz', 0) or 0),
+                    d.get('mode', 'FT8'),
+                    snr=d.get('snr'),
+                )
+
+            elif cmd == 'db_status':
+                await ws.send(json.dumps({"type": "db_status", **sigint.status()}))
+
+            elif cmd == 'get_space_weather':
+                # Fetch space weather from NOAA — Python has no CORS restriction
+                import urllib.request as _ur, ssl as _ssl, json as _json
+                _ctx = _ssl._create_unverified_context()
+                sw_data = {}
+                _sw_urls = [
+                    ('sfi', 'https://services.swpc.noaa.gov/json/solar-radio-flux.json'),
+                    ('kp',  'https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json'),
+                    ('xray','https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.json'),
+                ]
+                for key, url in _sw_urls:
+                    try:
+                        req = _ur.Request(url, headers={
+                            'User-Agent': 'Mozilla/5.0',
+                            'Accept': 'application/json',
+                        })
+                        with _ur.urlopen(req, context=_ctx, timeout=10) as r:
+                            sw_data[key] = _json.loads(r.read().decode())
+                    except Exception as e:
+                        log.warning(f'Space weather fetch failed ({key}): {e}')
+                        sw_data[key] = None
+                await ws.send(_json.dumps({'type': 'space_weather', 'data': sw_data}))
+                log.info(f"Space weather sent: {list(sw_data.keys())}")
+
+
+            elif cmd == 'get_air_freqs':
+                # Find airports near the given lat/lon and return their frequencies
+                # Data source: OurAirports.com (public domain, daily updated)
+                import math as _math
+                import csv as _csv
+                import io as _io
+                import urllib.request as _ur
+                import ssl as _ssl
+
+                lat = float(d.get('lat', 57.15))
+                lon = float(d.get('lon', -2.11))
+                radius_km = float(d.get('radius_km', 150))
+
+                apt_file  = SCRIPT_DIR / 'airports.csv'
+                freq_file = SCRIPT_DIR / 'airport-frequencies.csv'
+
+                # Download if missing or >7 days old
+                def _needs_download(f):
+                    return not f.exists() or (time.time() - f.stat().st_mtime) > 7 * 86400
+
+                _ctx = _ssl._create_unverified_context()
+                if _needs_download(apt_file):
+                    try:
+                        req = _ur.Request('https://davidmegginson.github.io/ourairports-data/airports.csv',
+                                         headers={'User-Agent': 'Mozilla/5.0'})
+                        with _ur.urlopen(req, context=_ctx, timeout=30) as r:
+                            apt_file.write_bytes(r.read())
+                        log.info(f"Downloaded airports.csv ({apt_file.stat().st_size:,} bytes)")
+                    except Exception as e:
+                        log.warning(f"Could not download airports.csv: {e}")
+
+                if _needs_download(freq_file):
+                    try:
+                        req = _ur.Request('https://davidmegginson.github.io/ourairports-data/airport-frequencies.csv',
+                                         headers={'User-Agent': 'Mozilla/5.0'})
+                        with _ur.urlopen(req, context=_ctx, timeout=30) as r:
+                            freq_file.write_bytes(r.read())
+                        log.info(f"Downloaded airport-frequencies.csv ({freq_file.stat().st_size:,} bytes)")
+                    except Exception as e:
+                        log.warning(f"Could not download airport-frequencies.csv: {e}")
+
+                # Haversine distance
+                def _dist(la1, lo1, la2, lo2):
+                    R = 6371
+                    dlat = (la2-la1)*_math.pi/180
+                    dlon = (lo2-lo1)*_math.pi/180
+                    a = _math.sin(dlat/2)**2 + _math.cos(la1*_math.pi/180)*_math.cos(la2*_math.pi/180)*_math.sin(dlon/2)**2
+                    return R * 2 * _math.atan2(_math.sqrt(a), _math.sqrt(1-a))
+
+                # Load airports within radius
+                near_apts = {}  # ident → {name, type, lat, lon, dist_km}
+                if apt_file.exists():
+                    try:
+                        txt = apt_file.read_text(encoding='utf-8', errors='replace')
+                        for row in _csv.DictReader(_io.StringIO(txt)):
+                            try:
+                                alat = float(row.get('latitude_deg', 0) or 0)
+                                alon = float(row.get('longitude_deg', 0) or 0)
+                                atype = row.get('type', '')
+                                if 'closed' in atype or 'heliport' in atype:
+                                    continue
+                                dist = _dist(lat, lon, alat, alon)
+                                if dist <= radius_km:
+                                    ident = row.get('ident', '')
+                                    near_apts[ident] = {
+                                        'ident': ident,
+                                        'name':  row.get('name', ident),
+                                        'type':  atype,
+                                        'lat':   alat,
+                                        'lon':   alon,
+                                        'dist':  round(dist),
+                                        'freqs': [],
+                                    }
+                            except (ValueError, TypeError):
+                                pass
+                    except Exception as e:
+                        log.warning(f"Airport parse error: {e}")
+
+                # Load frequencies for those airports
+                if freq_file.exists() and near_apts:
+                    try:
+                        txt = freq_file.read_text(encoding='utf-8', errors='replace')
+                        for row in _csv.DictReader(_io.StringIO(txt)):
+                            ident = row.get('airport_ident', '')
+                            if ident in near_apts:
+                                try:
+                                    freq = float(row.get('frequency_mhz', 0) or 0)
+                                    if 108 <= freq <= 137:  # VHF aviation band only
+                                        near_apts[ident]['freqs'].append({
+                                            'type': row.get('type', ''),
+                                            'desc': row.get('description', ''),
+                                            'freq': freq,
+                                        })
+                                except (ValueError, TypeError):
+                                    pass
+                    except Exception as e:
+                        log.warning(f"Frequency parse error: {e}")
+
+                # Sort: remove airports with no VHF freqs, sort by distance
+                results = sorted(
+                    [a for a in near_apts.values() if a['freqs']],
+                    key=lambda a: a['dist']
+                )
+                # Sort frequencies within each airport by type priority
+                type_priority = {'TWR':0,'GND':1,'APP':2,'DEP':3,'ARR':4,'ATIS':5,'UNIC':6,'CTAF':7}
+                for a in results:
+                    a['freqs'].sort(key=lambda f: (type_priority.get(f['type'][:3].upper(), 9), f['freq']))
+
+                log.info(f"Air freqs: {len(results)} airports within {radius_km}km of ({lat:.2f},{lon:.2f})")
+                await ws.send(json.dumps({'type': 'air_freqs', 'airports': results[:30]}))
+
+
+            elif cmd == 'get_fm_stations':
+                # FEATURE (June 2026): the Airband tab's "FM Nationals" quick-tune
+                # used to be a hardcoded UK-only table (BBC Radio 1/2/3/4 etc.) that
+                # silently mislabelled every non-UK location as "England" — useless
+                # (and actively wrong) for a user anywhere outside Britain, e.g.
+                # Colorado. Replaced with a live lookup against Radio Browser
+                # (radio-browser.info), a free, keyless, community-run worldwide
+                # station directory that supports geo-proximity search — works for
+                # any user location on Earth, not just the UK. Falls back to an
+                # empty list (frontend shows "no data" rather than wrong data) if
+                # the API is unreachable.
+                import urllib.request as _ur2
+                import ssl as _ssl2
+
+                lat = float(d.get('lat', 57.15))
+                lon = float(d.get('lon', -2.11))
+                radius_km = float(d.get('radius_km', 80))
+
+                cache_file = SCRIPT_DIR / 'fm_stations_cache.json'
+                cache_key = f"{round(lat,2)},{round(lon,2)},{int(radius_km)}"
+                cached = None
+                if cache_file.exists():
+                    try:
+                        cdata = json.loads(cache_file.read_text(encoding='utf-8'))
+                        if cdata.get('key') == cache_key and (time.time() - cdata.get('ts', 0)) < 86400:
+                            cached = cdata.get('stations')
+                    except Exception:
+                        pass
+
+                stations = cached
+                if stations is None:
+                    stations = []
+                    try:
+                        _ctx2 = _ssl2._create_unverified_context()
+                        # Radio Browser's "stations/search" supports geo_lat/geo_long/
+                        # geo_distance for proximity search — exactly what we need,
+                        # no per-country table to maintain.
+                        url = (
+                            'https://de1.api.radio-browser.info/json/stations/search'
+                            f'?geo_lat={lat}&geo_long={lon}&geo_distance={int(radius_km*1000)}'
+                            '&order=clickcount&reverse=true&hidebroken=true&limit=20'
+                        )
+                        req = _ur2.Request(url, headers={'User-Agent': 'DarkSkyNEXUS/1.0'})
+                        with _ur2.urlopen(req, context=_ctx2, timeout=15) as r:
+                            raw = json.loads(r.read().decode('utf-8', errors='replace'))
+                        for s in raw:
+                            try:
+                                freq = float(s.get('frequency') or 0)
+                            except (ValueError, TypeError):
+                                freq = 0
+                            # Only FM-band entries are useful for VHF quick-tune; AM/
+                            # streaming-only stations report freq=0 or out of FM band.
+                            if not (87.5 <= freq <= 108.0):
+                                continue
+                            stations.append({
+                                'freq': freq,
+                                'name': s.get('name', '').strip(),
+                                'tags': s.get('tags', ''),
+                                'state': s.get('state', ''),
+                                'country': s.get('country', ''),
+                            })
+                        try:
+                            cache_file.write_text(json.dumps({
+                                'key': cache_key, 'ts': time.time(), 'stations': stations,
+                            }), encoding='utf-8')
+                        except Exception:
+                            pass
+                        log.info(f"FM stations: {len(stations)} found within {radius_km}km of ({lat:.2f},{lon:.2f})")
+                    except Exception as e:
+                        log.warning(f"FM station lookup failed: {e}")
+                        stations = []
+
+                await ws.send(json.dumps({'type': 'fm_stations', 'stations': stations,
+                                           'lat': lat, 'lon': lon}))
+
+
+            elif cmd == 'lookup':
+                # Use freq_mhz from command if provided, else use bridge state
+                # NOTE: the parsed dict is 'd', not 'data'
+                if 'freq_mhz' in d and d['freq_mhz']:
+                    lookup_hz = int(float(d['freq_mhz']) * 1e6)
+                else:
+                    lookup_hz = state.get('vfo_hz', 0)
+                results = sigint.lookup(lookup_hz)
+                await ws.send(json.dumps({"type": "lookup_results",
+                                          "freq_mhz": lookup_hz / 1e6,
+                                          "results": results}))
+
+            elif cmd == 'refresh_eibi':
+                # Download EIBI and AOKI CSVs then reinitialise
+                await ws.send(json.dumps({"type": "db_status", "message": "Downloading EIBI + AOKI…", "records": 0, "sources": []}))
+                def _download_eibi():
+                    import ssl
+                    results = []
+                    # Create unverified SSL context — needed on macOS where Python
+                    # doesn't use the system certificate store by default
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    sources = [
+                        # EIBI shortwave schedule (eibispace.de)
+                        ("https://www.eibispace.de/dx/sked-a25.csv",  SCRIPT_DIR / "eibi.csv"),
+                        # AOKI NDXC — hosted on eibispace mirror (ndxc.org unreliable)
+                        ("https://www.eibispace.de/dx/aoki-a25.csv",  SCRIPT_DIR / "aoki.csv"),
+                        # SWSKEDS — try primary then fallback
+                        ("http://www.short-wave.info/index.php?page=swskeds&output=csv", SCRIPT_DIR / "swskeds.csv"),
+                    ]
+                    for url, path in sources:
+                        try:
+                            req = urllib.request.Request(url, headers={"User-Agent": "DARKSKY/1.7.2"})
+                            with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+                                data = r.read()
+                            if len(data) < 100:
+                                raise ValueError(f"Response too small ({len(data)} bytes) — likely an error page")
+                            with open(path, "wb") as f:
+                                f.write(data)
+                            results.append(f"✓ {path.name} ({len(data)//1024} KB)")
+                            log.info(f"Downloaded {url} → {path}")
+                        except Exception as e:
+                            results.append(f"✗ {path.name}: {e}")
+                            log.warning(f"Failed to download {url}: {e}")
+                    return results
+                try:
+                    results = await asyncio.get_running_loop().run_in_executor(None, _download_eibi)
+                    sigint = SigIntEngine()  # reload with freshly downloaded files
+                    status = sigint.status()
+                    await ws.send(json.dumps({
+                        "type":    "db_status",
+                        "message": " | ".join(results),
+                        **status
+                    }))
+                    log.info(f"DB reload after download: {status['records']} records, EIBI={status['eibi_entries']}")
+                except Exception as e:
+                    await ws.send(json.dumps({"type": "db_status", "message": f"Download failed: {e}", "records": 0, "sources": []}))
+
+            elif cmd == 'skimmer_detect':
+                # Used to be a no-op "legacy probe" — actual candidate
+                # detection ran entirely client-side against DS.liveBins (see
+                # _skDetectLoop() in the frontend). As of 2026-07-16 (w032)
+                # this also toggles the server-side real-SNR candidate
+                # scanner (_cw_scan_candidates_from_mag()) for IQ-Lite/
+                # nRSP-ST connections — see that function's module-level
+                # comment for why display-bin-based detection was replaced.
+                # Accepts either 'active' (the original key the frontend
+                # already sent) or 'on', so this stays backward compatible.
+                state['cw_skimmer_detect'] = bool(d.get('active', d.get('on', False)))
+                log.debug(f"CW Skimmer candidate detection: {'on' if state['cw_skimmer_detect'] else 'off'}")
+                await ws.send(json.dumps({"type": "skimmer_results", "signals": []}))
+
+            elif cmd == 'skimmer_set_channels':
+                freqs = d.get('freqs', [])
+                vfo_mhz = state.get('vfo_hz', 100_000_000) / 1e6
+                cw_skimmer_pool.set_channels(freqs, vfo_mhz)
+                log.info(f"[SKIMMER-DIAG] skimmer_set_channels received: freqs={freqs} vfo_mhz={vfo_mhz} -> pool.active={cw_skimmer_pool.active} channels={len(cw_skimmer_pool.channels)}")
+
+            elif cmd == 'skimmer_stop_channels':
+                cw_skimmer_pool.clear()
+                log.debug("Skimmer pool: cleared")
+                state['cw_skimmer_detect'] = False
+
+            # ── CW / Morse ───────────────────────────────────────────
+            elif cmd == 'cw_enable':
+                activate = bool(d.get('active', False))
+                if activate:
+                    await _check_iq_mode()
+                    deactivate_all_decoders()
+                    cw_dec.active = True
+                    active_decoder_slug = 'cw'
+                    cw_dec.reset()
+                else:
+                    cw_dec.active = False
+                    if active_decoder_slug == 'cw':
+                        active_decoder_slug = None
+
+            elif cmd == 'cw_set_tone':
+                cw_dec.set_tone(d.get('hz', 700))
+
+            elif cmd == 'cw_set_threshold':
+                cw_dec.set_threshold(d.get('value', 8.0))
+
+            elif cmd == 'cw_set_auto_threshold':
+                cw_dec.set_auto_threshold(d.get('on', False))
+
+            elif cmd == 'cw_wf_zoom':
+                # Real zoom level for the CW mini-waterfall (2026-07-16, w032)
+                # — see the _cwzoom_buf/_cwzoom_win_cache module comment near
+                # _AUDIO_FFT_SIZE. Frontend sends this whenever cwWfAdjustZoom()
+                # changes DS.cwWfZoom, so the backend can scale its FFT size to
+                # match instead of the frontend just cropping/interpolating a
+                # fixed-resolution array. Clamped to the same levels the
+                # frontend's own CW_WF_ZOOM_LEVELS offers, so a stray/future
+                # value can't request an absurdly large FFT.
+                _zoom_req = d.get('level', 1)
+                try:
+                    _zoom_req = int(_zoom_req)
+                except (TypeError, ValueError):
+                    _zoom_req = 1
+                state['cw_wf_zoom'] = _zoom_req if _zoom_req in (1, 2, 4, 8) else 1
+                log.debug(f"CW mini-waterfall zoom: {state['cw_wf_zoom']}x")
+
+            elif cmd == 'cw_clear':
+                cw_dec.reset()
+                await ws.send(json.dumps({"type": "cw_frame", "text": ""}))
+
+            # ── RTTY ─────────────────────────────────────────────────
+            elif cmd == 'rtty_enable':
+                activate = bool(d.get('active', False))
+                rtty_dec.shift = int(d.get('shift', 170))
+                if activate:
+                    await _check_iq_mode()
+                    deactivate_all_decoders()
+                    rtty_dec.active = True
+                    active_decoder_slug = 'rtty'
+                    rtty_dec.reset()
+                else:
+                    rtty_dec.active = False
+                    if active_decoder_slug == 'rtty':
+                        active_decoder_slug = None
+
+            # ── RTTY SET PARAMS ──────────────────────────────────────
+            elif cmd == 'rtty_set_params':
+                mark  = d.get('mark_hz')
+                shift = d.get('shift')
+                baud  = d.get('baud')
+                if mark  is not None:
+                    rtty_dec.mark  = int(float(mark))
+                if shift is not None:
+                    rtty_dec.shift = int(float(shift))
+                if baud  is not None:
+                    rtty_dec.baud        = float(baud)
+                    rtty_dec.bit_samples = 48000.0 / rtty_dec.baud
+                log.info(f"RTTY params → mark={rtty_dec.mark} shift={rtty_dec.shift} "
+                         f"baud={rtty_dec.baud:.2f} space={rtty_dec.mark - rtty_dec.shift}")
+                rtty_dec.reset()
+
+            # ── RTTY FIGS ───────────────────────────────────────────
+            elif cmd == 'rtty_enable_figs':
+                enable = bool(d.get('enable', False))
+                rtty_dec.enable_figs(enable)
+                if not enable:
+                    # Ensure we do not hold onto stale FIGS map
+                    rtty_dec.FIGS_MAP = None
+                await ws.send(json.dumps({"type": "rtty_figs_status", "enabled": enable}))
+
+            # ── RTTY AUTO-DETECT ─────────────────────────────────────
+            elif cmd == 'rtty_autodetect':
+                global _rtty_capture_buf, _rtty_capture_ws, _rtty_capture_gen
+                if _rtty_capture_buf is not None:
+                    # Already running — ignore duplicate request
+                    await ws.send(json.dumps({"type": "rtty_autodetect_status", "status": "busy"}))
+                else:
+                    _rtty_capture_buf = bytearray()
+                    _rtty_capture_ws  = ws
+                    # BUGFIX (June 2026, #4): remember which frontend
+                    # "generation" requested this capture so the eventual
+                    # reply can be echoed with the same gen — lets the
+                    # frontend recognize and discard a reply that arrives
+                    # after the user has since loaded a different preset
+                    # or turned autodetect off (see HTML rttyHandleAutodetect).
+                    _rtty_capture_gen = d.get('gen')
+                    await ws.send(json.dumps({"type": "rtty_autodetect_status", "status": "listening"}))
+
+            # ── WEFAX ────────────────────────────────────────────────
+            elif cmd == 'wefax_enable':
+                activate = bool(d.get('active', False))
+                if activate:
+                    await _check_iq_mode()
+                    deactivate_all_decoders()
+                    fax_dec.active = True
+                    active_decoder_slug = 'wefax'
+                else:
+                    fax_dec.active = False
+                    if active_decoder_slug == 'wefax':
+                        active_decoder_slug = None
+
+            elif cmd == 'wefax_configure':
+                fax_dec.configure(d.get('rpm', 120), d.get('ioc', 576))
+
+            elif cmd == 'wefax_stop':
+                fax_dec.active = False
+
+            elif cmd == 'wefax_clear':
+                fax_dec.buffer = []
+                await ws.send(json.dumps({"type": "wefax_clear"}))
+
+            # ── SSTV (w033 fork, 2026-07-19) ──────────────────────────
+            elif cmd == 'sstv_enable':
+                activate = bool(d.get('active', False))
+                if activate:
+                    await _check_iq_mode()
+                    deactivate_all_decoders()
+                    sstv_dec.active = True
+                    active_decoder_slug = 'sstv'
+                else:
+                    sstv_dec.active = False
+                    if active_decoder_slug == 'sstv':
+                        active_decoder_slug = None
+
+            elif cmd == 'sstv_clear':
+                sstv_dec.reset()
+                await ws.send(json.dumps({"type": "sstv_clear"}))
+
+            # ── POCSAG ───────────────────────────────────────────────
+            elif cmd == 'pocsag_enable':
+                activate = bool(d.get('active', False))
+                poc_dec.active = activate
+                poc_dec.baud   = int(d.get('baud', 1200))
+                if activate:
+                    await _check_iq_mode()
+                    poc_dec.reset()
+
+            elif cmd == 'pocsag_clear':
+                poc_dec.reset()
+
+            # ── ACARS ────────────────────────────────────────────────
+            elif cmd == 'acars_enable':
+                activate = bool(d.get('active', False))
+                if activate:
+                    await _check_iq_mode()
+                    deactivate_all_decoders()
+                    acars_dec.active = True
+                    active_decoder_slug = 'acars'
+                    acars_dec.reset()
+                else:
+                    acars_dec.active = False
+                    if active_decoder_slug == 'acars':
+                        active_decoder_slug = None
+
+            elif cmd == 'acars_clear':
+                acars_dec.reset()
+                await ws.send(json.dumps({"type": "acars_clear"}))
+
+            # ── Multimon-NG ───────────────────────────────────────────
+            elif cmd == 'multimon_enable':
+                activate = bool(d.get('active', d.get('enable', False)))
+                if activate:
+                    deactivate_all_decoders()
+                    modes = d.get('modes', multimon_dec.modes)
+                    if modes:
+                        multimon_dec.modes = [m for m in modes if m in MultimonDecoder.SUPPORTED_MODES]
+                    ok = multimon_dec.start(
+                        loop,
+                        lambda msg: broadcast_json(msg)
+                    )
+                    if ok:
+                        multimon_dec.active    = True
+                        active_decoder_slug    = 'multimon'
+                    else:
+                        multimon_dec.active    = False
+                        active_decoder_slug    = None
+                else:
+                    multimon_dec.stop()
+                    multimon_dec.active = False
+                    if active_decoder_slug == 'multimon':
+                        active_decoder_slug = None
+
+            elif cmd == 'multimon_set_modes':
+                modes = d.get('modes', [])
+                multimon_dec.modes = [m for m in modes if m in MultimonDecoder.SUPPORTED_MODES]
+                # If already running, restart with new modes
+                if multimon_dec.active:
+                    multimon_dec.stop()
+                    multimon_dec.start(loop, lambda msg: broadcast_json(msg))
+                    multimon_dec.active = True
+                await broadcast_json({
+                    "type": "multimon_status",
+                    "running": multimon_dec.active,
+                    "modes": multimon_dec.modes,
+                })
+
+            # ── Numbers-station / HF-Intel (Baudot + DSC) ────────────────
+            elif cmd == 'rivet_enable':
+                activate = bool(d.get('active', d.get('enable', False)))
+                if activate:
+                    deactivate_all_decoders()
+                    mode = d.get('mode', rivet_dec.mode)
+                    ok = rivet_dec.start(mode, loop, lambda msg: broadcast_json(msg))
+                    active_decoder_slug = 'rivet' if ok else None
+                else:
+                    rivet_dec.stop()
+                    if active_decoder_slug == 'rivet':
+                        active_decoder_slug = None
+                await broadcast_json(rivet_dec.get_status())
+
+            elif cmd == 'rivet_set_mode':
+                mode = d.get('mode', 'dsc')
+                if rivet_dec.active:
+                    rivet_dec.stop()
+                    rivet_dec.start(mode, loop, lambda msg: broadcast_json(msg))
+                else:
+                    rivet_dec.mode = mode if mode in ('dsc', 'baudot') else 'dsc'
+                await broadcast_json(rivet_dec.get_status())
+
+            # ── FreeDV HF digital voice (codec2 freedv_rx) ────────────────
+            elif cmd == 'freedv_enable':
+                activate = bool(d.get('active', d.get('enable', False)))
+                if activate:
+                    deactivate_all_decoders()
+                    mode = d.get('mode', freedv_dec.mode)
+                    ok = freedv_dec.start(mode, loop, lambda msg: broadcast_json(msg))
+                    active_decoder_slug = 'freedv' if ok else None
+                else:
+                    freedv_dec.stop()
+                    if active_decoder_slug == 'freedv':
+                        active_decoder_slug = None
+                await broadcast_json(freedv_dec.get_status())
+
+            elif cmd == 'freedv_set_mode':
+                mode = d.get('mode', '700D')
+                if freedv_dec.active:
+                    freedv_dec.stop()
+                    freedv_dec.start(mode, loop, lambda msg: broadcast_json(msg))
+                else:
+                    freedv_dec.mode = mode if mode in FreeDvDecoder.SUPPORTED_MODES else '700D'
+                await broadcast_json(freedv_dec.get_status())
+
+            # ── Generic decoder_enable router (frontend → per-decoder cmd) ──
+            elif cmd == 'decoder_enable':
+                slug   = d.get('slug', '')
+                enable = bool(d.get('enable', False))
+                if slug == 'cw':
+                    d['active'] = enable
+                    d['cmd']    = 'cw_enable'
+                    cmd = 'cw_enable'
+                    # fall through — handled by cw_enable block below
+                    # (Python can't fall-through; duplicate the minimal logic)
+                    if enable:
+                        await _check_iq_mode()
+                        deactivate_all_decoders()
+                        cw_dec.active = True
+                        active_decoder_slug = 'cw'
+                        cw_dec.reset()
+                    else:
+                        cw_dec.active = False
+                        if active_decoder_slug == 'cw':
+                            active_decoder_slug = None
+                elif slug == 'rtty':
+                    if enable:
+                        await _check_iq_mode()
+                        deactivate_all_decoders()
+                        rtty_dec.active = True
+                        active_decoder_slug = 'rtty'
+                        rtty_dec.reset()
+                    else:
+                        rtty_dec.active = False
+                        if active_decoder_slug == 'rtty':
+                            active_decoder_slug = None
+                elif slug == 'wefax':
+                    if enable:
+                        await _check_iq_mode()
+                        deactivate_all_decoders()
+                        fax_dec.active = True
+                        active_decoder_slug = 'wefax'
+                    else:
+                        fax_dec.active = False
+                        if active_decoder_slug == 'wefax':
+                            active_decoder_slug = None
+                elif slug == 'sstv':
+                    if enable:
+                        await _check_iq_mode()
+                        deactivate_all_decoders()
+                        sstv_dec.active = True
+                        active_decoder_slug = 'sstv'
+                    else:
+                        sstv_dec.active = False
+                        if active_decoder_slug == 'sstv':
+                            active_decoder_slug = None
+                elif slug == 'pocsag':
+                    if enable:
+                        await _check_iq_mode()
+                        deactivate_all_decoders()
+                        poc_dec.active = True
+                        active_decoder_slug = 'pocsag'
+                        poc_dec.reset()
+                    else:
+                        poc_dec.active = False
+                        if active_decoder_slug == 'pocsag':
+                            active_decoder_slug = None
+                elif slug == 'acars':
+                    if enable:
+                        await _check_iq_mode()
+                        deactivate_all_decoders()
+                        acars_dec.active = True
+                        active_decoder_slug = 'acars'
+                        acars_dec.reset()
+                    else:
+                        acars_dec.active = False
+                        if active_decoder_slug == 'acars':
+                            active_decoder_slug = None
+                elif slug == 'multimon':
+                    if enable:
+                        deactivate_all_decoders()
+                        modes = d.get('modes', multimon_dec.modes)
+                        if modes:
+                            multimon_dec.modes = [m for m in modes if m in MultimonDecoder.SUPPORTED_MODES]
+                        ok = multimon_dec.start(loop, lambda msg: broadcast_json(msg))
+                        multimon_dec.active = ok
+                        active_decoder_slug = 'multimon' if ok else None
+                    else:
+                        multimon_dec.stop()
+                        multimon_dec.active = False
+                        if active_decoder_slug == 'multimon':
+                            active_decoder_slug = None
+                elif slug == 'ais':
+                    # BUGFIX (June 2026, "AIS not decoding" diagnosis): this slug
+                    # was previously missing entirely, so decoderStart('ais') in
+                    # the frontend fell through to the "unknown slug" warning
+                    # below and never touched state['ais_active'] — meaning
+                    # ais_udp_server()'s UDP-10110 listener never bound, no
+                    # matter how long Start was left running. The AIS tab's
+                    # "ACTIVE" badge was (and remains) a pure frontend cosmetic
+                    # set by _setBadge(), with zero backend correlation — this
+                    # is the actual root cause of vessels never appearing, not
+                    # the BW/tuning mismatch first suspected.
+                    #
+                    # AIS still has no internal demodulator (see ais_udp_server
+                    # docstring) — turning this on just opens the UDP listener
+                    # so an external decoder (e.g. AIS-catcher, see
+                    # docs/md/AIS-catcher_Setup.md) has somewhere to deliver
+                    # NMEA sentences. We report vessels_live back immediately so
+                    # the frontend can distinguish "listener open, no feed yet"
+                    # from genuinely fresh data.
+                    if enable:
+                        state['ais_active'] = True
+                        active_decoder_slug = 'ais'
+                        ais_dec.reset()
+                        ais_dec_dw.reset()   # w033: reset the Dire Wolf front end alongside it
+                    else:
+                        state['ais_active'] = False
+                        if active_decoder_slug == 'ais':
+                            active_decoder_slug = None
+                else:
+                    log.warning(f"decoder_enable: unknown slug '{slug}'")
+
+            # ── FT8 / WSPR ───────────────────────────────────────────
+            elif cmd == 'wspr_enable':
+                enable   = bool(d.get('enable', True))
+                dial_mhz = float(d.get('dial_mhz', wspr_dec._dial_mhz))
+                if enable:
+                    if not wspr_dec.active:
+                        wspr_dec.start(dial_mhz)
+                        active_decoder_slug = 'wspr'
+                    else:
+                        wspr_dec.set_dial(dial_mhz)
+                    await broadcast_json({
+                        "type": "wspr_status", "active": True,
+                        "dial_mhz": wspr_dec._dial_mhz,
+                        "wsprd": wspr_dec._wsprd_path or "not found",
+                        "spot_count": wspr_dec._spot_count,
+                        "cycle": wspr_dec._cycle_count,
+                    })
+                else:
+                    wspr_dec.stop()
+                    if active_decoder_slug == 'wspr':
+                        active_decoder_slug = None
+                    await broadcast_json({"type": "wspr_status", "active": False,
+                                          "dial_mhz": wspr_dec._dial_mhz})
+
+            elif cmd == 'wspr_set_dial':
+                dial_mhz = float(d.get('dial_mhz', 14.0956))
+                wspr_dec.set_dial(dial_mhz)
+                await broadcast_json({"type": "wspr_status", "active": wspr_dec.active,
+                                      "dial_mhz": dial_mhz})
+
+            elif cmd == 'wspr_clear':
+                wspr_dec._spot_count = 0
+                wspr_dec._cycle_count = 0
+                wspr_dec._last_spots  = []
+                await ws.send(json.dumps({"type": "wspr_clear"}))
+
+            elif cmd == 'ft8_enable':
+                activate = bool(d.get('active', False))
+                if activate:
+                    # ── Auto-launch WSJT-X if not already running ──────────
+                    _wsjtx_candidates = []
+                    if sys.platform == 'win32':
+                        _wsjtx_candidates = [
+                            r'C:\WSJT\wsjtx\bin\wsjtx.exe',
+                            r'C:\Program Files\WSJT-X\bin\wsjtx.exe',
+                            r'C:\Program Files (x86)\WSJT-X\bin\wsjtx.exe',
+                            str(Path(os.environ.get('LOCALAPPDATA','')) / 'WSJT-X' / 'bin' / 'wsjtx.exe'),
+                            'wsjtx.exe',
+                            'wsjtx',
+                        ]
+                    elif sys.platform == 'darwin':
+                        _wsjtx_candidates = [
+                            '/Applications/wsjtx.app/Contents/MacOS/wsjtx',
+                            str(Path.home() / 'Applications' / 'wsjtx.app' / 'Contents' / 'MacOS' / 'wsjtx'),
+                            'wsjtx',
+                        ]
+                    else:
+                        _wsjtx_candidates = [
+                            '/usr/bin/wsjtx',
+                            '/usr/local/bin/wsjtx',
+                            str(Path.home() / '.local' / 'bin' / 'wsjtx'),
+                            'wsjtx',
+                        ]
+
+                    # Check if already running (process name match)
+                    _wsjtx_running = False
+                    try:
+                        if sys.platform == 'win32':
+                            _out = subprocess.check_output(['tasklist', '/FI', 'IMAGENAME eq wsjtx.exe'],
+                                                           capture_output=False, text=True,
+                                                           stderr=subprocess.DEVNULL)
+                            _wsjtx_running = 'wsjtx.exe' in _out.lower()
+                        else:
+                            _out = subprocess.check_output(['pgrep', '-x', 'wsjtx'],
+                                                           stderr=subprocess.DEVNULL)
+                            _wsjtx_running = True
+                    except Exception:
+                        _wsjtx_running = False
+
+                    if not _wsjtx_running:
+                        _wsjtx_exe = None
+                        for _c in _wsjtx_candidates:
+                            try:
+                                if Path(_c).is_file():
+                                    _wsjtx_exe = _c
+                                    break
+                            except Exception:
+                                pass
+                            # Also try PATH lookup for bare names
+                            if not Path(_c).is_absolute():
+                                try:
+                                    subprocess.run([_c, '--help'], capture_output=True, timeout=2)
+                                    _wsjtx_exe = _c
+                                    break
+                                except Exception:
+                                    pass
+
+                        if _wsjtx_exe:
+                            try:
+                                _cleanup_wsjtx_shm()
+
+                                if sys.platform == 'darwin':
+                                    # Use 'open -g' so WSJT-X launches in the background
+                                    # without stealing focus from Chrome/DARKSKY.
+                                    _wsjtx_app = str(Path(_wsjtx_exe).parents[2])
+                                    subprocess.Popen(['open', '-g', _wsjtx_app],
+                                                     stdout=subprocess.DEVNULL,
+                                                     stderr=subprocess.DEVNULL)
+                                    _wsjtx_proc = None
+                                    # Monitor by process name (no direct handle with 'open')
+                                    def _wsjtx_monitor_open():
+                                        import time
+                                        for _ in range(20):          # wait up to 10s for wsjtx to appear
+                                            time.sleep(0.5)
+                                            try:
+                                                if subprocess.run(['pgrep', '-x', 'wsjtx'],
+                                                                  capture_output=True).returncode == 0:
+                                                    break
+                                            except Exception:
+                                                pass
+                                        # WSJT-X is running — Qt grabs focus during init even
+                                        # after 'open -g'. Wait for it to settle then push
+                                        # Chrome back to the front via AppleScript.
+                                        time.sleep(2.0)
+                                        try:
+                                            subprocess.run(
+                                                ['osascript', '-e',
+                                                 'tell application "Google Chrome" to activate'],
+                                                capture_output=True, timeout=5)
+                                            log.debug("FT8/WSPR: restored Chrome focus after WSJT-X launch")
+                                        except Exception as _fe:
+                                            log.debug(f"FT8/WSPR: focus restore failed: {_fe}")
+                                        while True:                  # poll until it exits
+                                            time.sleep(2)
+                                            try:
+                                                if subprocess.run(['pgrep', '-x', 'wsjtx'],
+                                                                  capture_output=True).returncode != 0:
+                                                    break
+                                            except Exception:
+                                                break
+                                        _cleanup_wsjtx_shm()
+                                        log.debug("FT8/WSPR: WSJT-X exited, shared memory cleaned up")
+                                    threading.Thread(target=_wsjtx_monitor_open,
+                                                     daemon=True, name='wsjtx-monitor').start()
+                                else:
+                                    _wsjtx_proc = subprocess.Popen([_wsjtx_exe],
+                                                     stdout=subprocess.DEVNULL,
+                                                     stderr=subprocess.PIPE)
+                                    def _wsjtx_monitor(_p):
+                                        _p.wait()
+                                        _cleanup_wsjtx_shm()
+                                        log.debug("FT8/WSPR: WSJT-X exited, shared memory cleaned up")
+                                    threading.Thread(target=_wsjtx_monitor, args=(_wsjtx_proc,),
+                                                     daemon=True, name='wsjtx-monitor').start()
+
+                                log.info(f"FT8/WSPR: launched WSJT-X ({_wsjtx_exe})")
+                                await ws.send(json.dumps({
+                                    "type": "ft8_status", "active": True, "numpy": True,
+                                    "mode": ft8_dec.mode, "source": "wsjtx",
+                                    "path": None, "wsjtx_launching": True,
+                                }))
+                                await asyncio.sleep(4)   # give WSJT-X time to start + write ALL.TXT
+                                if _wsjtx_proc is not None and _wsjtx_proc.poll() is not None:
+                                    _err = (_wsjtx_proc.stderr.read() or b'').decode(errors='replace').strip()
+                                    log.warning(f"FT8/WSPR: WSJT-X exited immediately — {_err or 'unknown error'}")
+                                    await ws.send(json.dumps({
+                                        "type": "ft8_status", "active": False, "numpy": True,
+                                        "mode": ft8_dec.mode, "source": "wsjtx",
+                                        "path": None, "wsjtx_error": _err or "WSJT-X exited immediately",
+                                    }))
+                            except Exception as _e:
+                                log.warning(f"FT8/WSPR: failed to launch WSJT-X: {_e}")
+                        else:
+                            log.warning("FT8/WSPR: WSJT-X not found — start it manually")
+                            await ws.send(json.dumps({
+                                "type": "ft8_status", "active": True, "numpy": True,
+                                "mode": ft8_dec.mode, "source": "wsjtx",
+                                "path": None, "wsjtx_not_found": True,
+                            }))
+                    else:
+                        log.info("FT8/WSPR: WSJT-X already running")
+
+                    # FT8/WSPR uses WSJT-X ALL.TXT tail — no IQ needed
+                    ft8_dec.active = True
+                    ft8_dec.reset()
+                    ft8_dec.start_watching(loop)
+                    active_decoder_slug = 'ft8'
+                    log.info(f"FT8/WSPR: started, watching WSJT-X ALL.TXT")
+                    await ws.send(json.dumps({
+                        "type":   "ft8_status",
+                        "active": True,
+                        "numpy":  True,
+                        "mode":   ft8_dec.mode,
+                        "source": "wsjtx",
+                        "path":   str(ft8_dec._path) if ft8_dec._path else None,
+                    }))
+                else:
+                    ft8_dec.active = False
+                    if active_decoder_slug == 'ft8':
+                        active_decoder_slug = None
+                    await ws.send(json.dumps({
+                        "type":   "ft8_status",
+                        "active": False,
+                        "numpy":  True,
+                        "mode":   ft8_dec.mode,
+                    }))
+
+            elif cmd == 'ft8_internal_enable':
+                # w030: native/client-side FT8 decode (ft8ts, in a browser Web
+                # Worker) — independent of ft8_dec above, which only tails
+                # WSJT-X's ALL.txt. All this needs from us is real demodulated
+                # mono audio, broadcast via _ft8_broadcast_audio() at each
+                # demod hook point when this flag is on. See the flag's
+                # definition (~line 4560) for the wire format.
+                global ft8_internal_active
+                ft8_internal_active = bool(d.get('active', False))
+                log.info(f"FT8 internal (native ft8ts) audio feed: "
+                         f"{'ON' if ft8_internal_active else 'OFF'}")
+                await ws.send(json.dumps({
+                    "type": "ft8_internal_status",
+                    "active": ft8_internal_active,
+                }))
+
+            elif cmd == 'ft8_set_mode':
+                mode = d.get('mode', 'ft8')
+                ft8_dec.set_mode(mode)
+                # Also send Configure to WSJT-X so it switches mode in sync
+                _wsjtx_configure_mode(ft8_dec.mode)
+                await ws.send(json.dumps({
+                    "type": "ft8_status",
+                    "numpy": True,
+                    "active": ft8_dec.active,
+                    "mode": ft8_dec.mode,
+                }))
+
+            elif cmd == 'ft8_clear':
+                ft8_dec.reset()
+                await ws.send(json.dumps({"type": "ft8_clear"}))
+
+            elif cmd == 'ft8_set_cat_port':
+                # Save the Hamlib NET rigctld port for WSJT-X CAT control
+                _cat_port = int(d.get('port', 4532))
+                state['wsjtx_cat_port'] = _cat_port
+                config['wsjtx_rigctl_port'] = _cat_port
+                save_config(config)
+                log.info(f"FT8: WSJT-X CAT port set to {_cat_port}")
+
+            elif cmd == 'ft8_tune':
+                # Relay frequency to WSJT-X.
+                # PRIMARY:   Hamlib NET rigctld TCP — sends SET_FREQ to the same CAT port
+                #            that WSJT-X uses to poll SDRConnect.  When SDRConnect receives
+                #            this it updates its radio state; WSJT-X picks it up on the
+                #            next CAT poll (~1 s).  Port is user-configurable (FT8 panel).
+                # SECONDARY: WSJT-X UDP type-16 Dial_Frequency — works with WSJT-X builds
+                #            that support it (some 2.7+ / 3.x releases).
+                freq_hz = int(float(d.get('freq_mhz', 0)) * 1e6)
+                _cat_port = int(d.get('cat_port', 0)) or \
+                            state.get('wsjtx_cat_port', 0) or \
+                            config.get('wsjtx_rigctl_port', 4532)
+                if freq_hz > 0:
+                    # ── 1. Update wsjtx_hz — rigctld \get_freq returns this ───
+                    #    WSJTX polls rigctld at 1s interval; on its next poll it
+                    #    reads the new frequency and updates its Dial display.
+                    state['wsjtx_hz'] = freq_hz
+                    log.info(f"FT8: rigctld wsjtx_hz → {freq_hz/1e6:.4f} MHz (WSJTX will see on next poll)")
+
+                    # ── 2. WSJT-X UDP type-16 (for newer WSJT-X builds) ──────
+                    # PY-22: all struct/socket work hoisted to _wsjtx_send_freq().
+                    try:
+                        _wsjtx_send_freq(freq_hz)
+                        log.info(f"FT8: UDP Heartbeat+DialFreq {freq_hz/1e6:.4f} MHz → port 2237")
+                    except Exception as _ue:
+                        log.debug(f"FT8: WSJT-X UDP tune failed: {_ue}")
+
+            # ── fldigi ───────────────────────────────────────────────
+            elif cmd == 'fldigi_start':
+                # Launch fldigi if not already running; poller will connect automatically.
+                mode = d.get('mode', state.get('fldigi_mode', 'PSK31'))
+                state['fldigi_mode'] = mode
+                launched = _fldigi_launch()
+                # Also set mode immediately if already connected
+                if _fldigi_xmlrpc is not None:
+                    try:
+                        fldigi_name = FLDIGI_MODE_MAP.get(mode, mode)
+                        if fldigi_name:
+                            await _xrpc(_fldigi_xmlrpc.modem.set_by_name, fldigi_name)
+                            log.info(f"fldigi_start: mode set to {fldigi_name!r}")
+                    except Exception as _fe:
+                        log.warning(f"fldigi_start set_mode error: {_fe}")
+                await broadcast_json({
+                    "type": "fldigi_status",
+                    "connected": _fldigi_xmlrpc is not None,
+                    "running": _fldigi_xmlrpc is not None,
+                    "mode": mode, "launching": launched,
+                })
+
+            elif cmd == 'fldigi_set_mode':
+                mode = d.get('mode', 'PSK31')
+                state['fldigi_mode'] = mode
+                if _fldigi_xmlrpc is not None:
+                    try:
+                        fldigi_name = FLDIGI_MODE_MAP.get(mode, mode)
+                        if not fldigi_name:
+                            log.warning(f"fldigi: no XML-RPC name known for mode {mode!r}")
+                        else:
+                            await _xrpc(_fldigi_xmlrpc.modem.set_by_name, fldigi_name)
+                            log.info(f"fldigi: mode set to {fldigi_name}")
+                    except Exception as _fe:
+                        log.warning(f"fldigi set_mode error: {_fe}")
+                await broadcast_json({
+                    "type": "fldigi_status", "running": state.get('fldigi_active', False),
+                    "mode": mode,
+                })
+
+            elif cmd == 'fldigi_tune':
+                freq_hz = int(float(d.get('freq_mhz', 0)) * 1e6)
+                if freq_hz > 0:
+                    # Always cache the target so poller can sync on late connect
+                    state['fldigi_target_hz'] = freq_hz
+                    if _fldigi_xmlrpc is not None:
+                        try:
+                            # Compute dial so actual signal = freq_hz:
+                            #   USB: dial = freq - carrier  LSB: dial = freq + carrier
+                            _px_tune = _fldigi_xmlrpc
+                            _sb = str(await _xrpc(_px_tune.main.get_wf_sideband))
+                            _c  = _fldigi_carrier_hz
+                            dial_hz = freq_hz - _c if _sb != 'LSB' else freq_hz + _c
+                            # CRITICAL: update wsjtx_hz to DIAL freq so Hamlib
+                            # CAT polling returns same value as our XML-RPC call —
+                            # prevents fldigi reverting after its next 1s Hamlib poll.
+                            state['wsjtx_hz'] = dial_hz
+                            old_f = await _xrpc(_px_tune.main.set_frequency, float(dial_hz))
+                            log.info(f"fldigi: tune → dial {dial_hz/1e6:.4f} MHz "
+                                     f"(carrier {_c} Hz {_sb}, "
+                                     f"actual {freq_hz/1e6:.4f} MHz, was {old_f/1e6:.4f} MHz)")
+                            asyncio.create_task(_fldigi_retune(freq_hz))
+                            await ws.send(json.dumps({
+                                "type": "fldigi_status", "connected": True,
+                                "running": state.get('fldigi_active', False),
+                                "mode": state.get('fldigi_mode', 'PSK31'),
+                                "tuned_hz": freq_hz,
+                                "silent": True,
+                            }))
+                        except Exception as _fe:
+                            log.warning(f"fldigi tune error: {_fe}")
+                            await ws.send(json.dumps({
+                                "type": "fldigi_status", "connected": False,
+                                "running": False,
+                                "error": str(_fe),
+                            }))
+                            _fldigi_xmlrpc = None   # force reconnect
+                    else:
+                        log.warning("fldigi_tune: no XML-RPC connection")
+
+            elif cmd == 'fldigi_clear':
+                if _fldigi_xmlrpc is not None:
+                    try:
+                        await _xrpc(_fldigi_xmlrpc.text.clear_rx)
+                        _fldigi_rx_offset = 0
+                    except Exception:
+                        pass
+                await broadcast_json({"type": "fldigi_clear"})
+
+            elif cmd == 'fldigi_set_carrier':
+                # Move fldigi modem carrier within audio passband (Hz)
+                hz = int(float(d.get('hz', 1000)))
+                hz = max(100, min(4000, hz))
+                if _fldigi_xmlrpc is not None:
+                    try:
+                        await _xrpc(_fldigi_xmlrpc.modem.set_carrier, hz)
+                        _fldigi_carrier_hz = hz
+                        log.debug(f"fldigi: carrier set to {hz} Hz")
+                    except Exception as _fe:
+                        log.warning(f"fldigi set_carrier error: {_fe}")
+                await broadcast_json({"type": "fldigi_stats",
+                                      "carrier": hz,
+                                      "mode": state.get('fldigi_mode', 'PSK31')})
+
+            elif cmd == 'fldigi_set_bw':
+                # Set modem bandwidth (Hz) — PSK/RTTY/Olivia etc.
+                hz = int(float(d.get('hz', 500)))
+                hz = max(10, min(4000, hz))
+                if _fldigi_xmlrpc is not None:
+                    try:
+                        await _xrpc(_fldigi_xmlrpc.modem.set_bandwidth, hz)
+                        log.debug(f"fldigi: bandwidth set to {hz} Hz")
+                    except Exception as _fe:
+                        log.warning(f"fldigi set_bandwidth error: {_fe}")
+                await broadcast_json({"type": "fldigi_stats",
+                                      "bandwidth": hz,
+                                      "mode": state.get('fldigi_mode', 'PSK31')})
+
+            elif cmd == 'fldigi_set_wpm':
+                # Set CW words-per-minute
+                wpm = int(float(d.get('wpm', 20)))
+                wpm = max(5, min(100, wpm))
+                if _fldigi_xmlrpc is not None:
+                    try:
+                        await _xrpc(_fldigi_xmlrpc.main.set_wpm, wpm)
+                        log.debug(f"fldigi: WPM set to {wpm}")
+                    except Exception as _fe:
+                        log.warning(f"fldigi set_wpm error: {_fe}")
+                await broadcast_json({"type": "fldigi_stats",
+                                      "wpm": wpm,
+                                      "mode": state.get('fldigi_mode', 'PSK31')})
+
+            elif cmd == 'fldigi_set_afc':
+                # Toggle AFC on/off
+                on = bool(d.get('on', True))
+                if _fldigi_xmlrpc is not None:
+                    try:
+                        await _xrpc(_fldigi_xmlrpc.main.set_afc, on)
+                        log.debug(f"fldigi: AFC {'on' if on else 'off'}")
+                    except Exception as _fe:
+                        log.warning(f"fldigi set_afc error: {_fe}")
+                await broadcast_json({"type": "fldigi_afc", "on": on})
+
+            elif cmd == 'fldigi_set_squelch':
+                # Set squelch on/off and/or level (dB)
+                on    = d.get('on', None)
+                level = d.get('level', None)
+                if _fldigi_xmlrpc is not None:
+                    try:
+                        if on is not None:
+                            await _xrpc(_fldigi_xmlrpc.main.set_squelch, bool(on))
+                        if level is not None:
+                            lvl = max(-100.0, min(0.0, float(level)))
+                            await _xrpc(_fldigi_xmlrpc.main.set_squelch_level, lvl)
+                        log.debug(f"fldigi: squelch on={on} level={level}")
+                    except Exception as _fe:
+                        log.warning(f"fldigi set_squelch error: {_fe}")
+                sq_payload = {"type": "fldigi_squelch"}
+                if on    is not None: sq_payload["on"]    = bool(on)
+                if level is not None: sq_payload["level"] = float(level)
+                await broadcast_json(sq_payload)
+
+            # ── ADS-B ────────────────────────────────────────────────
+            elif cmd == 'adsb_start':
+                state['adsb_active'] = True
+                await broadcast_json({'type': 'adsb_status', 'running': True,
+                                      'count': len(_adsb_aircraft)})
+            elif cmd == 'adsb_stop':
+                state['adsb_active'] = False
+                _adsb_aircraft.clear()
+                await broadcast_json({'type': 'adsb_status', 'running': False, 'count': 0})
+            elif cmd == 'adsb_clear':
+                _adsb_aircraft.clear()
+                await broadcast_json({'type': 'adsb_update', 'aircraft': [], 'count': 0})
+
+            # ── HFDL ─────────────────────────────────────────────────
+            elif cmd == 'hfdl_start':
+                # Accept optional device/freq overrides from frontend
+                if 'device' in d:
+                    state['hfdl_device'] = d['device']
+                if 'freqs' in d:
+                    state['hfdl_freqs'] = d['freqs']
+                if 'sample_rate' in d:
+                    state['hfdl_sample_rate'] = int(d['sample_rate'])
+                state['hfdl_active'] = True
+                # Try to auto-launch dumphfdl
+                proc, err = _launch_dumphfdl()
+                if proc:
+                    await broadcast_json({'type': 'hfdl_status', 'running': True,
+                                          'auto_launched': True})
+                elif err:
+                    await broadcast_json({'type': 'hfdl_status', 'running': False,
+                                          'auto_launched': False,
+                                          'error': err})
+            elif cmd == 'hfdl_stop':
+                state['hfdl_active'] = False
+                _hfdl_messages.clear()
+                # Terminate auto-launched process if running
+                if _hfdl_proc is not None and _hfdl_proc.poll() is None:
+                    try:
+                        _hfdl_proc.terminate()
+                        _hfdl_proc.wait(timeout=3)
+                    except Exception:
+                        try: _hfdl_proc.kill()
+                        except Exception: pass
+                await broadcast_json({'type': 'hfdl_status', 'running': False})
+            elif cmd == 'hfdl_clear':
+                _hfdl_messages.clear()
+                await broadcast_json({'type': 'hfdl_clear'})
+
+            # ── VDL2 ─────────────────────────────────────────────────
+            elif cmd == 'vdl2_start':
+                if 'device' in d:
+                    state['vdl2_device'] = d['device']
+                if 'freqs' in d:
+                    state['vdl2_freqs'] = d['freqs']
+                if 'sample_rate' in d:
+                    state['vdl2_sample_rate'] = int(d['sample_rate'])
+                state['vdl2_active'] = True
+                proc, err = _launch_dumpvdl2()
+                if proc:
+                    await broadcast_json({'type': 'vdl2_status', 'running': True,
+                                          'auto_launched': True})
+                elif err:
+                    await broadcast_json({'type': 'vdl2_status', 'running': False,
+                                          'auto_launched': False,
+                                          'error': err})
+            elif cmd == 'vdl2_stop':
+                state['vdl2_active'] = False
+                _vdl2_messages.clear()
+                if _vdl2_proc is not None and _vdl2_proc.poll() is None:
+                    try:
+                        _vdl2_proc.terminate()
+                        _vdl2_proc.wait(timeout=3)
+                    except Exception:
+                        try: _vdl2_proc.kill()
+                        except Exception: pass
+                await broadcast_json({'type': 'vdl2_status', 'running': False})
+            elif cmd == 'vdl2_clear':
+                _vdl2_messages.clear()
+                await broadcast_json({'type': 'vdl2_clear'})
+
+            # ── rtl_433 (w033 fork, 2026-07-19) ───────────────────────
+            elif cmd == 'rtl433_start':
+                if 'device' in d:
+                    state['rtl433_device'] = d['device']
+                if 'freq_mhz' in d:
+                    state['rtl433_freq_mhz'] = float(d['freq_mhz'])
+                state['rtl433_active'] = True
+                proc, err = _launch_rtl433()
+                if proc:
+                    await broadcast_json({'type': 'rtl433_status', 'running': True,
+                                          'auto_launched': True})
+                elif err:
+                    await broadcast_json({'type': 'rtl433_status', 'running': False,
+                                          'auto_launched': False, 'error': err})
+            elif cmd == 'rtl433_stop':
+                state['rtl433_active'] = False
+                _rtl433_messages.clear()
+                if _rtl433_proc is not None and _rtl433_proc.poll() is None:
+                    try:
+                        _rtl433_proc.terminate()
+                        _rtl433_proc.wait(timeout=3)
+                    except Exception:
+                        try: _rtl433_proc.kill()
+                        except Exception: pass
+                await broadcast_json({'type': 'rtl433_status', 'running': False})
+            elif cmd == 'rtl433_clear':
+                _rtl433_messages.clear()
+                await broadcast_json({'type': 'rtl433_clear'})
+
+            # ── DSD / DSD+ ───────────────────────────────────────────
+            elif cmd == 'dsd_start':
+                if 'audio_device' in d:
+                    state['dsd_audio_device'] = d['audio_device']
+                state['dsd_active'] = True
+            elif cmd == 'dsd_stop':
+                state['dsd_active'] = False
+                _dsd_messages.clear()
+                await broadcast_json({'type': 'dsd_status', 'running': False})
+            elif cmd == 'dsd_clear':
+                _dsd_messages.clear()
+                await broadcast_json({'type': 'dsd_clear'})
+
+            # ── DAB / DAB+ ───────────────────────────────────────────
+            elif cmd == 'dab_start':
+                state['dab_active'] = True
+            elif cmd == 'dab_stop':
+                state['dab_active'] = False
+                await broadcast_json({'type': 'dab_status', 'running': False})
+            elif cmd == 'dab_clear':
+                _dab_services.clear()
+                await broadcast_json({'type': 'dab_clear'})
+            elif cmd == 'dab_set_channel':
+                state['dab_channel'] = d.get('channel', state.get('dab_channel', '12C'))
+                state['dab_freq_hz'] = int(float(d.get('freq_mhz', 227.360)) * 1e6)
+                state['dab_play_sid'] = None
+                # Force a relaunch on the next engine tick if already running
+                # (dab-cmdline has no runtime channel-switch — kill & restart)
+                if state.get('dab_active'):
+                    global _dab_proc
+                    if _dab_proc is not None:
+                        try:
+                            _dab_proc.terminate()
+                        except Exception:
+                            pass
+                        _dab_proc = None
+            elif cmd == 'dab_play_service':
+                # dab-cmdline selects the audio service via -S at launch —
+                # there's no live switch, so the engine relaunches the
+                # process when it sees dab_play_sid change.
+                state['dab_play_sid'] = d.get('sid')
+            elif cmd == 'dab_stop_service':
+                state['dab_play_sid'] = None
+
+            # ── Trunked P25/DMR/NXDN ─────────────────────────────────
+            elif cmd == 'trunk_start':
+                state['trunk_active'] = True
+            elif cmd == 'trunk_stop':
+                state['trunk_active'] = False
+                await broadcast_json({'type': 'trunk_status', 'running': False})
+            elif cmd == 'trunk_clear':
+                _trunk_calls.clear()
+                await broadcast_json({'type': 'trunk_clear'})
+            elif cmd == 'trunk_set_cc':
+                state['trunk_cc_freq_hz'] = int(float(d.get('freq_mhz', 0)) * 1e6)
+                global _trunk_proc
+                if state.get('trunk_active') and _trunk_proc is not None:
+                    try:
+                        _trunk_proc.terminate()
+                    except Exception:
+                        pass
+                    _trunk_proc = None
+
+            # ── APRS ─────────────────────────────────────────────────
+            elif cmd == 'aprs_start':
+                source = d.get('source', state.get('aprs_source', 'internet'))
+                state['aprs_active'] = True
+                state['aprs_source'] = source
+                if 'lat'    in d: state['aprs_lat']       = float(d['lat'])
+                if 'lon'    in d: state['aprs_lon']       = float(d['lon'])
+                if 'radius' in d: state['aprs_radius']    = int(d['radius'])
+                if 'kiss_host' in d: state['aprs_kiss_host'] = d['kiss_host']
+                if 'kiss_port' in d: state['aprs_kiss_port'] = int(d['kiss_port'])
+                stations_list = list(aprs_stations.values())
+                await broadcast_json({
+                    "type": "aprs_status", "running": True, "source": source,
+                    "count": len(stations_list),
+                })
+                if stations_list:
+                    await broadcast_json({"type": "aprs_update", "stations": stations_list})
+
+            elif cmd == 'aprs_stop':
+                state['aprs_active'] = False
+                aprs_stations.clear()
+                await broadcast_json({"type": "aprs_status", "running": False, "count": 0})
+
+            elif cmd == 'aprs_request_state':
+                await broadcast_json({
+                    "type": "aprs_update", "stations": list(aprs_stations.values()),
+                })
+
+            elif cmd == 'aprs_set_filter':
+                if 'lat'    in d: state['aprs_lat']    = float(d['lat'])
+                if 'lon'    in d: state['aprs_lon']    = float(d['lon'])
+                if 'radius' in d: state['aprs_radius'] = int(d['radius'])
+                # Restart will pick up new filter on next reconnect
+
+            # ── AIS ──────────────────────────────────────────────────
+            elif cmd == 'ais_start':
+                port = int(d.get('port', state.get('ais_port', AIS_UDP_PORT)))
+                state['ais_active'] = True
+                state['ais_port']   = port
+                vessels_list = list(ais_vessels.values())
+                await ws.send(json.dumps({
+                    "type": "ais_status", "running": True,
+                    "port": port, "count": len(vessels_list),
+                }))
+                if vessels_list:
+                    await ws.send(json.dumps({"type": "ais_update", "vessels": vessels_list}))
+                # BUGFIX (2026-07-15, w031 live decoder-testing pass): every
+                # other Full-IQ-only decoder's start handler calls
+                # _check_iq_mode() so the browser gets an "iq_mode_warning"
+                # toast when Compact/IQ-Lite mode can't actually deliver what
+                # the decoder needs — AIS's ais_dec.process_iq() call is
+                # Full-IQ-only (the only call site is inside the _fiq_c
+                # branch; see w031 CHANGELOG), but this handler was the one
+                # exception that never called it. Result: clicking AIS from
+                # the Marine/VHF tab in Compact mode showed "running: True"
+                # with zero vessels and zero indication anything was wrong —
+                # live-confirmed 2026-07-15 (RSPdx, tuned off the VHF marine
+                # band as an additional confound, but the missing warning is
+                # real and reproducible independent of that).
+                await _check_iq_mode()
+
+            elif cmd == 'ais_stop':
+                state['ais_active'] = False
+                ais_vessels.clear()
+                _ais_fragments.clear()
+                await ws.send(json.dumps({"type": "ais_status", "running": False, "count": 0}))
+
+            elif cmd == 'ais_request_state':
+                vessels_list = list(ais_vessels.values())
+                await ws.send(json.dumps({"type": "ais_update", "vessels": vessels_list}))
+
+            # ── AIS aisstream.io key management (2026-07-17) ────────────
+            # REMOVED (2026-07-18, user request): VesselAPI's three GUI
+            # key-management commands (ais_set_vesselapi_key,
+            # ais_get_vesselapi_key_status, ais_clear_vesselapi_key) used to
+            # live here. aisstream.io below is now the only provider.
+            elif cmd == 'ais_set_aisstream_key':
+                key = (d.get('key') or '').strip()
+                if not key:
+                    await ws.send(json.dumps({"type": "ais_key_status", "ok": False,
+                                               "provider": "aisstream", "error": "Empty key"}))
+                else:
+                    _ais_aisstream_save_key(key)
+                    globals()['AIS_AISSTREAM_KEY'] = key
+                    log.info(f"AIS: aisstream.io key updated via GUI (ends '...{key[-4:]}')")
+                    await ws.send(json.dumps({"type": "ais_key_status", "ok": True,
+                                               "provider": "aisstream",
+                                               "configured": True, "key_tail": key[-4:]}))
+
+            elif cmd == 'ais_get_aisstream_key_status':
+                configured = bool(AIS_AISSTREAM_KEY)
+                await ws.send(json.dumps({
+                    "type": "ais_key_status", "ok": True, "provider": "aisstream",
+                    "configured": configured,
+                    "key_tail": AIS_AISSTREAM_KEY[-4:] if configured else None,
+                }))
+
+            elif cmd == 'ais_clear_aisstream_key':
+                try:
+                    if os.path.exists(AIS_AISSTREAM_KEYFILE):
+                        os.remove(AIS_AISSTREAM_KEYFILE)
+                except Exception as exc:
+                    log.warning(f"AIS: couldn't remove aisstream.io keyfile: {exc}")
+                globals()['AIS_AISSTREAM_KEY'] = ''
+                log.info("AIS: aisstream.io key cleared via GUI")
+                await ws.send(json.dumps({"type": "ais_key_status", "ok": True,
+                                           "provider": "aisstream",
+                                           "configured": False, "key_tail": None}))
+
+            # ── Recording (REC button: AUD/IQ modes) ────────────────────
+            # See _rec_write_audio()/_rec_write_iq()/_rec_stop_and_report()
+            # near the AIS globals above for the tap points and file writers.
+            elif cmd == 'rec_start':
+                mode = d.get('mode', 'audio')
+                if mode not in ('audio', 'iq'):
+                    mode = 'audio'
+                if mode == 'iq' and state.get('stream_mode') != 'Full IQ':
+                    # Raw IQ recording only makes sense against the actual
+                    # hardware-rate IQ stream -- Compact/IQ-Lite modes never
+                    # deliver that (see the t==2 branch's IQ-Lite comment),
+                    # so failing loudly here beats silently writing an
+                    # empty/all-zero file forever.
+                    await ws.send(json.dumps({"type": "rec_error",
+                        "msg": "IQ recording needs Full IQ device mode (currently: " +
+                               str(state.get('stream_mode') or 'unknown') + ")"}))
+                else:
+                    globals()['_rec_active']     = True
+                    globals()['_rec_mode']       = mode
+                    globals()['_rec_path']       = _rec_new_path(mode)
+                    globals()['_rec_started_at'] = time.time()
+                    globals()['_rec_bytes']      = 0
+                    log.info(f"REC: started ({mode}) -> {_rec_path}")
+                    await ws.send(json.dumps({"type": "rec_started", "mode": mode, "path": _rec_path}))
+
+            elif cmd == 'rec_stop':
+                if _rec_active:
+                    await _rec_stop_and_report()
+                    log.info("REC: stopped")
+                else:
+                    await ws.send(json.dumps({"type": "rec_error", "msg": "not recording"}))
+
+            # ── ADS-B ────────────────────────────────────────────────
+            elif cmd == 'adsb_start':
+                await ws.send(json.dumps({"type": "adsb_status", "running": True}))
+
+            elif cmd == 'adsb_stop':
+                await ws.send(json.dumps({"type": "adsb_status", "running": False}))
+
+            # ── CSV Upload ───────────────────────────────────────────
+            elif cmd == 'csv_upload':
+                # Save uploaded CSV content to disk for SigIntEngine
+                csv_type = d.get('csv_type', 'custom')
+                content  = d.get('content', '')
+                filename = d.get('filename', f'{csv_type}.csv')
+                # Map type to canonical filename so SigIntEngine SOURCES can find it
+                _type_to_file = {
+                    'swskeds': 'swskeds.csv',
+                    'hfcc':    'hfcc_sked.csv',
+                    'fmlist':  'fmlist_sked.csv',
+                    'mwlist':  'mwlist_sked.csv',
+                    'fmscan':  'fmscan_sked.csv',
+                    'user':    'user_sked.csv',
+                }
+                save_name = _type_to_file.get(csv_type, Path(filename).name)
+                fpath     = SCRIPT_DIR / save_name
+                try:
+                    with open(fpath, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    sigint = SigIntEngine()
+                    await ws.send(json.dumps({
+                        "type":    "db_status",
+                        "message": f"Loaded {fpath.name}",
+                        **sigint.status(),
+                    }))
+                except Exception as e:
+                    await ws.send(json.dumps({"type": "error", "message": str(e)}))
+
+            elif cmd == 'get_config':
+                await ws.send(json.dumps({"type": "config", "data": config}))
+
+            elif cmd == 'save_config':
+                config.update(d.get('data', {}))
+                save_config(config)
+                await ws.send(json.dumps({"type": "config_saved"}))
+
+            # ── BOOKMARKS ────────────────────────────────────────────
+            elif cmd == 'bm_list':
+                await ws.send(json.dumps({"type": "bookmarks", "bookmarks": bookmarks}))
+
+            elif cmd == 'bm_save':
+                import uuid as _uuid
+                entry = d.get('bookmark', {})
+                if not entry.get('name') or entry.get('freq_mhz') is None:
+                    await ws.send(json.dumps({"type": "bm_error", "msg": "name and freq_mhz required"}))
+                else:
+                    entry['freq_mhz'] = round(float(entry['freq_mhz']), 6)
+                    entry['mode']     = str(entry.get('mode', '')).upper() or 'NFM'
+                    entry['notes']    = str(entry.get('notes', ''))
+                    entry['group']    = str(entry.get('group', ''))
+                    bm_id = entry.get('id', '')
+                    idx = next((i for i, b in enumerate(bookmarks) if b.get('id') == bm_id), -1)
+                    if idx >= 0:
+                        entry['id'] = bm_id
+                        bookmarks[idx] = entry
+                    else:
+                        entry['id'] = str(_uuid.uuid4())[:8]
+                        bookmarks.append(entry)
+                    save_bookmarks(bookmarks)
+                    await broadcast_json({"type": "bookmarks", "bookmarks": bookmarks})
+
+            elif cmd == 'set_property':
+                # Forward a property change to SDRConnect via sdr_queue
+                prop  = d.get('property', '')
+                value = d.get('value', '')
+                if prop:
+                    try:
+                        await sdr_queue.put(json.dumps({
+                            "event_type": "set_property",
+                            "property":   prop,
+                            "value":      str(value),
+                            "device":     "primary",
+                        }))
+                        log.info(f"set_property → SDRConnect: {prop} = {value}")
+                    except Exception as e:
+                        log.warning(f"set_property failed: {e}")
+
+            elif cmd == 'bm_delete':
+                bm_id = d.get('id', '')
+                bookmarks[:] = [b for b in bookmarks if b.get('id') != bm_id]
+                save_bookmarks(bookmarks)
+                await broadcast_json({"type": "bookmarks", "bookmarks": bookmarks})
+
+            elif cmd == 'bm_import_chirp':
+                import io, csv as _csv, uuid as _uuid3
+                content  = d.get('content', '')
+                imported = 0
+                skipped  = 0
+                reader = _csv.DictReader(io.StringIO(content))
+                for row in reader:
+                    try:
+                        name     = (row.get('Name') or row.get('name') or '').strip()
+                        freq_str = (row.get('Frequency') or row.get('frequency') or '').strip()
+                        if not name or not freq_str:
+                            skipped += 1
+                            continue
+                        freq_mhz = round(float(freq_str), 6)
+                        chirp_mode = (row.get('Mode') or row.get('mode') or 'FM').strip().upper()
+                        mode_map = {'FM': 'NFM', 'NFM': 'NFM', 'WFM': 'WFM', 'AM': 'AM',
+                                    'USB': 'USB', 'LSB': 'LSB', 'CW': 'CW', 'CWR': 'CW',
+                                    'DV': 'NFM', 'DN': 'NFM'}
+                        mode    = mode_map.get(chirp_mode, 'NFM')
+                        comment = (row.get('Comment') or row.get('comment') or '').strip()
+                        bookmarks.append({
+                            "id":       str(_uuid3.uuid4())[:8],
+                            "name":     name,
+                            "freq_mhz": freq_mhz,
+                            "mode":     mode,
+                            "notes":    comment,
+                            "group":    "CHIRP",
+                        })
+                        imported += 1
+                    except Exception:
+                        skipped += 1
+                save_bookmarks(bookmarks)
+                await broadcast_json({"type": "bookmarks", "bookmarks": bookmarks})
+                await ws.send(json.dumps({"type": "bm_import_result",
+                                          "imported": imported, "skipped": skipped}))
+
+            # ── LOGBOOK (Reporting tab, added w033) ─────────────────────
+            # Same shape/broadcast pattern as BOOKMARKS above — see load_logbook/
+            # save_logbook and the LogEntry field comment near their definition.
+            elif cmd == 'log_list':
+                await ws.send(json.dumps({"type": "logbook", "entries": logbook}))
+
+            elif cmd == 'log_save':
+                import uuid as _uuid_log
+                entry = d.get('entry', {})
+                # Deliberately the only two required fields — this is a general
+                # SWL/event log, not a strict ham-QSO form, so grid/snr/frequency
+                # etc. are all optional (a manual "heard X, no further detail"
+                # note is a valid entry). Timestamp defaults to "now" so manual
+                # entries don't require the user to fill in a datetime by hand.
+                if not str(entry.get('callsign', '')).strip() and not str(entry.get('notes', '')).strip():
+                    await ws.send(json.dumps({"type": "log_error",
+                                               "msg": "Enter at least a callsign or a note"}))
+                else:
+                    entry['callsign']  = str(entry.get('callsign', '')).strip().upper()
+                    entry['timestamp'] = entry.get('timestamp') or time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                    entry['frequency'] = float(entry['frequency']) if entry.get('frequency') not in (None, '') else None
+                    entry['mode']      = str(entry.get('mode', '')).upper()
+                    entry['snr']       = float(entry['snr']) if entry.get('snr') not in (None, '') else None
+                    entry['grid']      = str(entry.get('grid', '')).strip().upper()
+                    entry['mission']   = str(entry.get('mission', 'General'))
+                    entry['notes']     = str(entry.get('notes', ''))
+                    entry['source']    = str(entry.get('source', 'manual'))
+                    log_id = entry.get('id', '')
+                    idx = next((i for i, e in enumerate(logbook) if e.get('id') == log_id), -1)
+                    if idx >= 0:
+                        entry['id'] = log_id
+                        logbook[idx] = entry
+                    else:
+                        entry['id'] = str(_uuid_log.uuid4())[:8]
+                        logbook.append(entry)
+                    save_logbook(logbook)
+                    await broadcast_json({"type": "logbook", "entries": logbook})
+
+            elif cmd == 'log_delete':
+                log_id = d.get('id', '')
+                logbook[:] = [e for e in logbook if e.get('id') != log_id]
+                save_logbook(logbook)
+                await broadcast_json({"type": "logbook", "entries": logbook})
+
+            elif cmd == 'log_bulk_save':
+                # Used by the FT8 "Populate Logbook" bulk-import path (and any
+                # future auto-logger) — one round trip for N entries instead of
+                # one log_save per decode. Dedup against EXISTING entries is the
+                # frontend's job (it has the full logbook synced already and
+                # knows its own signature scheme); this just assigns ids and
+                # appends everything it's handed, no upsert-by-id matching.
+                import uuid as _uuid_bulk
+                new_entries = d.get('entries', [])
+                added = 0
+                for entry in new_entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    entry['id']        = str(_uuid_bulk.uuid4())[:8]
+                    entry['callsign']  = str(entry.get('callsign', '')).strip().upper()
+                    entry['timestamp'] = entry.get('timestamp') or time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                    entry['frequency'] = float(entry['frequency']) if entry.get('frequency') not in (None, '') else None
+                    entry['mode']      = str(entry.get('mode', '')).upper()
+                    entry['snr']       = float(entry['snr']) if entry.get('snr') not in (None, '') else None
+                    entry['grid']      = str(entry.get('grid', '')).strip().upper()
+                    entry['mission']   = str(entry.get('mission', 'General'))
+                    entry['notes']     = str(entry.get('notes', ''))
+                    entry['source']    = str(entry.get('source', 'auto'))
+                    logbook.append(entry)
+                    added += 1
+                if added:
+                    save_logbook(logbook)
+                    await broadcast_json({"type": "logbook", "entries": logbook})
+                await ws.send(json.dumps({"type": "log_bulk_result", "added": added}))
+
+            elif cmd == 'cw_auto_enable':
+                enable = bool(d.get('active', False))
+                auto_cw_detector.auto_enabled = enable
+                if not enable:
+                    auto_cw_detector.active = False
+                log.info(f"AutoCWDetector: auto_enabled={enable}")
+            elif cmd.startswith('ssh_'):
+                _handle_ssh_cmd(cmd, d)
+            else:
+                log.debug(f"Unhandled cmd: {cmd}")
+
+    except Exception as e:
+        log.info(f"Browser disconnected: {e}")
+    finally:
+        clients.discard(ws)
+        log.info(f"Browser disconnected ({len(clients)} remaining)")
+
+
+# ── HTTP FILE SERVER ──────────────────────────────────────────────────
+def _wav_header(sample_rate=48000, channels=2, bits=16):
+    """Build a 44-byte canonical WAV header with a bogus (streaming) data
+    size, so a browser <audio> tag will start playing immediately from a
+    chunked/never-ending HTTP response."""
+    import struct as _wav_struct
+    byte_rate   = sample_rate * channels * (bits // 8)
+    block_align = channels * (bits // 8)
+    data_size   = 0x7FFFFFFF - 36   # "unknown/streaming" length
+    return (
+        b'RIFF' + _wav_struct.pack('<I', 0x7FFFFFFF) + b'WAVE'
+        b'fmt ' + _wav_struct.pack('<IHHIIHH', 16, 1, channels, sample_rate,
+                                    byte_rate, block_align, bits)
+        + b'data' + _wav_struct.pack('<I', data_size)
+    )
+
+class UIServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path.startswith('/dab_audio'):
+            return self._serve_dab_audio()
+        try:
+            try:
+                data = DARKSKY_HTML.read_bytes()
+            except FileNotFoundError:
+                # Fallback UI if the HTML file is missing
+                msg = f"DARKSKY UI not found — expected: {DARKSKY_HTML}"
+                log.warning(msg)
+                data = f"<!doctype html><html><head><title>DARKSKY</title></head><body><h1>DARKSKY UI not found</h1><p style='font-family:monospace'>{DARKSKY_HTML}</p><p>Place the HTML file in the same folder as this .py file.</p></body></html>".encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except FileNotFoundError:
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"DARKSKY HTML not found")
+
+    def _serve_dab_audio(self):
+        """Stream the live PCM coming out of the dab-cmdline subprocess's
+        stdout, wrapped in a WAV header, so the browser <audio> tag can
+        play it directly. One connection at a time — a second listener
+        will just get the same live feed re-headered from whenever it
+        connects (no buffering/seek, this is a live tap, not a file)."""
+        proc = _dab_proc
+        if proc is None or proc.stdout is None or proc.poll() is not None:
+            self.send_response(503)
+            self.end_headers()
+            self.wfile.write(b'DAB engine not running')
+            return
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(_wav_header())
+            while True:
+                if _dab_proc is not proc or proc.poll() is not None:
+                    break
+                chunk = proc.stdout.read(4096)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client disconnected/stopped playback — normal
+        except Exception as e:
+            log.debug(f'DAB audio stream ended: {e}')
+
+    def log_message(self, *args):
+        pass  # suppress HTTP access log noise
+
+
+# ── ADS-B ENGINE (dump1090) ───────────────────────────────────────────
+# Polls dump1090's aircraft.json HTTP endpoint every second.
+# dump1090 must be running separately: brew install dump1090-mutability
+# or https://github.com/flightaware/dump1090
+# Default HTTP endpoint: http://127.0.0.1:8080/data/aircraft.json
+
+ADSB_JSON_URL  = 'http://127.0.0.1:8080/data/aircraft.json'
+ADSB_EXPIRE_S  = 60       # remove aircraft not seen for 60 s
+_adsb_aircraft: dict = {}  # {hex: aircraft_dict}
+
+def _adsb_find_dump1090():
+    """Return URL of running dump1090/readsb JSON endpoint, or None.
+    Probes common endpoints for dump1090-fa, readsb (brew), SDRplay dump1090,
+    and older dump1090 variants. First live URL wins."""
+    import urllib.request as _ur
+    for url in [
+        'http://127.0.0.1:8080/data/aircraft.json',   # dump1090-fa / readsb (brew)
+        'http://127.0.0.1:8080/skyaware/data/aircraft.json',  # dump1090-fa skyaware path
+        'http://127.0.0.1:8754/data/aircraft.json',   # readsb alternate port
+        'http://127.0.0.1:8080/data.json',            # older dump1090
+        'http://127.0.0.1:30003/',                    # SBS BaseStation (text, not JSON)
+    ]:
+        try:
+            _ur.urlopen(url, timeout=1).read()
+            return url
+        except Exception:
+            continue
+    return None
+
+async def adsb_poller():
+    """Poll dump1090 aircraft.json and broadcast updates."""
+    import urllib.request as _ur, json as _json
+    global _adsb_aircraft
+    url       = None
+    last_url_check = 0.0
+
+    # _adsb_fetch defined once here — avoids creating a new closure object on every
+    # loop iteration (PY-19). Uses a mutable container so the URL can be updated.
+    _url_box = [None]
+    def _adsb_fetch():
+        with _ur.urlopen(_url_box[0], timeout=2) as r:
+            return _json.loads(r.read())
+
+    while True:
+        active = state.get('adsb_active', False)
+        if not active:
+            await asyncio.sleep(2)
+            continue
+
+        now = time.time()
+        # Re-probe for dump1090 every 10 s until found
+        if url is None and (now - last_url_check) > 10:
+            last_url_check = now
+            url = _adsb_find_dump1090()
+            if url:
+                log.info(f'ADS-B: dump1090 found at {url}')
+                await broadcast_json({'type': 'adsb_status', 'running': True,
+                                      'url': url, 'source': 'dump1090'})
+            else:
+                await broadcast_json({'type': 'adsb_status', 'running': False,
+                                      'error': 'dump1090 not found — install and start it'})
+
+        if url is None:
+            await asyncio.sleep(2)
+            continue
+
+        try:
+            _url_box[0] = url
+            data = await asyncio.get_running_loop().run_in_executor(None, _adsb_fetch)
+
+            aircraft = data.get('aircraft', data if isinstance(data, list) else [])
+            seen_hex = set()
+            updated  = []
+
+            for ac in aircraft:
+                hex_id = ac.get('hex', '').upper()
+                if not hex_id:
+                    continue
+                seen_hex.add(hex_id)
+                entry = _adsb_aircraft.get(hex_id, {})
+                entry.update({k: v for k, v in ac.items() if v not in ('', None)})
+                entry['hex']       = hex_id
+                entry['last_seen'] = now
+                _adsb_aircraft[hex_id] = entry
+                updated.append(entry)
+
+            # Expire stale entries
+            stale = [h for h, a in _adsb_aircraft.items()
+                     if now - a.get('last_seen', 0) > ADSB_EXPIRE_S]
+            for h in stale:
+                del _adsb_aircraft[h]
+
+            if updated or stale:
+                await broadcast_json({
+                    'type':     'adsb_update',
+                    'aircraft': list(_adsb_aircraft.values()),
+                    'count':    len(_adsb_aircraft),
+                    't':        now,
+                })
+        except Exception as e:
+            log.debug(f'ADS-B poll error: {e}')
+            url = None   # force re-probe next cycle
+
+        await asyncio.sleep(1)
+
+
+# ── HFDL ENGINE (dumphfdl) ────────────────────────────────────────────
+# dumphfdl outputs decoded HFDL frames as JSON to a UDP port.
+# NEXUS will auto-launch dumphfdl if the binary is found on PATH or in
+# common install locations. If not found, start it manually with:
+#   dumphfdl --output decoded:json:udp:address=127.0.0.1,port=5556 \
+#             --soapysdr driver=sdrplay <frequencies_kHz>
+# Common HFDL frequencies: 2998 3007 4681 5547 6532 8825 10081 11384 13270 17922 21949
+# macOS build: brew install cmake soapysdr && git clone szpajder/dumphfdl && cmake/make
+
+# ── shared subprocess state ───────────────────────────────────────────
+_hfdl_proc:  subprocess.Popen | None = None
+_vdl2_proc:  subprocess.Popen | None = None
+
+def _find_dumphfdl() -> str | None:
+    """Return path to dumphfdl binary, or None."""
+    candidates = [
+        '/usr/local/bin/dumphfdl',
+        '/opt/homebrew/bin/dumphfdl',
+        '/usr/bin/dumphfdl',
+        'dumphfdl',
+    ]
+    for c in candidates:
+        try:
+            r = subprocess.run([c, '--help'], capture_output=True, timeout=3)
+            if r.returncode in (0, 1):
+                return c
+        except Exception:
+            pass
+    return None
+
+def _find_dumpvdl2() -> str | None:
+    """Return path to dumpvdl2 binary, or None."""
+    candidates = [
+        '/usr/local/bin/dumpvdl2',
+        '/opt/homebrew/bin/dumpvdl2',
+        '/usr/bin/dumpvdl2',
+        'dumpvdl2',
+    ]
+    for c in candidates:
+        try:
+            r = subprocess.run([c, '--help'], capture_output=True, timeout=3)
+            if r.returncode in (0, 1):
+                return c
+        except Exception:
+            pass
+    return None
+
+def _launch_dumphfdl() -> tuple[subprocess.Popen | None, str]:
+    """Launch dumphfdl subprocess. Returns (proc, error_string)."""
+    global _hfdl_proc
+    binary = _find_dumphfdl()
+    if not binary:
+        return None, 'dumphfdl not found — install from github.com/szpajder/dumphfdl'
+    device   = state.get('hfdl_device', 'sdrplay')
+    sr       = str(state.get('hfdl_sample_rate', 250000))
+    freqs    = [str(f) for f in state.get('hfdl_freqs', [2998, 5547, 8825, 11384, 17922])]
+    args = [
+        binary,
+        '--soapysdr', f'driver={device}',
+        '--sample-rate', sr,
+        '--output', f'decoded:json:udp:address=127.0.0.1,port={HFDL_UDP_PORT}',
+    ] + freqs
+    log.info(f'HFDL: launching {" ".join(args)}')
+    try:
+        _hfdl_proc = subprocess.Popen(
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return _hfdl_proc, ''
+    except Exception as e:
+        return None, str(e)
+
+def _launch_dumpvdl2() -> tuple[subprocess.Popen | None, str]:
+    """Launch dumpvdl2 subprocess. Returns (proc, error_string)."""
+    global _vdl2_proc
+    binary = _find_dumpvdl2()
+    if not binary:
+        return None, 'dumpvdl2 not found — install from github.com/szpajder/dumpvdl2'
+    device = state.get('vdl2_device', 'sdrplay')
+    sr     = str(state.get('vdl2_sample_rate', 2100000))
+    freqs  = [str(f) for f in state.get('vdl2_freqs', [136900000, 136925000, 136975000])]
+    args = [
+        binary,
+        '--soapysdr', f'driver={device}',
+        '--sample-rate', sr,
+        '--output', f'decoded:json:udp:address=127.0.0.1,port={VDL2_UDP_PORT}',
+    ] + freqs
+    log.info(f'VDL2: launching {" ".join(args)}')
+    try:
+        _vdl2_proc = subprocess.Popen(
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return _vdl2_proc, ''
+    except Exception as e:
+        return None, str(e)
+
+HFDL_UDP_PORT = 5556
+_hfdl_messages: list = []
+_HFDL_MAX_MSGS = 200
+
+class _HfdlUdpProtocol(asyncio.DatagramProtocol):
+    def connection_made(self, transport):
+        log.info(f'HFDL: UDP listener bound on port {HFDL_UDP_PORT}')
+
+    def datagram_received(self, data, addr):
+        try:
+            msg = json.loads(data.decode('utf-8', errors='replace'))
+            asyncio.get_running_loop().create_task(_hfdl_handle(msg))
+        except Exception as e:
+            log.debug(f'HFDL parse error: {e}')
+
+    def error_received(self, exc):
+        log.debug(f'HFDL UDP error: {exc}')
+
+async def _hfdl_handle(msg):
+    """Parse a dumphfdl JSON frame and broadcast to browsers."""
+    # dumphfdl JSON top-level keys: t, freq, hfdl (nested frame data)
+    hfdl = msg.get('hfdl', msg)
+    freq_hz = msg.get('freq', 0)
+    t       = msg.get('t', {})
+    ts      = t.get('usec', 0) / 1e6 if isinstance(t, dict) else time.time()
+
+    # Extract readable fields
+    spdu = hfdl.get('spdu', {})
+    lpdu = hfdl.get('lpdu', {})
+    mpdu = hfdl.get('mpdu', {})
+
+    flight  = ''
+    reg     = ''
+    gs_name = ''
+    text    = ''
+
+    # ACARS-over-HFDL
+    acars = lpdu.get('acars', {})
+    if acars:
+        flight  = acars.get('flight', '')
+        reg     = acars.get('reg', '')
+        text    = acars.get('msg_text', '') or acars.get('label', '')
+
+    # Ground station
+    gs = hfdl.get('gs', {})
+    if isinstance(gs, dict):
+        gs_name = gs.get('name', '')
+
+    # Squitter with aircraft position
+    ac = hfdl.get('ac', {})
+    lat = ac.get('lat')
+    lon = ac.get('lon')
+
+    entry = {
+        'freq_hz':  freq_hz,
+        'ts':       ts,
+        'flight':   flight,
+        'reg':      reg,
+        'gs':       gs_name,
+        'text':     text,
+        'lat':      lat,
+        'lon':      lon,
+        'raw':      hfdl,
+    }
+    _hfdl_messages.append(entry)
+    if len(_hfdl_messages) > _HFDL_MAX_MSGS:
+        _hfdl_messages.pop(0)
+
+    await broadcast_json({'type': 'hfdl_message', 'msg': entry,
+                          'count': len(_hfdl_messages)})
+
+async def hfdl_udp_server():
+    """Long-running task: manage HFDL UDP listener and auto-launched dumphfdl."""
+    transport  = None
+    last_active = False
+
+    while True:
+        active = state.get('hfdl_active', False)
+
+        if active and transport is None:
+            try:
+                loop = asyncio.get_running_loop()
+                transport, _ = await loop.create_datagram_endpoint(
+                    _HfdlUdpProtocol, local_addr=('0.0.0.0', HFDL_UDP_PORT))
+                await broadcast_json({'type': 'hfdl_status', 'running': True,
+                                      'port': HFDL_UDP_PORT})
+            except OSError as e:
+                log.warning(f'HFDL: UDP bind failed: {e}')
+                await broadcast_json({'type': 'hfdl_status', 'running': False,
+                                      'error': str(e)})
+                state['hfdl_active'] = False
+
+        elif not active and transport is not None:
+            transport.close()
+            transport = None
+            _hfdl_messages.clear()
+            await broadcast_json({'type': 'hfdl_status', 'running': False})
+
+        # Watchdog: detect if auto-launched dumphfdl has exited unexpectedly
+        if active and _hfdl_proc is not None and _hfdl_proc.poll() is not None:
+            log.warning(f'HFDL: dumphfdl exited (rc={_hfdl_proc.returncode}) — re-launching')
+            proc, err = _launch_dumphfdl()
+            if not proc:
+                await broadcast_json({'type': 'hfdl_status', 'running': False,
+                                      'error': f'dumphfdl exited: {err}'})
+
+        await asyncio.sleep(1)
+
+
+# ── VDL2 ENGINE (dumpvdl2) ────────────────────────────────────────────
+# dumpvdl2 outputs decoded VDL2 frames as JSON to a UDP port.
+# NEXUS will auto-launch dumpvdl2 if the binary is found on PATH or in
+# common install locations. If not found, start manually with:
+#   dumpvdl2 --output decoded:json:udp:address=127.0.0.1,port=5557 \
+#             --soapysdr driver=sdrplay <frequency_hz>
+# VDL2 frequencies (Hz): 136900000 136925000 136975000 (Europe)
+# macOS build: brew install cmake soapysdr && git clone szpajder/dumpvdl2 && cmake/make
+
+VDL2_UDP_PORT = 5557
+_vdl2_messages: list = []
+_VDL2_MAX_MSGS = 200
+
+class _Vdl2UdpProtocol(asyncio.DatagramProtocol):
+    def connection_made(self, transport):
+        log.info(f'VDL2: UDP listener bound on port {VDL2_UDP_PORT}')
+
+    def datagram_received(self, data, addr):
+        try:
+            msg = json.loads(data.decode('utf-8', errors='replace'))
+            asyncio.get_running_loop().create_task(_vdl2_handle(msg))
+        except Exception as e:
+            log.debug(f'VDL2 parse error: {e}')
+
+    def error_received(self, exc):
+        log.debug(f'VDL2 UDP error: {exc}')
+
+async def _vdl2_handle(msg):
+    """Parse a dumpvdl2 JSON frame and broadcast to browsers."""
+    vdl2 = msg.get('vdl2', msg)
+    freq_hz = msg.get('freq', 0)
+
+    avlc    = vdl2.get('avlc', {})
+    acars   = avlc.get('acars', {})
+
+    flight  = acars.get('flight', '') or avlc.get('src', {}).get('addr', '')
+    reg     = acars.get('reg', '')
+    label   = acars.get('label', '')
+    text    = acars.get('msg_text', '') or label
+    src     = avlc.get('src', {}).get('addr', '')
+    dst     = avlc.get('dst', {}).get('addr', '')
+
+    entry = {
+        'freq_hz': freq_hz,
+        'ts':      time.time(),
+        'flight':  flight,
+        'reg':     reg,
+        'src':     src,
+        'dst':     dst,
+        'label':   label,
+        'text':    text,
+        'raw':     vdl2,
+    }
+    _vdl2_messages.append(entry)
+    if len(_vdl2_messages) > _VDL2_MAX_MSGS:
+        _vdl2_messages.pop(0)
+
+    await broadcast_json({'type': 'vdl2_message', 'msg': entry,
+                          'count': len(_vdl2_messages)})
+
+async def vdl2_udp_server():
+    """Long-running task: manage VDL2 UDP listener and auto-launched dumpvdl2."""
+    transport = None
+
+    while True:
+        active = state.get('vdl2_active', False)
+
+        if active and transport is None:
+            try:
+                loop = asyncio.get_running_loop()
+                transport, _ = await loop.create_datagram_endpoint(
+                    _Vdl2UdpProtocol, local_addr=('0.0.0.0', VDL2_UDP_PORT))
+                await broadcast_json({'type': 'vdl2_status', 'running': True,
+                                      'port': VDL2_UDP_PORT})
+            except OSError as e:
+                log.warning(f'VDL2: UDP bind failed: {e}')
+                await broadcast_json({'type': 'vdl2_status', 'running': False,
+                                      'error': str(e)})
+                state['vdl2_active'] = False
+
+        elif not active and transport is not None:
+            transport.close()
+            transport = None
+            _vdl2_messages.clear()
+            await broadcast_json({'type': 'vdl2_status', 'running': False})
+
+        # Watchdog: detect if auto-launched dumpvdl2 has exited unexpectedly
+        if active and _vdl2_proc is not None and _vdl2_proc.poll() is not None:
+            log.warning(f'VDL2: dumpvdl2 exited (rc={_vdl2_proc.returncode}) — re-launching')
+            proc, err = _launch_dumpvdl2()
+            if not proc:
+                await broadcast_json({'type': 'vdl2_status', 'running': False,
+                                      'error': f'dumpvdl2 exited: {err}'})
+
+        await asyncio.sleep(1)
+
+
+# ── rtl_433 ENGINE (ISM-band sensor decoder) ──────────────────────────
+# ADDED 2026-07-19 (w033 fork). rtl_433 (github.com/merbanan/rtl_433)
+# decodes hundreds of short-range 433/868/915MHz ISM-band devices (TPMS,
+# weather stations, smart meters, remote thermometers, etc.) and can
+# emit every decoded reading as JSON directly over UDP via its own
+# `-F "udp:host:port"` output option -- the same "external decoder
+# emits JSON, NEXUS listens on a UDP port" pattern already used for
+# HFDL/VDL2 above, so this mirrors that engine structure closely.
+#
+# rtl_433 talks to hardware two ways: directly via librtlsdr (`-d 0`,
+# `-d <serial>`, or `-d rtl_tcp:host:port`) for a plain RTL-SDR dongle,
+# or -- when built with -DENABLE_SOAPYSDR=ON -- via SoapySDR
+# (`-d driver=sdrplay`), the same convention dumphfdl/dumpvdl2 already
+# use for SDRplay hardware. rtl433_device defaults to "rtlsdr" (plain
+# librtlsdr, device index 0); set it to a SoapySDR driver name (e.g.
+# "sdrplay") to use SDRplay hardware instead, same as hfdl_device/
+# vdl2_device.
+RTL433_UDP_PORT = 5558
+_rtl433_proc: subprocess.Popen | None = None
+_rtl433_messages: list = []
+_RTL433_MAX_MSGS = 200
+
+def _find_rtl433() -> str | None:
+    """Return path to rtl_433 binary, or None."""
+    candidates = [
+        '/usr/local/bin/rtl_433',
+        '/opt/homebrew/bin/rtl_433',
+        '/usr/bin/rtl_433',
+        'rtl_433',
+    ]
+    for c in candidates:
+        try:
+            r = subprocess.run([c, '-h'], capture_output=True, timeout=3)
+            if r.returncode in (0, 1):
+                return c
+        except Exception:
+            pass
+    return None
+
+def _detect_rtl433_device() -> tuple[str, str]:
+    """Autodetect which device rtl_433 should use. Returns (device, reason)
+    where device is 'rtlsdr' or a SoapySDR driver name (currently only
+    'sdrplay' is inferred automatically), and reason is a short string
+    logged alongside the choice.
+
+    ADDED 2026-07-20 (user asked "can device be autodetected from nexus?"
+    after being told the only way to point rtl_433 at SDRplay hardware was
+    to hand-set a 'device' field on the rtl433_start command). Two real,
+    legitimate setups exist: (1) a cheap dedicated RTL-SDR dongle plugged
+    in purely for rtl_433, left running continuously alongside the SDRplay
+    NEXUS otherwise uses for everything else -- the original hardcoded
+    "rtlsdr" default assumed this; (2) a single-SDRplay-only setup, where
+    that assumption just means rtl_433 fails to find a device at all.
+    Resolution order, cheapest/most certain signal first:
+      1. A real RTL-SDR dongle actually plugged in (`rtl_test -t`, which
+         probes librtlsdr directly) always wins -- keeps the SDRplay free
+         for the main receiver, matching setup (1) with zero configuration.
+      2. Otherwise, if NEXUS itself currently has an SDRplay unit connected
+         (state['active_device'] non-empty -- populated from SDRconnect's
+         own device-info report, see ~line 9522) fall back to
+         'driver=sdrplay' automatically, covering setup (2) without the
+         user ever needing to touch a config field.
+      3. Otherwise (neither detected -- e.g. probed before NEXUS's own
+         SDR connection is up) fall back to the historical 'rtlsdr'
+         default and let rtl_433's own error message explain the failure.
+    """
+    rtl_test = shutil.which('rtl_test')
+    if rtl_test:
+        try:
+            r = subprocess.run([rtl_test, '-t'], capture_output=True,
+                                timeout=3, text=True)
+            out = (r.stdout or '') + (r.stderr or '')
+            if 'Found ' in out and 'device' in out and 'No supported devices' not in out:
+                return 'rtlsdr', 'physical RTL-SDR dongle detected via rtl_test'
+        except Exception as e:
+            log.debug(f'rtl433 autodetect: rtl_test probe failed ({e!r})')
+    if state.get('active_device'):
+        return 'sdrplay', f"no RTL-SDR dongle found; using NEXUS's connected SDRplay ({state.get('device_type', 'RSPdx')})"
+    return 'rtlsdr', 'no RTL-SDR dongle and no connected SDRplay detected -- falling back to default'
+
+def _launch_rtl433() -> tuple[subprocess.Popen | None, str]:
+    """Launch rtl_433 subprocess. Returns (proc, error_string)."""
+    global _rtl433_proc
+    binary = _find_rtl433()
+    if not binary:
+        return None, 'rtl_433 not found — install from github.com/merbanan/rtl_433 (brew install rtl_433)'
+    device = state.get('rtl433_device', 'auto')
+    if device == 'auto':
+        device, reason = _detect_rtl433_device()
+        log.info(f'rtl_433: autodetected device={device} ({reason})')
+    freq_mhz = state.get('rtl433_freq_mhz', 433.92)
+    device_args = ['-d', '0'] if device == 'rtlsdr' else ['-d', f'driver={device}']
+    args = [
+        binary,
+        *device_args,
+        '-f', f'{freq_mhz}M',
+        '-F', f'udp:127.0.0.1:{RTL433_UDP_PORT}',
+    ]
+    log.info(f'rtl_433: launching {" ".join(args)}')
+    try:
+        _rtl433_proc = subprocess.Popen(
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return _rtl433_proc, ''
+    except Exception as e:
+        return None, str(e)
+
+class _Rtl433UdpProtocol(asyncio.DatagramProtocol):
+    def connection_made(self, transport):
+        log.info(f'rtl_433: UDP listener bound on port {RTL433_UDP_PORT}')
+
+    def datagram_received(self, data, addr):
+        try:
+            # rtl_433's UDP JSON output can pack multiple newline-separated
+            # JSON objects into one datagram under load -- split defensively
+            # rather than assuming one reading per packet.
+            for line in data.decode('utf-8', errors='replace').splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                msg = json.loads(line)
+                asyncio.get_running_loop().create_task(_rtl433_handle(msg))
+        except Exception as e:
+            log.debug(f'rtl_433 parse error: {e}')
+
+    def error_received(self, exc):
+        log.debug(f'rtl_433 UDP error: {exc}')
+
+async def _rtl433_handle(msg):
+    """Parse an rtl_433 JSON reading and broadcast to browsers.
+
+    rtl_433's JSON schema varies per device (a TPMS reading has
+    different fields than a weather station), so this pulls out the
+    common/most-useful fields when present and keeps the full raw
+    object too rather than trying to normalise every device type."""
+    entry = {
+        'time':          msg.get('time', ''),
+        'ts':            time.time(),
+        'model':         msg.get('model', ''),
+        'id':            msg.get('id'),
+        'channel':       msg.get('channel'),
+        'battery_ok':    msg.get('battery_ok'),
+        'temperature_C': msg.get('temperature_C'),
+        'humidity':      msg.get('humidity'),
+        'pressure_kPa':  msg.get('pressure_kPa'),
+        'wind_avg_km_h': msg.get('wind_avg_km_h'),
+        'wind_dir_deg':  msg.get('wind_dir_deg'),
+        'rain_mm':       msg.get('rain_mm'),
+        'pressure_PSI':  msg.get('pressure_PSI'),   # common TPMS field
+        'freq':          msg.get('freq') or msg.get('freq1'),
+        'raw':           msg,
+    }
+    key = f"{entry['model']}:{entry['id']}"
+    _rtl433_messages.append(entry)
+    if len(_rtl433_messages) > _RTL433_MAX_MSGS:
+        _rtl433_messages.pop(0)
+
+    await broadcast_json({'type': 'rtl433_message', 'msg': entry, 'key': key,
+                          'count': len(_rtl433_messages)})
+
+async def rtl433_udp_server():
+    """Long-running task: manage rtl_433 UDP listener and auto-launched rtl_433."""
+    transport = None
+
+    while True:
+        active = state.get('rtl433_active', False)
+
+        if active and transport is None:
+            try:
+                loop = asyncio.get_running_loop()
+                transport, _ = await loop.create_datagram_endpoint(
+                    _Rtl433UdpProtocol, local_addr=('0.0.0.0', RTL433_UDP_PORT))
+                await broadcast_json({'type': 'rtl433_status', 'running': True,
+                                      'port': RTL433_UDP_PORT})
+            except OSError as e:
+                log.warning(f'rtl_433: UDP bind failed: {e}')
+                await broadcast_json({'type': 'rtl433_status', 'running': False,
+                                      'error': str(e)})
+                state['rtl433_active'] = False
+
+        elif not active and transport is not None:
+            transport.close()
+            transport = None
+            _rtl433_messages.clear()
+            await broadcast_json({'type': 'rtl433_status', 'running': False})
+
+        # Watchdog: detect if auto-launched rtl_433 has exited unexpectedly
+        if active and _rtl433_proc is not None and _rtl433_proc.poll() is not None:
+            log.warning(f'rtl_433: exited (rc={_rtl433_proc.returncode}) — re-launching')
+            proc, err = _launch_rtl433()
+            if not proc:
+                await broadcast_json({'type': 'rtl433_status', 'running': False,
+                                      'error': f'rtl_433 exited: {err}'})
+
+        await asyncio.sleep(1)
+
+
+# ── DSD+ / DSD ENGINE (Digital Voice) ────────────────────────────────
+# DSD+ (Windows) or DSD (Linux/macOS) decodes DMR, P25, D-STAR, Fusion, NXDN.
+# The bridge spawns it as a subprocess reading from a virtual audio device
+# and parses its stdout for decoded voice metadata (callsigns, talkgroups, etc.)
+# DSD+: https://www.dsdplus.com/  (Windows, free tier)
+# DSD:  https://github.com/szechyjs/dsd  (Linux/macOS, open source)
+
+_dsd_proc    = None
+_dsd_thread  = None
+_DSD_MAX_MSGS = 200
+_dsd_messages: list = []
+
+import re as _re_dsd
+_DSD_RE_DMR   = _re_dsd.compile(r'DMR.*?Slot\s*(\d).*?CC\s*(\d+).*?(?:TGID|TG)\s*(\d+)', _re_dsd.I)
+_DSD_RE_P25   = _re_dsd.compile(r'P25.*?NAC\s*([\dA-Fa-f]+).*?TGID\s*(\d+)', _re_dsd.I)
+_DSD_RE_DSTAR = _re_dsd.compile(r'D-?STAR.*?UR:\s*(\S+).*?MY:\s*(\S+)', _re_dsd.I)
+_DSD_RE_NXDN  = _re_dsd.compile(r'NXDN.*?RAN\s*(\d+).*?ID\s*(\d+)', _re_dsd.I)
+_DSD_RE_MODE  = _re_dsd.compile(r'\+\s*(DMR|P25|D-STAR|NXDN|YSF|C4FM|dPMR)', _re_dsd.I)
+
+def _dsd_find_binary():
+    """Find DSD+ or DSD binary. Returns (path, is_dsdplus) or (None, False)."""
+    candidates_plus = []
+    candidates_dsd  = []
+
+    if sys.platform == 'win32':
+        candidates_plus = [
+            r'C:\DSDPlus\DSDPlus.exe',
+            r'C:\Program Files\DSDPlus\DSDPlus.exe',
+            str(Path(os.environ.get('LOCALAPPDATA', '')) / 'DSDPlus' / 'DSDPlus.exe'),
+            'DSDPlus.exe',
+        ]
+        candidates_dsd = ['dsd.exe']
+    elif sys.platform == 'darwin':
+        candidates_dsd = [
+            '/opt/homebrew/bin/dsd',
+            '/usr/local/bin/dsd',
+            'dsd',
+        ]
+    else:
+        candidates_dsd = ['/usr/bin/dsd', '/usr/local/bin/dsd', 'dsd']
+
+    for c in candidates_plus:
+        try:
+            if Path(c).is_file() or not Path(c).is_absolute():
+                return c, True
+        except Exception:
+            pass
+
+    for c in candidates_dsd:
+        try:
+            r = subprocess.run([c, '--help'], capture_output=True, timeout=3)
+            if r.returncode in (0, 1):   # dsd returns 1 from --help
+                return c, False
+        except Exception:
+            pass
+
+    return None, False
+
+def _dsd_parse_line(line: str) -> dict | None:
+    """Parse a DSD/DSD+ stdout line into a structured message dict."""
+    line = line.strip()
+    if not line:
+        return None
+
+    msg = {'raw': line, 'ts': time.time(), 'mode': '', 'text': line}
+
+    m = _DSD_RE_MODE.search(line)
+    if m:
+        msg['mode'] = m.group(1).upper()
+
+    m = _DSD_RE_DMR.search(line)
+    if m:
+        msg.update({'mode': 'DMR', 'slot': m.group(1),
+                    'cc': m.group(2), 'tg': m.group(3)})
+        msg['text'] = f"DMR Slot{m.group(1)} CC{m.group(2)} TG{m.group(3)}"
+        return msg
+
+    m = _DSD_RE_P25.search(line)
+    if m:
+        msg.update({'mode': 'P25', 'nac': m.group(1), 'tg': m.group(2)})
+        msg['text'] = f"P25 NAC {m.group(1)} TG {m.group(2)}"
+        return msg
+
+    m = _DSD_RE_DSTAR.search(line)
+    if m:
+        msg.update({'mode': 'D-STAR', 'ur': m.group(1), 'my': m.group(2)})
+        msg['text'] = f"D-STAR UR:{m.group(1)} MY:{m.group(2)}"
+        return msg
+
+    m = _DSD_RE_NXDN.search(line)
+    if m:
+        msg.update({'mode': 'NXDN', 'ran': m.group(1), 'id': m.group(2)})
+        msg['text'] = f"NXDN RAN{m.group(1)} ID{m.group(2)}"
+        return msg
+
+    # Pass through any line that looks like decoded content
+    keywords = ('DMR', 'P25', 'D-STAR', 'NXDN', 'YSF', 'C4FM', 'dPMR',
+                'Voice', 'Data', 'Sync', 'CC:', 'TG:', 'NAC', 'RAN')
+    if any(k in line for k in keywords):
+        return msg
+
+    return None
+
+def _dsd_reader_thread(proc, loop, broadcast_fn):
+    """Background thread: read DSD stdout, parse, schedule broadcasts."""
+    try:
+        for raw in proc.stdout:
+            line = raw.decode('utf-8', errors='replace').rstrip('\r\n')
+            msg  = _dsd_parse_line(line)
+            if msg:
+                _dsd_messages.append(msg)
+                if len(_dsd_messages) > _DSD_MAX_MSGS:
+                    _dsd_messages.pop(0)
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_fn({'type': 'dsd_message', 'msg': msg,
+                                  'count': len(_dsd_messages)}),
+                    loop
+                )
+    except Exception as e:
+        log.debug(f'DSD reader thread ended: {e}')
+
+async def dsd_engine():
+    """Long-running task: manage DSD/DSD+ subprocess lifecycle."""
+    global _dsd_proc, _dsd_thread
+    loop = asyncio.get_running_loop()
+
+    while True:
+        active = state.get('dsd_active', False)
+
+        if active and (_dsd_proc is None or _dsd_proc.poll() is not None):
+            binary, is_plus = _dsd_find_binary()
+            if not binary:
+                await broadcast_json({
+                    'type': 'dsd_status', 'running': False,
+                    'error': ('DSD+ not found (Windows: install DSDPlus.exe) '
+                              'or DSD not found (Linux/macOS: apt/brew install dsd)')
+                })
+                state['dsd_active'] = False
+                await asyncio.sleep(5)
+                continue
+
+            # Build args — DSD reads from default audio input by default
+            # Audio device can be overridden via state['dsd_audio_device']
+            if is_plus:
+                args = [binary]   # DSD+ has its own audio config UI
+            else:
+                dev = state.get('dsd_audio_device', '')
+                args = [binary, '-i', dev] if dev else [binary]
+
+            log.info(f'DSD: starting {" ".join(args)}')
+            try:
+                _dsd_proc = subprocess.Popen(
+                    args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    bufsize=0,
+                )
+                _dsd_thread = threading.Thread(
+                    target=_dsd_reader_thread,
+                    args=(_dsd_proc, loop, broadcast_json),
+                    daemon=True, name='dsd-reader',
+                )
+                _dsd_thread.start()
+                await broadcast_json({
+                    'type': 'dsd_status', 'running': True,
+                    'binary': binary, 'is_plus': is_plus,
+                })
+                log.info(f'DSD: running ({"DSD+" if is_plus else "DSD"})')
+            except Exception as e:
+                log.error(f'DSD: failed to start: {e}')
+                await broadcast_json({'type': 'dsd_status', 'running': False,
+                                      'error': str(e)})
+                state['dsd_active'] = False
+
+        elif not active and _dsd_proc is not None:
+            try:
+                _dsd_proc.terminate()
+                _dsd_proc.wait(timeout=3)
+            except Exception:
+                try: _dsd_proc.kill()
+                except Exception: pass
+            _dsd_proc = None
+            _dsd_messages.clear()
+            await broadcast_json({'type': 'dsd_status', 'running': False})
+
+        await asyncio.sleep(2)
+
+
+# ── DAB / DAB+ ENGINE (dab-cmdline example-3, all-in-one receiver) ─────
+# dab-cmdline's "example-3" program (github.com/JvanKatwijk/dab-cmdline)
+# opens the SDR device itself (SDRplay/RTL-SDR/Airspy/HackRF/LimeSDR,
+# selected at COMPILE time via a CMake flag — there is no runtime device
+# switch) and does the *entire* DAB stack in-process: OFDM demod, FIC
+# decode, Reed-Solomon, MSC/audio decode (MP2 or HE-AAC for DAB+). There
+# is no separate ETI stage and no second tool — earlier notes in this
+# project describing an "eti-cmdline | dablin" pipe were wrong; this
+# binary is self-contained.
+#
+# stdout: raw 16-bit PCM (decoded audio for whichever service is
+#         selected via -P/-S at launch — NOT switchable while running).
+# stderr: ensemble name + per-service "name (SId) is part of the
+#         ensemble" lines as services are discovered during the FIC scan.
+#
+# Build, per-device variant (binary name set by the project's CMake
+# `objectName` var — NOT "eti-cmdline-*"):
+#   cmake .. -DSDRPLAY_V3=ON   -> binary `dab-sdrplay-3`  (modern SDRplay API v3)
+#   cmake .. -DRTLSDR=ON       -> binary `dab-rtlsdr-3`
+#   cmake .. -DAIRSPY=ON       -> binary `dab-airspy-3`
+# Repo: github.com/JvanKatwijk/dab-cmdline, build target: example-3/
+#
+# Because service switching requires killing and relaunching the process
+# with a new -P/-S, "play this service" in the UI triggers a relaunch,
+# not a live re-tap of a shared stream.
+
+_dab_proc       = None     # dab-sdrplay-3 / dab-rtlsdr-3 / dab-airspy-3 subprocess
+_dab_thread     = None
+_dab_services: dict = {}   # sid -> {name, sid, bitrate}
+_dab_ensemble_label = ''
+
+import re as _re_dab
+_DAB_RE_SERVICE  = _re_dab.compile(r'^(.*\S)\s+\(([0-9A-Fa-f]+)\)\s+is part of the ensemble', _re_dab.I)
+_DAB_RE_ENSEMBLE = _re_dab.compile(r'ensemble\s+(.*\S)\s+is\s+\(([0-9A-Fa-f]+)\)\s+recognized', _re_dab.I)
+_DAB_RE_NOSIGNAL = _re_dab.compile(r'does not seem to be a DAB signal', _re_dab.I)
+
+def _dab_find_binary():
+    """Find the dab-cmdline example-3 binary for whichever device variant
+    was built. Returns (path, device_kind) or (None, None)."""
+    candidates = [
+        ('dab-sdrplay-3', 'sdrplay'),
+        ('dab-rtlsdr-3',  'rtlsdr'),
+        ('dab-airspy-3',  'airspy'),
+        ('/usr/local/bin/dab-sdrplay-3', 'sdrplay'),
+        ('/opt/homebrew/bin/dab-sdrplay-3', 'sdrplay'),
+        ('/usr/local/bin/dab-rtlsdr-3', 'rtlsdr'),
+        ('/opt/homebrew/bin/dab-rtlsdr-3', 'rtlsdr'),
+    ]
+    for path, kind in candidates:
+        try:
+            if shutil.which(path) or Path(path).is_file():
+                return path, kind
+        except Exception:
+            continue
+    return None, None
+
+def _dab_parse_line(line: str):
+    """Parse a dab-cmdline stderr line for ensemble/service info. Mutates
+    _dab_services / _dab_ensemble_label. Returns True if state changed."""
+    global _dab_ensemble_label
+    line = line.strip()
+    if not line:
+        return False
+
+    m = _DAB_RE_ENSEMBLE.search(line)
+    if m:
+        _dab_ensemble_label = m.group(1).strip()
+        return True
+
+    m = _DAB_RE_SERVICE.search(line)
+    if m:
+        name = m.group(1).strip()
+        sid  = m.group(2).upper()
+        svc  = _dab_services.setdefault(sid, {'sid': sid, 'name': name, 'bitrate': 0})
+        svc['name'] = name
+        return True
+
+    return False
+
+def _dab_reader_thread(proc, loop, broadcast_fn):
+    """Background thread: read dab-cmdline stderr, parse ensemble/service
+    info as it's discovered, schedule broadcasts. (stdout carries raw PCM
+    audio and is intentionally not read here — see _dab_launch.)"""
+    try:
+        for raw in proc.stderr:
+            line = raw.decode('utf-8', errors='replace').rstrip('\r\n')
+            if _DAB_RE_NOSIGNAL.search(line):
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_fn({'type': 'dab_status', 'running': False,
+                                  'error': 'No DAB signal detected on this channel'}),
+                    loop
+                )
+                continue
+            if _dab_parse_line(line):
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_fn({
+                        'type': 'dab_ensemble',
+                        'ensemble_label': _dab_ensemble_label,
+                        'channel': state.get('dab_channel', ''),
+                        'services': sorted(_dab_services.values(), key=lambda s: s['name']),
+                    }),
+                    loop
+                )
+    except Exception as e:
+        log.debug(f'DAB reader thread ended: {e}')
+
+def _dab_launch(channel: str, sid: str = None):
+    """Launch the dab-cmdline example-3 binary tuned to one Band III channel.
+    If sid is given, passes -S <hex SId> so that service's audio is what
+    comes out on stdout; otherwise the binary's default (first service /
+    -P "Sky Radio") is used and stdout PCM is not meaningful until a
+    service is explicitly selected."""
+    global _dab_proc
+    binary, kind = _dab_find_binary()
+    if not binary:
+        return None, ("dab-cmdline 'example-3' binary not found on PATH "
+                       "(build with -DSDRPLAY_V3=ON / -DRTLSDR=ON / -DAIRSPY=ON "
+                       "from github.com/JvanKatwijk/dab-cmdline, example-3/)")
+
+    args = [binary, '-B', 'BAND_III', '-C', str(channel)]
+    if kind == 'sdrplay':
+        args += ['-G', str(state.get('dab_grdb', 30)), '-L', str(state.get('dab_lna', 2))]
+    elif kind == 'rtlsdr':
+        args += ['-G', str(state.get('dab_gain', 50)), '-Q']
+    if sid:
+        args += ['-S', str(sid)]
+
+    log.info(f'DAB: launching ({kind}) {" ".join(args)}')
+    try:
+        _dab_proc = subprocess.Popen(
+            args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+        return _dab_proc, ''
+    except Exception as e:
+        return None, str(e)
+
+async def dab_engine():
+    """Long-running task: manage the dab-cmdline example-3 subprocess
+    lifecycle. A service switch (dab_play_sid changing) requires killing
+    and relaunching the process with a new -S, since this binary has no
+    runtime service-switch control."""
+    global _dab_proc, _dab_thread, _dab_services, _dab_ensemble_label
+    loop = asyncio.get_running_loop()
+    _last_sid = None
+
+    while True:
+        active   = state.get('dab_active', False)
+        cur_sid  = state.get('dab_play_sid')
+        proc_dead = (_dab_proc is None or _dab_proc.poll() is not None)
+        sid_changed = active and not proc_dead and cur_sid != _last_sid
+
+        if active and (proc_dead or sid_changed):
+            if _dab_proc is not None:
+                try:
+                    _dab_proc.terminate()
+                    _dab_proc.wait(timeout=3)
+                except Exception:
+                    try: _dab_proc.kill()
+                    except Exception: pass
+                _dab_proc = None
+
+            channel = state.get('dab_channel', '12C')
+            proc, err = _dab_launch(channel, cur_sid)
+            if not proc:
+                await broadcast_json({'type': 'dab_status', 'running': False, 'error': err})
+                state['dab_active'] = False
+                await asyncio.sleep(5)
+                continue
+
+            _last_sid = cur_sid
+            if not sid_changed:
+                # Fresh tune to a channel — service list resets; a service
+                # switch on the same ensemble keeps the already-known list.
+                _dab_services = {}
+                _dab_ensemble_label = ''
+            _dab_thread = threading.Thread(
+                target=_dab_reader_thread,
+                args=(proc, loop, broadcast_json),
+                daemon=True, name='dab-reader',
+            )
+            _dab_thread.start()
+            await broadcast_json({'type': 'dab_status', 'running': True, 'channel': channel})
+            log.info(f'DAB: running on channel {channel}' + (f' (SId {cur_sid})' if cur_sid else ''))
+
+        elif not active and _dab_proc is not None:
+            try:
+                _dab_proc.terminate()
+                _dab_proc.wait(timeout=3)
+            except Exception:
+                try: _dab_proc.kill()
+                except Exception: pass
+            _dab_proc = None
+            _dab_services = {}
+            _last_sid = None
+            await broadcast_json({'type': 'dab_status', 'running': False})
+
+        await asyncio.sleep(2)
+
+
+# ── TRUNKED P25/DMR/NXDN ENGINE (OP25 / trunk-recorder) ───────────────
+# Unlike DSD (which decodes one fixed conventional channel), trunked
+# systems hop voice traffic across multiple frequencies under control
+# of a always-on control channel. OP25's rx.py (or trunk-recorder) opens
+# its own SoapySDR/RTL-SDR device tuned to the control channel, follows
+# grants onto voice channels, and emits human-readable status lines on
+# stdout (talkgroup grants, frequency, call start/end) which NEXUS parses
+# the same way it parses DSD+ output.
+#   OP25:           github.com/boatbod/op25
+#   trunk-recorder: github.com/robotastic/trunk-recorder
+# Needs Full IQ — OP25/trunk-recorder need to see the whole site's
+# control + voice channel spread, not a single tuned passband.
+
+_trunk_proc   = None
+_trunk_thread = None
+_TRUNK_MAX_CALLS = 200
+_trunk_calls: list = []
+_trunk_site_label = ''
+
+import re as _re_trunk
+_TRUNK_RE_GRANT = _re_trunk.compile(
+    r'(P25|DMR|NXDN).*?(?:TG|TGID|talkgroup)\s*[:#]?\s*(\d+).*?(?:freq|f)[:\s]+(\d+\.?\d*)', _re_trunk.I)
+_TRUNK_RE_SITE  = _re_trunk.compile(r'site\s*[:#]?\s*"?([^",\n]+)"?', _re_trunk.I)
+_TRUNK_RE_END   = _re_trunk.compile(r'(?:call|grant)\s*end.*?(?:TG|TGID)\s*[:#]?\s*(\d+)', _re_trunk.I)
+
+def _trunk_find_binary():
+    """Find OP25 (rx.py) or trunk-recorder binary. Returns (path, kind) or (None, None)."""
+    op25_candidates = ['op25_rx.py', 'rx.py', '/usr/local/bin/op25_rx.py']
+    tr_candidates    = ['trunk-recorder', '/usr/local/bin/trunk-recorder', '/opt/homebrew/bin/trunk-recorder']
+
+    for c in tr_candidates:
+        try:
+            r = subprocess.run([c, '--version'], capture_output=True, timeout=3)
+            return c, 'trunk-recorder'
+        except Exception:
+            continue
+    for c in op25_candidates:
+        try:
+            if shutil.which(c) or Path(c).is_file():
+                return c, 'op25'
+        except Exception:
+            continue
+    return None, None
+
+def _trunk_parse_line(line: str) -> dict | None:
+    """Parse an OP25/trunk-recorder stdout line into a structured call dict."""
+    line = line.strip()
+    if not line:
+        return None
+
+    m = _TRUNK_RE_SITE.search(line)
+    if m:
+        global _trunk_site_label
+        _trunk_site_label = m.group(1).strip()
+        return None  # site updates broadcast separately by the engine loop
+
+    m = _TRUNK_RE_GRANT.search(line)
+    if m:
+        system, tgid, freq = m.group(1).upper(), m.group(2), float(m.group(3))
+        freq_mhz = freq if freq < 2000 else freq / 1e6   # tolerate Hz or MHz input
+        return {
+            'system': system, 'tgid': tgid,
+            'talkgroup_label': f'TG {tgid}',
+            'freq_mhz': freq_mhz, 'status': 'Voice active',
+            'active': True, 'text': line, 'ts': time.time(),
+        }
+
+    m = _TRUNK_RE_END.search(line)
+    if m:
+        return {'system': '', 'tgid': m.group(1), 'talkgroup_label': f'TG {m.group(1)}',
+                'freq_mhz': None, 'status': 'Call ended', 'active': False,
+                'text': line, 'ts': time.time()}
+
+    return None
+
+def _trunk_reader_thread(proc, loop, broadcast_fn):
+    """Background thread: read OP25/trunk-recorder stdout, parse, schedule broadcasts."""
+    try:
+        for raw in proc.stdout:
+            line = raw.decode('utf-8', errors='replace').rstrip('\r\n')
+            call = _trunk_parse_line(line)
+            if call:
+                _trunk_calls.append(call)
+                if len(_trunk_calls) > _TRUNK_MAX_CALLS:
+                    _trunk_calls.pop(0)
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_fn({'type': 'trunk_call', 'msg': call,
+                                  'count': len(_trunk_calls)}),
+                    loop
+                )
+            if _trunk_site_label:
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_fn({'type': 'trunk_site', 'site_label': _trunk_site_label}),
+                    loop
+                )
+    except Exception as e:
+        log.debug(f'Trunk reader thread ended: {e}')
+
+async def trunk_engine():
+    """Long-running task: manage OP25/trunk-recorder subprocess lifecycle."""
+    global _trunk_proc, _trunk_thread
+    loop = asyncio.get_running_loop()
+
+    while True:
+        active = state.get('trunk_active', False)
+
+        if active and (_trunk_proc is None or _trunk_proc.poll() is not None):
+            binary, kind = _trunk_find_binary()
+            if not binary:
+                await broadcast_json({
+                    'type': 'trunk_status', 'running': False,
+                    'error': ('OP25 not found (github.com/boatbod/op25) or '
+                              'trunk-recorder not found (github.com/robotastic/trunk-recorder)')
+                })
+                state['trunk_active'] = False
+                await asyncio.sleep(5)
+                continue
+
+            cc_freq = state.get('trunk_cc_freq_hz')
+            device  = state.get('trunk_device', 'rtlsdr')
+            if kind == 'trunk-recorder':
+                args = [binary, '--config', state.get('trunk_config_path', 'config.json')]
+            else:  # op25
+                args = [binary, '-N', f'{device}:0', '-V']
+                if cc_freq:
+                    args += ['-f', str(cc_freq)]
+
+            log.info(f'Trunk: starting ({kind}) {" ".join(args)}')
+            try:
+                _trunk_proc = subprocess.Popen(
+                    args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL, bufsize=0,
+                )
+                _trunk_thread = threading.Thread(
+                    target=_trunk_reader_thread,
+                    args=(_trunk_proc, loop, broadcast_json),
+                    daemon=True, name='trunk-reader',
+                )
+                _trunk_thread.start()
+                await broadcast_json({'type': 'trunk_status', 'running': True,
+                                      'binary': binary, 'kind': kind})
+                log.info(f'Trunk: running ({kind})')
+            except Exception as e:
+                log.error(f'Trunk: failed to start: {e}')
+                await broadcast_json({'type': 'trunk_status', 'running': False, 'error': str(e)})
+                state['trunk_active'] = False
+
+        elif not active and _trunk_proc is not None:
+            try:
+                _trunk_proc.terminate()
+                _trunk_proc.wait(timeout=3)
+            except Exception:
+                try: _trunk_proc.kill()
+                except Exception: pass
+            _trunk_proc = None
+            _trunk_calls.clear()
+            await broadcast_json({'type': 'trunk_status', 'running': False})
+
+        await asyncio.sleep(2)
+
+
+# ── HAMLIB NET RIGCTLD SERVER ─────────────────────────────────────────
+async def rigctld_server():
+    """Minimal Hamlib NET rigctld server so WSJTX can poll DarkSky for frequency.
+
+    Setup in WSJT-X:  Settings → Radio → Rig: Hamlib NET rigctl
+                                          Network Server: localhost:<wsjtx_rigctl_port>
+                                          Poll Interval:  1s
+
+    When the user clicks a DarkSky quick-freq button, state['vfo_hz'] is updated
+    immediately by the 'tune' handler.  WSJTX sees the new freq on its next poll.
+    """
+    port = config.get('wsjtx_rigctl_port', 4532)
+    if not port:
+        return
+
+    def _is_numeric(s: str) -> bool:
+        """Return True if s looks like a bare number (integer or float Hz value)."""
+        try:
+            float(s)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    async def _handle(reader, writer):
+        peer = writer.get_extra_info('peername')
+        log.info(f"rigctld: Hamlib client connected from {peer}")
+
+        async def _readline_arg(label='arg'):
+            """Read one argument line with 2s timeout to avoid deadlock."""
+            try:
+                raw = await asyncio.wait_for(reader.readline(), timeout=2.0)
+                val = raw.decode('ascii', errors='ignore').strip()
+                log.info(f"rigctld ← {label}: {val!r}")
+                return val
+            except asyncio.TimeoutError:
+                log.warning(f"rigctld: timeout reading {label}")
+                return ''
+
+        try:
+            while not reader.at_eof():
+                raw = await reader.readline()
+                if not raw:
+                    break
+                line = raw.decode('ascii', errors='ignore').strip()
+                if not line:
+                    continue
+                cmd = line.lower()
+                log.info(f"rigctld ← {line!r}")
+
+                if cmd == r'\chk_vfo':
+                    # No VFO switching — single VFOA.
+                    # Hamlib 4.x reads just this one line (no RPRT needed for chk_vfo).
+                    writer.write(b'CHKVFO 0\n')
+                    log.info("rigctld → CHKVFO 0")
+
+                elif cmd in (r'\get_freq', 'f') or (cmd.startswith('f ') and not _is_numeric(cmd.split()[-1])):
+                    # get_freq: bare 'f', '\get_freq', or 'f VFOA' (fldigi 4.x VFO-form).
+                    # The last token check ensures 'F VFOA <hz>' (set_freq) falls through.
+                    freq = int(state.get('wsjtx_hz', 14_074_000))
+                    writer.write(f'{freq}\nRPRT 0\n'.encode())
+                    log.info(f"rigctld → {freq} ({freq/1e6:.4f} MHz)")
+
+                elif cmd == r'\set_freq':
+                    val = await _readline_arg('set_freq Hz')
+                    try:
+                        new_freq = int(float(val))
+                        # Ignore \set_freq when fldigi is connected via XML-RPC.
+                        # fldigi's Hamlib CAT polling sends \set_freq to "correct"
+                        # the rig frequency, which creates a feedback loop that
+                        # overwrites the dial freq NEXUS just set via XML-RPC.
+                        # fldigi frequency is controlled exclusively via XML-RPC;
+                        # \set_freq is only honoured for WSJT-X (no XML-RPC connection).
+                        if _fldigi_xmlrpc is not None:
+                            log.debug(f"rigctld: \\set_freq {new_freq/1e6:.4f} MHz ignored (fldigi XML-RPC active)")
+                        else:
+                            state['wsjtx_hz'] = new_freq
+                            log.info(f"rigctld: set_freq → {new_freq/1e6:.4f} MHz")
+                    except (ValueError, TypeError):
+                        pass
+                    writer.write(b'RPRT 0\n')
+
+                elif cmd.startswith('f ') and _is_numeric(cmd.split()[-1]):
+                    # Short-form set_freq: 'F <Hz>' or 'F VFOA <Hz>' (fldigi 4.x).
+                    # cmd is already lowercased; both 'f <hz>' and 'f vfoa <hz>' land here.
+                    # Extract last whitespace-delimited token as the frequency.
+                    try:
+                        new_freq = int(float(cmd.split()[-1]))
+                        if _fldigi_xmlrpc is not None:
+                            log.debug(f"rigctld: set_freq(short) {new_freq/1e6:.4f} MHz ignored (fldigi XML-RPC active)")
+                        else:
+                            state['wsjtx_hz'] = new_freq
+                            log.info(f"rigctld: set_freq(short) → {new_freq/1e6:.4f} MHz")
+                    except (ValueError, TypeError):
+                        pass
+                    writer.write(b'RPRT 0\n')
+
+                elif cmd in (r'\get_mode', 'm'):
+                    # Return actual mode so fldigi doesn't fight XML-RPC mode setting.
+                    # Map fldigi/NEXUS mode names → Hamlib mode strings.
+                    _fmode = state.get('fldigi_mode', 'USB')
+                    _FLDIGI_TO_HAMLIB = {
+                        'CW': 'CW', 'CWR': 'CWR',
+                        'USB': 'USB', 'LSB': 'LSB',
+                        'AM': 'AM', 'FM': 'FM', 'WFM': 'WFM',
+                        'RTTY': 'RTTY', 'RTTYR': 'RTTYR',
+                        'PSK31': 'PKTUSB', 'PSK63': 'PKTUSB', 'PSK125': 'PKTUSB',
+                        'Navtex': 'USB', 'NAVTEX': 'USB',
+                        'Olivia-8-500': 'USB', 'Olivia': 'USB',
+                        'WEFAX-IOC576': 'USB', 'WEFAX-IOC288': 'USB',
+                        'THOR': 'USB', 'DominoEX': 'USB',
+                        'MFSK-16': 'USB', 'MFSK-32': 'USB',
+                        'MT63-500L': 'USB', 'MT63-1KL': 'USB',
+                        'Contestia': 'USB',
+                    }
+                    _hamlib_mode = _FLDIGI_TO_HAMLIB.get(_fmode, 'USB')
+                    writer.write(f'{_hamlib_mode}\n3000\nRPRT 0\n'.encode())
+
+                elif cmd.startswith(r'\set_mode'):
+                    # \set_mode sends mode on same line OR mode+bw on next two lines.
+                    # Check if args are embedded in this line already.
+                    parts = cmd.split()
+                    if len(parts) == 1:
+                        # Just "\set_mode\n" — args come on next two lines
+                        await _readline_arg('set_mode mode')
+                        await _readline_arg('set_mode bw')
+                    # else args are embedded: "\set_mode USB 3000" — no extra reads needed
+                    writer.write(b'RPRT 0\n')
+
+                elif cmd.startswith('m '):  # short form: M <mode> <bw>
+                    writer.write(b'RPRT 0\n')
+
+                elif cmd in (r'\get_vfo', 'v'):
+                    writer.write(b'VFOA\nRPRT 0\n')
+
+                elif cmd in (r'\get_split_vfo',):
+                    writer.write(b'0\nVFOA\nRPRT 0\n')
+
+                elif cmd in (r'\get_ptt', 't') or cmd.startswith('t '):
+                    # 't' = get_ptt; 'T <val>' or 'T VFOA <val>' = set_ptt (fldigi 4.x).
+                    # For get: return PTT off. For set: ACK silently (no TX capability).
+                    if cmd == 't' or cmd == r'\get_ptt':
+                        writer.write(b'0\nRPRT 0\n')
+                    else:
+                        writer.write(b'RPRT 0\n')
+
+                elif cmd in (r'\set_ptt',):
+                    await _readline_arg('set_ptt val')
+                    writer.write(b'RPRT 0\n')
+
+                elif cmd in (r'\get_dcd',):
+                    writer.write(b'0\nRPRT 0\n')
+
+                elif cmd in (r'\get_rit',):
+                    writer.write(b'0\nRPRT 0\n')
+
+                elif cmd in (r'\get_xit',):
+                    writer.write(b'0\nRPRT 0\n')
+
+                elif cmd == r'\dump_state':
+                    # PY-20: use module-level constant — no per-connection string build.
+                    writer.write(_RIGCTLD_DUMP_STATE)
+
+                elif cmd == r'\dump_caps':
+                    # Human-readable caps (not used by Hamlib driver, but handle gracefully)
+                    writer.write(b'RPRT 0\n')
+
+                elif cmd.startswith(r'\get_level') or cmd.startswith('l '):
+                    # S-meter / level query — return 0 (no hardware level available)
+                    writer.write(b'0\nRPRT 0\n')
+
+                elif cmd.startswith(r'\set_level'):
+                    # \set_level args may be on same line or next lines
+                    if cmd == r'\set_level':
+                        await _readline_arg('set_level name')
+                        await _readline_arg('set_level val')
+                    writer.write(b'RPRT 0\n')
+
+                elif cmd in (r'\get_powerstat',):
+                    writer.write(b'1\nRPRT 0\n')
+
+                elif cmd in (r'\set_powerstat',):
+                    await _readline_arg('set_powerstat')
+                    writer.write(b'RPRT 0\n')
+
+                elif cmd in (r'\get_info',):
+                    writer.write(b'DarkSky rigctld\nRPRT 0\n')
+
+                elif cmd in ('q', r'\quit'):
+                    break
+
+                else:
+                    log.info(f"rigctld: UNKNOWN cmd {line!r} → RPRT -1")
+                    writer.write(b'RPRT -1\n')
+
+                await writer.drain()
+
+        except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
+            pass
+        except Exception as _e:
+            log.debug(f"rigctld: client {peer} error: {_e}")
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+            log.info(f"rigctld: Hamlib client {peer} disconnected")
+
+    try:
+        srv = await asyncio.start_server(_handle, '127.0.0.1', port)
+        log.info(f"rigctld server on port {port} — "
+                 f"WSJTX: Settings → Radio → Rig=Hamlib NET rigctl  "
+                 f"Network Server=localhost:{port}")
+        async with srv:
+            await srv.serve_forever()
+    except OSError as _e:
+        log.warning(f"rigctld: could not start on port {port}: {_e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SSH LAUNCHER — Mode A (SDRConnect Server via SSH)
+# Stop sequence order is CRITICAL — see _ssh_stop_local_client docstring.
+# ══════════════════════════════════════════════════════════════════════════════
+
+SSH_CONFIG_PATH = Path.home() / ".darksky_nexus" / "ssh_config.json"
+
+SSH_DEFAULT_CONFIG = {
+    # BUGFIX (2026-07-16, inherited from w031 — user-reported, screenshot
+    # showing "SSH connect failed: timed out" against 192.168.1.114/jon):
+    # these four fields used to be hardcoded to the developer's own private
+    # home-network IP, SSH username, and macOS app path. First-run users saw
+    # a form that LOOKED pre-filled with a working config and just clicked
+    # Connect & Launch — instead of connecting them to anything, it tried
+    # to SSH into a private LAN address that's unreachable from anywhere
+    # outside that one house, timing out every time with no indication why.
+    # This is also why the original vague "SDR connect failed: timed out"
+    # community-wall report couldn't be diagnosed from the text description
+    # alone — the screenshot showing the actual host/user field values was
+    # what confirmed the real cause. Blank defaults force every user to
+    # enter their own values (or use the Skip / nRSP-ST-Local path when
+    # SDRConnect is already running on the same machine as NEXUS, the more
+    # common case this SSH-remote path was never meant to cover).
+    "ssh_host":            "",
+    "ssh_user":            "",
+    "ssh_port":            22,
+    "ssh_auth":            "key",
+    "ssh_key_path":        str(Path.home() / ".ssh" / "id_ed25519"),
+    "ssh_password":        "",
+    "remote_command":      "cd /opt/sdrconnect && ./SDRconnect --server",
+    "local_client":        "",
+    "startup_delay":       30,  # max seconds to TCP-poll remote server port 50000
+    "client_ready_delay":  30,  # max seconds to TCP-poll local SDRConnect WS API :5454
+    "device_release_wait": 3,
+    "default_device":      "",
+    "preferred_stream_mode": "Full IQ",  # auto-select on nRSP-ST detect (w0.2.3: changed default, see version history)
+}
+
+_ssh_state       = {"status": "idle", "log": [], "error": ""}
+_ssh_client_proc    = None
+_ssh_paramiko       = None
+_ssh_channel        = None
+_ssh_forward_server = None   # socketserver.TCPServer forwarding port 50000→remote:50000
+_ssh_state_lock  = threading.Lock()
+_ssh_live_cfg    = {}        # in-memory copy of launch config (includes password, never saved to disk)
+
+def _ssh_load_config() -> dict:
+    SSH_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if SSH_CONFIG_PATH.exists():
+        try:
+            with open(SSH_CONFIG_PATH) as f:
+                return {**SSH_DEFAULT_CONFIG, **json.load(f)}
+        except Exception:
+            pass
+    return SSH_DEFAULT_CONFIG.copy()
+
+def _ssh_save_config(cfg: dict):
+    SSH_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(SSH_CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+def _ssh_log(msg: str, level: str = "info"):
+    entry = {"msg": msg, "level": level, "ts": time.strftime("%H:%M:%S")}
+    with _ssh_state_lock:
+        _ssh_state["log"].append(entry)
+        if len(_ssh_state["log"]) > 200:
+            _ssh_state["log"].pop(0)
+    log.info(f"[SSH] {msg}")
+    asyncio.run_coroutine_threadsafe(
+        broadcast_json({"type": "ssh_log", **entry}), loop)
+
+def _ssh_open_connection(cfg: dict):
+    try:
+        import paramiko as _pm
+    except ImportError:
+        raise RuntimeError("paramiko not installed — run: pip install paramiko")
+    client = _pm.SSHClient()
+    client.set_missing_host_key_policy(_pm.AutoAddPolicy())
+    kw = dict(hostname=cfg["ssh_host"], port=int(cfg["ssh_port"]),
+               username=cfg["ssh_user"], timeout=10)
+    if cfg["ssh_auth"] == "key":
+        kw["key_filename"] = os.path.expanduser(cfg["ssh_key_path"])
+        _ssh_log(f"Auth: SSH key ({os.path.basename(kw['key_filename'])})")
+    else:
+        kw["password"] = cfg["ssh_password"]
+        _ssh_log("Auth: password")
+    client.connect(**kw)
+    return client
+
+def _ssh_tcp_poll(host: str, port: int, timeout: int = 60, label: str = "") -> bool:
+    """Poll host:port with TCP connect attempts until open or timeout."""
+    import socket as _socket
+    label = label or f"{host}:{port}"
+    _ssh_log(f"Polling {label} (up to {timeout}s)…")
+    deadline = time.monotonic() + timeout
+    attempt  = 0
+    while time.monotonic() < deadline:
+        attempt += 1
+        try:
+            with _socket.create_connection((host, port), timeout=1):
+                _ssh_log(f"{label} open after {attempt}s", "success")
+                return True
+        except OSError:
+            time.sleep(1)
+    _ssh_log(f"{label} did not open within {timeout}s", "error")
+    return False
+
+
+def _ssh_launch_local_client(client_path: str) -> subprocess.Popen:
+    if client_path.endswith(".app") or os.path.isdir(client_path):
+        app_path = client_path.rstrip("/")
+        if not os.path.exists(app_path):
+            raise FileNotFoundError(f"App bundle not found: {app_path}")
+        # Direct binary launch — 'open -a' returns instantly without rehydrating
+        # saved remote-device session state. Direct exec restores state synchronously.
+        binary = os.path.join(app_path, "Contents", "MacOS",
+                              os.path.splitext(os.path.basename(app_path))[0])
+        if os.path.exists(binary):
+            proc = subprocess.Popen([binary])
+            _ssh_log(f"Launched {os.path.basename(binary)} directly (PID {proc.pid})", "success")
+        else:
+            proc = subprocess.Popen(["open", "-a", app_path])
+            _ssh_log(f"Launched via open -a {os.path.basename(app_path)} (PID {proc.pid})", "success")
+    else:
+        if not os.path.exists(client_path):
+            raise FileNotFoundError(f"Executable not found: {client_path}")
+        proc = subprocess.Popen([client_path])
+        _ssh_log(f"Launched {os.path.basename(client_path)} (PID {proc.pid})", "success")
+    return proc
+
+def _ssh_stop_local_client(proc, client_path: str, device_release_wait: int = 3):
+    """
+    Close local SDRConnect then wait device_release_wait seconds.
+    CRITICAL: this wait MUST complete before killing the remote server.
+    If skipped, SDRConnect holds the RSPdx handle when the remote dies,
+    causing SIGSEGV in swig_bindings.dylib on next launch.
+    """
+    _ssh_log("Closing local SDRConnect client…")
+    if proc:
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except (subprocess.TimeoutExpired, ProcessLookupError):
+            try: proc.kill()
+            except Exception: pass
+    if client_path.endswith(".app") or os.path.isdir(client_path):
+        app_name = os.path.splitext(os.path.basename(client_path.rstrip("/")))[0]
+        try:
+            subprocess.run(["pkill", "-TERM", "-x", app_name],
+                           capture_output=True, timeout=4)
+            _ssh_log(f"pkill sent to {app_name!r}", "success")
+        except Exception as e:
+            _ssh_log(f"pkill error: {e}", "error")
+    _ssh_log(f"Waiting {device_release_wait}s for RSPdx device release…")
+    time.sleep(device_release_wait)
+    _ssh_log("Device released — safe to kill remote server", "success")
+
+
+def _ssh_start_port_forward(ssh, local_port: int, remote_host: str, remote_port: int):
+    """
+    Open a local TCP port forward through an existing paramiko SSH connection.
+    Equivalent to: ssh -L local_port:remote_host:remote_port
+    Returns the socketserver.TCPServer instance (call .shutdown() to stop).
+    """
+    import socketserver
+
+    transport = ssh.get_transport()
+
+    class ForwardHandler(socketserver.BaseRequestHandler):
+        def handle(self):
+            try:
+                chan = transport.open_channel(
+                    "direct-tcpip",
+                    (remote_host, remote_port),
+                    self.request.getpeername(),
+                )
+            except Exception as e:
+                _ssh_log(f"[tunnel] open_channel failed: {e}", "error")
+                return
+            if chan is None:
+                _ssh_log("[tunnel] open_channel returned None", "error")
+                return
+            try:
+                while True:
+                    import select
+                    r, _, _ = select.select([self.request, chan], [], [], 1.0)
+                    if self.request in r:
+                        data = self.request.recv(1024)
+                        if not data:
+                            break
+                        chan.send(data)
+                    if chan in r:
+                        data = chan.recv(1024)
+                        if not data:
+                            break
+                        self.request.sendall(data)
+            finally:
+                chan.close()
+
+    class ForwardServer(socketserver.ThreadingTCPServer):
+        daemon_threads = True
+        allow_reuse_address = True
+
+    server = ForwardServer(("127.0.0.1", local_port), ForwardHandler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    _ssh_log(f"Port forward active: localhost:{local_port} → {remote_host}:{remote_port}", "success")
+    return server
+
+def _ssh_do_launch(cfg: dict):
+    global _ssh_paramiko, _ssh_channel, _ssh_client_proc, _ssh_forward_server
+    with _ssh_state_lock:
+        _ssh_state["status"] = "connecting"
+        _ssh_state["log"].clear()
+        _ssh_state["error"] = ""
+    asyncio.run_coroutine_threadsafe(
+        broadcast_json({"type": "ssh_status", "status": "connecting"}), loop)
+
+    _ssh_log(f"Connecting to {cfg['ssh_user']}@{cfg['ssh_host']}:{cfg['ssh_port']}…")
+    try:
+        ssh = _ssh_open_connection(cfg)
+    except Exception as e:
+        _ssh_log(f"SSH connect failed: {e}", "error")
+        with _ssh_state_lock:
+            _ssh_state["status"] = "error"
+            _ssh_state["error"] = str(e)
+        asyncio.run_coroutine_threadsafe(
+            broadcast_json({"type": "ssh_status", "status": "error", "error": str(e)}), loop)
+        return
+    _ssh_log("SSH connected", "success")
+
+    # Port-forward localhost:50000 → remote:50000 is OPTIONAL.
+    # SDRConnect already owns port 50000 locally; enabling it here causes an
+    # OSError that races SDRConnect's own bind and can prevent it from starting.
+    if cfg.get("enable_port_forward", False):
+        try:
+            fwd = _ssh_start_port_forward(ssh, 50000, "127.0.0.1", 50000)
+            with _ssh_state_lock:
+                _ssh_forward_server = fwd
+        except Exception as e:
+            _ssh_log(f"Port forward failed: {e}", "error")
+
+    _ssh_log(f"Starting remote server: {cfg['remote_command']}")
+    try:
+        transport = ssh.get_transport()
+        ch = transport.open_session()
+        ch.get_pty()
+        ch.exec_command(cfg["remote_command"])
+        _ssh_log("Remote server started", "success")
+    except Exception as e:
+        _ssh_log(f"Remote command failed: {e}", "error")
+        with _ssh_state_lock:
+            _ssh_state["status"] = "error"
+            _ssh_state["error"] = str(e)
+        ssh.close()
+        asyncio.run_coroutine_threadsafe(
+            broadcast_json({"type": "ssh_status", "status": "error", "error": str(e)}), loop)
+        return
+
+    # TCP-poll remote port 50000 — proceed as soon as server is ready
+    startup_timeout = int(cfg.get("startup_delay", 30))
+    remote_host     = cfg.get("ssh_host", "127.0.0.1")
+    server_ready    = _ssh_tcp_poll(remote_host, 50000,
+                                    timeout=startup_timeout,
+                                    label=f"remote server {remote_host}:50000")
+    if not server_ready:
+        _ssh_log("Remote server did not become ready in time", "error")
+    time.sleep(1)  # brief settle after port opens
+
+    client_path = os.path.expanduser(cfg.get("local_client", "")).strip()
+    proc = None
+    if client_path:
+        _ssh_log(f"Launching local SDRConnect: {client_path}")
+        try:
+            proc = _ssh_launch_local_client(client_path)
+        except Exception as e:
+            _ssh_log(f"Client launch failed: {e}", "error")
+            # Non-fatal — server is running, NEXUS can still connect if WS is available
+    else:
+        _ssh_log("No local client configured — connecting to remote WebSocket directly")
+
+    with _ssh_state_lock:
+        _ssh_paramiko    = ssh
+        _ssh_channel     = ch
+        _ssh_client_proc = proc
+        _ssh_state["status"] = "running"
+
+    if proc:
+        ws_timeout = int(cfg.get("client_ready_delay", 30))
+        _ssh_log(f"Local client launched — polling WebSocket API on port 5454…")
+        asyncio.run_coroutine_threadsafe(
+            broadcast_json({"type": "ssh_status", "status": "running",
+                            "waiting": True, "wait_secs": ws_timeout}), loop)
+        ws_ready = _ssh_tcp_poll("127.0.0.1", 5454,
+                                 timeout=ws_timeout,
+                                 label="local SDRConnect WS API :5454")
+        if not ws_ready:
+            _ssh_log("SDRConnect WS API did not open in time — NEXUS will retry", "error")
+
+    _ssh_log("Ready — server and client running", "success")
+    asyncio.run_coroutine_threadsafe(
+        broadcast_json({"type": "ssh_status", "status": "running",
+                        "waiting": False}), loop)
+
+def _ssh_do_stop(cfg: dict):
+    global _ssh_paramiko, _ssh_channel, _ssh_client_proc, _ssh_forward_server
+    with _ssh_state_lock:
+        _ssh_state["status"] = "stopping"
+        proc        = _ssh_client_proc
+        client_path = os.path.expanduser(cfg.get("local_client", ""))
+    asyncio.run_coroutine_threadsafe(
+        broadcast_json({"type": "ssh_status", "status": "stopping"}), loop)
+
+    # CRITICAL ORDER: close client → device release wait → kill remote
+    _ssh_stop_local_client(proc, client_path,
+                            int(cfg.get("device_release_wait", 3)))
+
+    _ssh_log("Sending stop signal to remote server…")
+    try:
+        ssh_kill = _ssh_open_connection(cfg)
+        _, out, _ = ssh_kill.exec_command(
+            "pkill -TERM -f 'SDRconnect --server'; sleep 1; "
+            "pkill -KILL -f 'SDRconnect --server' 2>/dev/null; echo done",
+            timeout=8)
+        result = out.read().decode().strip()
+        ssh_kill.close()
+        _ssh_log(f"Remote kill sent ({result or 'no output'})", "success")
+    except Exception as e:
+        _ssh_log(f"Remote kill error: {e}", "error")
+
+    with _ssh_state_lock:
+        ch  = _ssh_channel
+        ssh = _ssh_paramiko
+    if ch:
+        try: ch.close()
+        except Exception: pass
+    if ssh:
+        try:
+            ssh.close()
+            _ssh_log("SSH connection closed", "success")
+        except Exception as e:
+            _ssh_log(f"SSH close error: {e}", "error")
+
+    # Shut down port-forward tunnel
+    with _ssh_state_lock:
+        fwd = _ssh_forward_server
+        _ssh_forward_server = None
+    if fwd:
+        try:
+            fwd.shutdown()
+            _ssh_log("Port forward closed", "success")
+        except Exception as e:
+            _ssh_log(f"Port forward close error: {e}", "error")
+
+    with _ssh_state_lock:
+        _ssh_paramiko = _ssh_channel = _ssh_client_proc = None
+        _ssh_state["status"] = "stopped"
+    global _ssh_live_cfg
+    _ssh_live_cfg = {}
+    _ssh_log("Session ended", "success")
+    asyncio.run_coroutine_threadsafe(
+        broadcast_json({"type": "ssh_status", "status": "stopped"}), loop)
+
+def _ssh_do_test(cfg: dict):
+    _ssh_log("Testing SSH connection…")
+    try:
+        ssh = _ssh_open_connection(cfg)
+        ssh.close()
+        _ssh_log("SSH test: OK", "success")
+        asyncio.run_coroutine_threadsafe(
+            broadcast_json({"type": "ssh_test_result", "ok": True, "msg": "Connection successful"}), loop)
+    except Exception as e:
+        _ssh_log(f"SSH test failed: {e}", "error")
+        asyncio.run_coroutine_threadsafe(
+            broadcast_json({"type": "ssh_test_result", "ok": False, "msg": str(e)}), loop)
+
+def _handle_ssh_cmd(cmd: str, d: dict):
+    if cmd == "ssh_launch":
+        if _ssh_state["status"] in ("connecting", "running", "stopping"):
+            return
+        cfg = _ssh_load_config()
+        for k in SSH_DEFAULT_CONFIG:
+            if k in d and k not in ("ssh_password",):
+                cfg[k] = d[k]
+        if d.get("ssh_password","") not in ("", "••••••"):
+            cfg["ssh_password"] = d["ssh_password"]
+        _ssh_save_config({k: v for k, v in cfg.items() if k != "ssh_password"})
+        global _ssh_live_cfg
+        _ssh_live_cfg = cfg.copy()   # retain password in memory for stop sequence
+        threading.Thread(target=_ssh_do_launch, args=(cfg,), daemon=True).start()
+    elif cmd == "ssh_stop":
+        if _ssh_state["status"] not in ("running","error"): return
+        stop_cfg = _ssh_live_cfg.copy() if _ssh_live_cfg else _ssh_load_config()
+        threading.Thread(target=_ssh_do_stop, args=(stop_cfg,), daemon=True).start()
+    elif cmd == "ssh_test":
+        cfg = _ssh_load_config()
+        for k in ("ssh_host","ssh_user","ssh_port","ssh_auth","ssh_key_path","ssh_password"):
+            if k in d: cfg[k] = d[k]
+        threading.Thread(target=_ssh_do_test, args=(cfg,), daemon=True).start()
+    elif cmd == "ssh_get_config":
+        cfg  = _ssh_load_config()
+        safe = {k: v for k, v in cfg.items() if k != "ssh_password"}
+        safe["ssh_password_set"] = bool(cfg.get("ssh_password"))
+        asyncio.run_coroutine_threadsafe(
+            broadcast_json({"type": "ssh_config", **safe}), loop)
+    elif cmd == "ssh_get_status":
+        with _ssh_state_lock:
+            s = dict(_ssh_state)
+        asyncio.run_coroutine_threadsafe(
+            broadcast_json({"type": "ssh_status", "status": s["status"], "error": s["error"]}), loop)
+    elif cmd == "ssh_reset":
+        with _ssh_state_lock:
+            _ssh_state.update({"status": "idle", "error": "", "log": []})
+        asyncio.run_coroutine_threadsafe(
+            broadcast_json({"type": "ssh_status", "status": "idle"}), loop)
+
+
+
+# ── SHUTDOWN (June 2026 fix) ─────────────────────────────────────────
+# Previously NEXUS had no path back to the OS at all: the launched Chrome
+# window is a detached subprocess.Popen with zero connection to the asyncio
+# loop, and main() just sits in `await asyncio.Future()` forever. Closing
+# the browser window (or even hitting Cmd+Q on it) did nothing to the
+# Python process — it kept running, still holding HTTP_PORT/WS_PORT, until
+# force-quit from Activity Monitor. This adds two independent triggers for
+# a clean shutdown: (1) a watchdog that polls the launched Chrome process
+# and fires when it exits, and (2) real SIGTERM/SIGINT handlers so Activity
+# Monitor "Quit" and Ctrl+C also work. Either path converges on
+# _request_shutdown(), which is idempotent and safe to call more than once.
+def _request_shutdown(reason: str = ""):
+    global _shutting_down
+    if _shutting_down:
+        return
+    _shutting_down = True
+    log.info(f"Shutting down NEXUS{f' ({reason})' if reason else ''}...")
+    try:
+        if loop is not None:
+            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_graceful_shutdown()))
+    except Exception:
+        # Loop isn't up yet / already closed — just exit hard.
+        os._exit(0)
+
+
+async def _graceful_shutdown():
+    """Stop child processes/servers, then stop the event loop. Best-effort —
+    any single failure here must not block the rest of teardown."""
+    # Stop tracked external decoder/bridge subprocesses. Read via globals()
+    # rather than `global` + direct name, since some of these (_rtl_proc,
+    # _hfdl_proc, _vdl2_proc, _dsd_proc) are only assigned conditionally,
+    # deep inside other functions, and we're only reading here, never
+    # rebinding them.
+    for proc in (_chrome_proc,
+                 globals().get('_rtl_proc'),
+                 globals().get('_hfdl_proc'),
+                 globals().get('_vdl2_proc'),
+                 globals().get('_dsd_proc')):
+        if proc is None:
+            continue
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+        except Exception:
+            pass
+
+    # Stop the HTTP server thread.
+    try:
+        if _http_server is not None:
+            _http_server.shutdown()
+    except Exception:
+        pass
+
+    # Cancel all other outstanding asyncio tasks (skimmer loop, pollers,
+    # bridges, rigctld server, etc.) so nothing keeps running in the
+    # background. main()'s own task is deliberately excluded — it's
+    # parked on `await _shutdown_event.wait()` below, and we want it to
+    # wake up and return normally, not be cancelled.
+    try:
+        current = asyncio.current_task()
+        for task in asyncio.all_tasks():
+            if task is not current and task is not _main_task:
+                task.cancel()
+    except Exception:
+        pass
+
+    log.info("NEXUS shutdown complete.")
+    # w030: this used to be asyncio.get_running_loop().stop(), called
+    # directly from here. That stopped the loop while main()'s task was
+    # still suspended on a bare `await asyncio.Future()` that can never
+    # resolve, which left it permanently "not done" from asyncio.run()'s
+    # point of view — every shutdown (browser-close, Ctrl+C, SIGTERM)
+    # raised "RuntimeError: Event loop stopped before Future completed."
+    # right after this log line, even though everything above it had
+    # already torn down cleanly. Setting this event instead lets main()
+    # wake from `await _shutdown_event.wait()` and return normally, so
+    # asyncio.run() finishes its own bookkeeping without an exception.
+    _shutdown_event.set()
+
+
+_ever_connected = False  # set once the first browser WS client connects
+
+
+def _watch_chrome_proc(proc):
+    """Runs in a daemon thread. Polls the launched browser-launcher process.
+    This alone isn't a reliable close signal — on some platforms Popen here
+    is just a short-lived launcher that hands the new window off to an
+    already-running Chrome instance and exits immediately, long before the
+    user closes anything. So this only acts once a browser has actually
+    connected over the WS bridge AND that launcher process has exited AND
+    no client is currently connected — i.e. it's a fast-path nudge, not the
+    primary signal (see _watch_clients_loop for that)."""
+    try:
+        proc.wait()
+    except Exception:
+        pass
+    if _ever_connected and not clients:
+        _request_shutdown("browser window closed")
+
+
+async def _watch_clients_loop():
+    """Primary quit signal: once the first browser tab connects over the WS
+    bridge, watch for the client count to drop back to zero and treat that
+    as 'the user closed NEXUS'. A short grace period absorbs the normal
+    reconnect blip (e.g. a page refresh) so we don't quit out from under
+    the user mid-reload."""
+    global _ever_connected
+    while not clients:
+        await asyncio.sleep(0.5)
+    _ever_connected = True
+    while True:
+        await asyncio.sleep(1.0)
+        if not clients:
+            # Grace period: wait a bit to see if it was just a reload.
+            await asyncio.sleep(5.0)
+            if not clients:
+                _request_shutdown("browser closed (no clients connected)")
+                return
+
+
+# ── ENTRY POINT ───────────────────────────────────────────────────────
+async def main():
+    global loop, _main_task
+    loop = asyncio.get_running_loop()
+    _main_task = asyncio.current_task()
+
+    # Graceful quit on SIGTERM/SIGINT (Activity Monitor "Quit", Ctrl+C).
+    # add_signal_handler isn't available on Windows's event loop — fall
+    # back to the default handler there, which still raises
+    # KeyboardInterrupt on Ctrl+C and is caught at the bottom of the file.
+    if sys.platform != "win32":
+        for _sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(_sig, lambda: _request_shutdown("signal"))
+            except (NotImplementedError, ValueError):
+                pass
+
+    # Start CW skimmer (basic UI feedback)
+    # Only broadcast when cw_dec.text has actually grown/changed since the
+    # last tick -- the frontend's cw_skimmer handler appends every message
+    # as a new line with no de-duplication, so a naive unconditional 1s
+    # rebroadcast caused the decode-text panel to fill with the same
+    # trailing text over and over (runaway repeating garbage). Track the
+    # last text we sent and skip the broadcast entirely if it's unchanged.
+    _last_skimmer_text = [None]
+    async def _cw_skimmer_loop():
+        while True:
+            try:
+                await asyncio.sleep(1.0)
+                _tail = cw_dec.text[-128:]
+                if _tail != _last_skimmer_text[0]:
+                    _last_skimmer_text[0] = _tail
+                    await broadcast_json({"type": "cw_skimmer", "active": cw_dec.active, "text": _tail})
+            except Exception:
+                pass
+
+    asyncio.create_task(_cw_skimmer_loop())
+
+    # Self-heal: free up HTTP_PORT/WS_PORT if a stale NEXUS process from a
+    # previous, unclean shutdown is still holding them (avoids "Address
+    # already in use" crashes on restart).
+    _free_stale_port(HTTP_PORT, "HTTP")
+    _free_stale_port(WS_PORT, "WebSocket")
+
+    # Start HTTP server (serves the HTML file)
+    global _http_server
+    try:
+        http = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), UIServer)
+    except OSError as e:
+        if sys.platform == "win32":
+            log.error(f"Could not bind HTTP port {HTTP_PORT}: {e}. "
+                       f"Another NEXUS instance is probably already running — check Task Manager, "
+                       f"end it, then retry.")
+        else:
+            log.error(f"Could not bind HTTP port {HTTP_PORT}: {e}. "
+                       f"Run: kill -9 $(lsof -t -iTCP:{HTTP_PORT} -sTCP:LISTEN)  then retry.")
+        raise
+    _http_server = http
+    threading.Thread(target=http.serve_forever, daemon=True).start()
+    log.info(f"HTTP server on http://127.0.0.1:{HTTP_PORT}")
+    log.info(f"UI file: {DARKSKY_HTML} ({'found' if DARKSKY_HTML.exists() else 'NOT FOUND'})")
+
+    # Start WebSocket server (bridge to browsers)
+    import websockets
+    try:
+        await websockets.serve(browser_handler, "0.0.0.0", WS_PORT,
+            ping_interval=None,   # browser handles its own keepalive
+            ping_timeout=None,    # no forced disconnect on ping timeout
+            max_size=10_485_760)  # 10MB max message size
+    except OSError as e:
+        if sys.platform == "win32":
+            log.error(f"Could not bind WebSocket port {WS_PORT}: {e}. "
+                       f"Another NEXUS instance is probably already running — check Task Manager, "
+                       f"end it, then retry.")
+        else:
+            log.error(f"Could not bind WebSocket port {WS_PORT}: {e}. "
+                       f"Run: kill -9 $(lsof -t -iTCP:{WS_PORT} -sTCP:LISTEN)  then retry.")
+        raise
+    log.info(f"WebSocket bridge on ws://127.0.0.1:{WS_PORT}")
+
+    # Start SDRConnect bridge (non-blocking)
+    asyncio.create_task(sdr_bridge())
+
+    # Start RTL-TCP bridge (non-blocking — only active when engine=RTLSDR)
+    asyncio.create_task(rtl_bridge())
+
+    # Start AIS decoder (UDP listener — active when ais_active=True)
+    asyncio.create_task(ais_udp_server())
+
+    # Start Tier-1 external decoder tasks
+    asyncio.create_task(adsb_poller())
+    asyncio.create_task(hfdl_udp_server())
+    asyncio.create_task(vdl2_udp_server())
+    asyncio.create_task(rtl433_udp_server())   # w033 fork, 2026-07-19
+    asyncio.create_task(dsd_engine())
+    asyncio.create_task(dab_engine())
+    asyncio.create_task(trunk_engine())
+
+    # Start fldigi poller (active when fldigi_active=True)
+    # Waterfall is now driven client-side by the IQ Lite 'audio_fft' broadcast
+    # (see IQ-Lite processing loop) — no separate poller task needed.
+    asyncio.create_task(fldigi_poller())
+
+    # Start DX cluster spots poller (HF Utility "LIVE DX SPOTS" column —
+    # now fetched server-side and broadcast over WS instead of per-browser fetch())
+    asyncio.create_task(dx_spots_poller())
+
+    # Start aisstream.io live-feed client (opt-in, see AIS_AISSTREAM_KEY
+    # comment above) -- no-ops (just idles) if no key is configured.
+    asyncio.create_task(_aisstream_client())
+
+    # Start APRS tasks (each waits for its source to be selected)
+    asyncio.create_task(aprs_is_task())
+    asyncio.create_task(aprs_kiss_task())
+    asyncio.create_task(_aprs_expire_stations())
+
+    # Start Hamlib NET rigctld server (WSJTX connects here for frequency polling)
+    asyncio.create_task(rigctld_server())
+
+    log.info(f"SDRConnect bridge target: {SDRCONNECT_WS}")
+    log.info(f"RTL-TCP bridge target: {RTL_TCP_HOST}:{RTL_TCP_PORT}")
+    log.info(f"DARKSKY {VERSION} ready — opening browser")
+    import webbrowser, subprocess
+    url = f"http://127.0.0.1:{HTTP_PORT}"
+
+    # Platform-specific Chrome paths, tried in order
+    if sys.platform == "win32":
+        chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ]
+    elif sys.platform == "darwin":
+        chrome_paths = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]
+    else:  # Linux / other
+        chrome_paths = [
+            "google-chrome",
+            "google-chrome-stable",
+            "chromium-browser",
+            "chromium",
+        ]
+
+    global _chrome_proc
+    opened = False
+    for path in chrome_paths:
+        try:
+            _chrome_proc = subprocess.Popen([path, "--no-restore-last-session", "--new-window", url])
+            opened = True
+            log.info(f"Opened Chrome: {path}")
+            break
+        except (FileNotFoundError, OSError):
+            continue
+    if not opened:
+        log.warning("Chrome not found — falling back to system browser")
+        webbrowser.open(url)
+
+    # Watch for the user closing the NEXUS window so the backend actually
+    # quits instead of running forever in the background (see "SHUTDOWN"
+    # section above). Note: if the launched Chrome process was just a
+    # short-lived "open a window in the existing Chrome instance" launcher,
+    # its wait() can return almost immediately even though the window it
+    # opened stays open — that's not a real close. Guard against that by
+    # only honoring the watchdog once at least one browser WS client has
+    # actually connected, then firing as soon as the client count drops
+    # back to zero (the real "user closed the tab/window" signal).
+    if _chrome_proc is not None:
+        threading.Thread(target=_watch_chrome_proc, args=(_chrome_proc,), daemon=True).start()
+    asyncio.create_task(_watch_clients_loop())
+
+    await _shutdown_event.wait()  # run until _graceful_shutdown() sets this, then return normally
+
+
+if __name__ == "__main__":
+    if sys.platform == "win32":
+        # Required on Windows for WebSocket/socket compatibility
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(main())
