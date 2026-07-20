@@ -28,10 +28,7 @@ NEXUS is a single Python backend (`w033_NEXUS.py`) plus a single browser fronten
 
 ## Install
 
-Prebuilt installers are in [`installers/`](installers/):
-
-- **macOS:** `DARKSKY_NEXUS_w033_macOS.dmg`
-- **Windows:** `DARKSKY_NEXUS_w033_Setup.exe`
+Prebuilt installers (macOS `.dmg`, Windows `.exe`) are attached to the [latest release](https://github.com/19afc03/DARKSKY/releases/latest).
 
 Or run from source:
 
@@ -50,12 +47,6 @@ External decoder engines (dump1090, dumphfdl, dumpvdl2, rtl_433, dab-cmdline, DS
 - [User Manual](docs/pdf/DARKSKY_NEXUS_w033_UserManual.pdf)
 - [Troubleshooting](docs/pdf/DARKSKY_NEXUS_w033_Troubleshooting.pdf)
 - [Full changelog](CHANGELOG.md)
-
-(Word versions of the same three docs are in [`docs/word/`](docs/word/).)
-
-## Building installers
-
-Build scripts for both platforms are in [`build/`](build/) (`build_macOS.sh`, `build_Windows.bat`, PyInstaller `.spec` files, Inno Setup `.iss` script). See [`build/BUILD_NOTES.md`](build/BUILD_NOTES.md).
 
 ## License
 
