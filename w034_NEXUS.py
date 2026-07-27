@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DARKSKY w033 — SDRConnect Companion
+DARKSKY w034 — SDRConnect Companion
 ================================================================================
 WebSocket bridge and signal intelligence companion for SDRplay RSPdx and
 compatible SDRplay receivers. Interfaces with SDRConnect via WebSocket.
@@ -9,7 +9,24 @@ Also supports RTL-SDR USB dongles via rtl_tcp (direct, no SDRConnect needed).
 ================================================================================
 Full build history (w0.0.5 -> present): see CHANGELOG.md in this folder.
 
-CURRENT VERSION — w033:
+CURRENT VERSION — w034:
+w034      Forked from w033 (2026-07-24) to replace the DAB/DAB+ engine.
+          w033's dab-cmdline engine opens the SDRplay API directly and can
+          only ever see a physically USB-attached RSPdx -- it can't read
+          from SDRConnect's network protocols or a networked nRSP-ST at
+          all. Replaced with `dab_radio_nexus`, a new headless tool built
+          on a clone of williamyang98/DAB-Radio (MIT) that owns no
+          hardware -- it reads raw IQ on stdin and writes decoded PCM on
+          stdout, so it works with any IQ source NEXUS can already reach.
+          NEXUS resamples its Full-IQ tap to 2.048 MSPS and pipes it in
+          continuously; every discovered service decodes simultaneously,
+          so switching stations is now an instant Python-side buffer
+          swap instead of a subprocess relaunch (only a channel change,
+          which retunes the hardware, restarts the subprocess). See
+          NEXUS_dab_radio_build_macOS.md for the build steps and
+          CHANGELOG.md for the full itemised record.
+
+PRIOR VERSION — w033:
 w033      Forked from w032 (2026-07-19) to merge in an experimental
           Dire Wolf-derived AIS decoder (multi-slicer interpolated PLL,
           rate-scaled AGC, resample-to-48kHz-before-filter) running in
@@ -67,6 +84,21 @@ w033      Forked from w032 (2026-07-19) to merge in an experimental
           w032_NEXUS.py/DARKSKY_NEXUS_w032.html, which don't exist in this
           folder, breaking `build_macOS.sh` immediately. All seven files
           now reference w033; the .iss was renamed to match.
+          SSTV Robot 36/72 decode added (2026-07-24): these two modes were
+          only ever recognised (VIS-detected, name shown, toast fired) not
+          actually decoded to an image, per the caveat left in the original
+          SSTV implementation. Implemented using the numeric scan-line
+          timing table in Martin Bruchanov OK2MNM's public SSTV Handbook
+          (same source already cited for Martin/Scottie) — Robot 36 is
+          YCbCr 4:2:0 (one chroma channel per line, alternating Cr/Cb,
+          held over between lines the way every real Robot 36 decoder
+          handles the format); Robot 72 is 4:2:2 (both chroma channels
+          every line, no alternation). Line-timing sums were checked
+          against each mode's published lines-per-minute figure, and the
+          YCbCr->RGB conversion was checked with a numeric round-trip test
+          before shipping. The even/odd Cr/Cb parity convention itself is
+          the standard one but — like the rest of this decoder — hasn't
+          been checked against a real captured Robot 36/72 transmission.
 
 PRIOR VERSION — w032:
 w032      Forked from w031 (2026-07-16) to implement a CW decoder/UI
@@ -303,7 +335,7 @@ except Exception:
     DECODERS = []
 
 # --- MASTER CONFIG ---
-VERSION      = "w033"
+VERSION      = "w034"
 
 # --- BUILD HISTORY ---
 # w0.1.9 — nRSP-ST Full Support
@@ -331,9 +363,9 @@ VERSION      = "w033"
 # — neither is the WebSocket API. SDRConnect must always be running to use NEXUS.
 #
 # Usage:
-#   Local SDRConnect (default):            python3 w033_NEXUS.py
-#   Remote SDRConnect on another machine:  python3 w033_NEXUS.py --sdr 192.168.1.xx
-#   Remote SDRConnect custom port:         python3 w033_NEXUS.py --sdr 192.168.1.xx:5454
+#   Local SDRConnect (default):            python3 w034_NEXUS.py
+#   Remote SDRConnect on another machine:  python3 w034_NEXUS.py --sdr 192.168.1.xx
+#   Remote SDRConnect custom port:         python3 w034_NEXUS.py --sdr 192.168.1.xx:5454
 _sdr_host = "127.0.0.1"
 _sdr_port = 5454
 for _i, _a in enumerate(sys.argv[1:]):
@@ -388,7 +420,7 @@ def _find_html() -> Path:
         if candidates:
             return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
         # Final fallback path (will show "not found" page)
-        return meipass / 'DARKSKY_NEXUS_w033.html'
+        return meipass / 'DARKSKY_NEXUS_w034.html'
 
     here = Path(__file__).resolve().parent
 
@@ -397,14 +429,14 @@ def _find_html() -> Path:
     if same_stem.exists():
         return same_stem
 
-    # 2. Fallback: newest DARKSKY*w033*.html in the same folder
-    matches = glob.glob(str(here / "DARKSKY*w033*.html"))
+    # 2. Fallback: newest DARKSKY*w034*.html in the same folder
+    matches = glob.glob(str(here / "DARKSKY*w034*.html"))
     if matches:
         matches.sort(key=lambda p: Path(p).stat().st_mtime, reverse=True)
         return Path(matches[0])
 
     # 3. Hard fallback — will trigger "not found" page with the correct path shown
-    return here / "DARKSKY_NEXUS_w033.html"
+    return here / "DARKSKY_NEXUS_w034.html"
 
 DARKSKY_HTML = _find_html()
 HTTP_PORT     = 8888
@@ -527,6 +559,19 @@ def _free_stale_port(port: int, label: str = "") -> None:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("DARKSKY")
+
+# DIAGNOSTIC (2026-07-26, live user report: DAB scan finds nothing in a
+# packaged build but works fine running the .py directly): _HAVE_SCIPY/
+# _HAVE_SOUNDDEVICE control whether a long list of features (DAB IQ
+# resampling, CW/RTTY/AIS filtering, WSPR decimation, sounddevice-based
+# audio) run for real or silently no-op -- but neither import failure was
+# ever logged anywhere, at any level. A packaged build missing one of
+# these compiled-extension dependencies for any reason would degrade in
+# total silence. One line each, at startup, so that's no longer possible.
+_scipy_status = 'available' if _HAVE_SCIPY else (
+    'NOT AVAILABLE -- DAB IQ feed / CW-RTTY-AIS filtering / WSPR decimation will no-op')
+log.info(f"Startup: scipy {_scipy_status}")
+log.info(f"Startup: sounddevice {'available' if _HAVE_SOUNDDEVICE else 'NOT AVAILABLE'}")
 
 # Standalone build: console=False means stdout/stderr are suppressed.
 # Add a rotating log file so errors are visible after the fact.
@@ -2642,12 +2687,23 @@ class WefaxDecoder:
 _SSTV_SR = 48000
 
 # VIS code -> mode spec. Only entries with 'decode': True are actually
-# scanned; Robot 36/72 are recognised (so the user still gets an
-# informative "detected, not decoded" message instead of silence) but
-# not scanned -- their line format alternates luma/chroma with 2:1
-# vertical chroma subsampling, a fussier format that was judged too
-# easy to get subtly wrong without a real signal to validate against
-# (see caveat above). Left for a future, validated pass.
+# scanned.
+#
+# Robot 36/72 (2026-07-24): implemented using the numeric scan-line
+# timing table (Table 4.3, "Robot parameters and scan-line timing") in
+# Martin Bruchanov OK2MNM's SSTV Handbook (sstv-handbook.com/download/
+# sstv_04.pdf) -- the same public source already cited for the
+# Martin/Scottie constants above. Robot 36 is YCbCr 4:2:0 (one chroma
+# channel per line, alternating Cr/Cb); Robot 72 is 4:2:2 (both chroma
+# channels every line, no alternation). Line totals were cross-checked
+# against each mode's published lines-per-minute figure (line_sync + Y
+# + csync + chroma sums to exactly 150ms @ 400lpm for Robot 36, and to
+# 300ms @ 200lpm for Robot 72) before trusting them.
+# CAVEAT (still applies, same as the rest of this decoder): the actual
+# even/odd-line Cr/Cb parity convention used below, and the YCbCr->RGB
+# conversion, are standard and well-established, but this has not been
+# checked against a real captured Robot 36/72 transmission -- if colour
+# looks swapped or off on real traffic, see _decode_line_robot.
 _SSTV_MODES = {
     44: {'name': 'Martin M1',  'width': 320, 'height': 256, 'decode': True,
          'channels': ['G', 'B', 'R'], 'channel_ms': 146.432,
@@ -2664,8 +2720,13 @@ _SSTV_MODES = {
     76: {'name': 'Scottie DX', 'width': 320, 'height': 256, 'decode': True,
          'channels': ['G', 'B', 'R'], 'channel_ms': 345.6,
          'sync_ms': 9.0, 'porch_ms': 1.5, 'sep_ms': 1.5, 'style': 'scottie'},
-    8:  {'name': 'Robot 36', 'width': 320, 'height': 240, 'decode': False},
-    12: {'name': 'Robot 72', 'width': 320, 'height': 240, 'decode': False},
+    8:  {'name': 'Robot 36', 'width': 320, 'height': 240, 'decode': True,
+         'style': 'robot420',
+         'line_sync_ms': 10.5, 'y_ms': 90.0, 'csync_ms': 4.5, 'chroma_ms': 45.0},
+    12: {'name': 'Robot 72', 'width': 320, 'height': 240, 'decode': True,
+         'style': 'robot422',
+         'line_sync_ms': 12.0, 'y_ms': 138.0, 'csync_ms': 6.0,
+         'cr_ms': 69.0, 'cb_ms': 69.0},
 }
 
 
@@ -2708,6 +2769,8 @@ class SstvDecoder:
         self._segments       = None   # per-line (tag, n_samples) layout for the locked mode
         self._line_total_samps = 0
         self._line_count    = 0
+        self._last_cr        = None   # Robot 36/72 chroma hold-over between lines
+        self._last_cb        = None
         self._searched_upto = 0       # index into _freq_buf already searched for a VIS header
         self.images_decoded = 0
         self.headers_detected = 0
@@ -2759,6 +2822,23 @@ class SstvDecoder:
             segments.append(('sync', sync_samps))
             segments.append(('porch', porch_samps))
             segments.append((channels[2], chan_samps))
+        elif mode['style'] == 'robot420':
+            # Robot 36: line sync, then Y, then one colour-difference
+            # channel (which one alternates by line -- decided at decode
+            # time in _decode_line_robot, not here).
+            segments.append(('lsync', smp(mode['line_sync_ms'])))
+            segments.append(('Y',     smp(mode['y_ms'])))
+            segments.append(('csync', smp(mode['csync_ms'])))
+            segments.append(('C',     smp(mode['chroma_ms'])))
+        elif mode['style'] == 'robot422':
+            # Robot 72: line sync, Y, then BOTH Cr and Cb every line --
+            # no alternation, no parity assumption needed.
+            segments.append(('lsync', smp(mode['line_sync_ms'])))
+            segments.append(('Y',     smp(mode['y_ms'])))
+            segments.append(('csync', smp(mode['csync_ms'])))
+            segments.append(('Cr',    smp(mode['cr_ms'])))
+            segments.append(('csync', smp(mode['csync_ms'])))
+            segments.append(('Cb',    smp(mode['cb_ms'])))
         total = sum(n for _, n in segments)
         return segments, total
 
@@ -2774,6 +2854,66 @@ class SstvDecoder:
                 res = np.interp(np.linspace(0, len(pix), mode['width']),
                                  np.arange(len(pix)), pix).astype(np.uint8)
                 row[:, chan_to_col[tag]] = res
+        return row
+
+    def _decode_line_robot(self, line_freq: np.ndarray, segments, mode, line_index: int) -> np.ndarray:
+        """Decode one Robot 36/72 scan line (YCbCr, not direct RGB like
+        Martin/Scottie). Robot 36 ('robot420') sends only one of Cr/Cb
+        per line, alternating by parity -- the missing channel is held
+        over from whichever line last supplied it (self._last_cr/_cb),
+        exactly how every real Robot 36 decoder handles 4:2:0 vertical
+        subsampling; the very first line or two, before either channel
+        has ever arrived, falls back to 128 (neutral/no colour shift)
+        rather than garbage. Robot 72 ('robot422') supplies both every
+        line, so there's no hold-over and no parity assumption at all.
+
+        Parity convention (unverified against real traffic -- see the
+        caveat on _SSTV_MODES): even line_index -> this line's chroma
+        segment is Cr, odd -> Cb.
+        """
+        w = mode['width']
+
+        def _seg_to_pix(seg):
+            v = np.clip((seg - 1500.0) * (255.0 / 800.0), 0, 255)
+            if len(v) == 0:
+                return np.full(w, 128.0)
+            return np.interp(np.linspace(0, len(v), w), np.arange(len(v)), v)
+
+        y_arr = np.full(w, 128.0)
+        cr_new = None
+        cb_new = None
+        idx = 0
+        for tag, n in segments:
+            seg = line_freq[idx: idx + n]
+            idx += n
+            if len(seg) == 0:
+                continue
+            if tag == 'Y':
+                y_arr = _seg_to_pix(seg)
+            elif tag == 'C':
+                c = _seg_to_pix(seg)
+                if line_index % 2 == 0:
+                    cr_new = c
+                else:
+                    cb_new = c
+            elif tag == 'Cr':
+                cr_new = _seg_to_pix(seg)
+            elif tag == 'Cb':
+                cb_new = _seg_to_pix(seg)
+
+        if cr_new is not None:
+            self._last_cr = cr_new
+        if cb_new is not None:
+            self._last_cb = cb_new
+        cr = self._last_cr if self._last_cr is not None else np.full(w, 128.0)
+        cb = self._last_cb if self._last_cb is not None else np.full(w, 128.0)
+
+        # Standard YCbCr (BT.601-style) -> RGB, Cr/Cb centred on 128.
+        r = y_arr + 1.402 * (cr - 128.0)
+        g = y_arr - 0.344136 * (cb - 128.0) - 0.714136 * (cr - 128.0)
+        b = y_arr + 1.772 * (cb - 128.0)
+        row = np.stack([np.clip(r, 0, 255), np.clip(g, 0, 255), np.clip(b, 0, 255)],
+                        axis=1).astype(np.uint8)
         return row
 
     def _make_png_rgb(self, row: np.ndarray, w: int) -> bytes:
@@ -2955,6 +3095,8 @@ class SstvDecoder:
             self._mode = dict(mode)
             self.last_mode_name = mode['name']
             self._line_count = 0
+            self._last_cr = None    # fresh tune -- no chroma hold-over from any prior mode
+            self._last_cb = None
             self._freq_buf = self._freq_buf[consumed_upto:]
             self._searched_upto = 0
 
@@ -3005,9 +3147,12 @@ class SstvDecoder:
 
     def _scan_lines(self):
         if not self._mode.get('decode'):
-            # Unsupported mode locked (Robot 36/72) — nothing to decode;
-            # wait out a generous upper bound on the image duration, then
-            # go back to searching so we're not stuck "locked" forever.
+            # Unsupported mode locked (none currently -- every entry in
+            # _SSTV_MODES decodes as of 2026-07-24 -- but keep the guard
+            # for any future mode added with decode:False) — nothing to
+            # decode; wait out a generous upper bound on the image
+            # duration, then go back to searching so we're not stuck
+            # "locked" forever.
             if len(self._freq_buf) >= _SSTV_SR * 60:
                 self._mode = None
                 self._searched_upto = 0
@@ -3015,7 +3160,10 @@ class SstvDecoder:
         while len(self._freq_buf) >= self._line_total_samps:
             line_freq = self._freq_buf[:self._line_total_samps]
             self._freq_buf = self._freq_buf[self._line_total_samps:]
-            row = self._decode_line(line_freq, self._segments, self._mode)
+            if self._mode['style'] in ('robot420', 'robot422'):
+                row = self._decode_line_robot(line_freq, self._segments, self._mode, self._line_count)
+            else:
+                row = self._decode_line(line_freq, self._segments, self._mode)
             self._line_count += 1
             png_bytes = self._make_png_rgb(row, self._mode['width'])
             import base64
@@ -6750,7 +6898,7 @@ class PskReporterUploader:
     TEMPLATE_RESEND_INTERVAL = 3600.0
     MAX_RECORDS_PER_PACKET  = 80      # spec: "80 to 90 records" fits a safe UDP datagram
     DEDUPE_SECS             = 300.0   # spec: no more than once per 5 min per callsign
-    SOFTWARE_NAME = 'DARKSKY NEXUS w033'
+    SOFTWARE_NAME = 'DARKSKY NEXUS w034'
 
     # Receiver info record format descriptor (receiverCallsign, receiverLocator,
     # decodingSoftware) — verbatim from pskreporter.info/pskdev.html
@@ -8249,7 +8397,36 @@ async def sdr_bridge():
                     global last_ui_update
                     _frame_counts = {}
                     _broadcast_logged = False
-                    _iq_bounce_done = [False]  # list so inner scope can mutate; one bounce per connection
+                    # BUGFIX (2026-07-24, w034 DAB live-test): was `_iq_bounce_done = [False]`,
+                    # a one-shot guard that only ever ran the enable handshake once per WS
+                    # connection. SDRConnect's IQ Lite/Compact/Full IQ modes are separate
+                    # selectable device entries (see 'SDRConnect available devices' log line
+                    # listing all three plus 'IQ File'), each needing its OWN
+                    # set_primary_device_enable/device_stream_enable/iq_stream_enable sequence
+                    # to actually start streaming. A session that starts in IQ Lite (nRSP-ST's
+                    # default) and later switches to Full IQ -- e.g. via dabTuneChannel()'s
+                    # WFM/1536000Hz tune, which triggers set_stream_mode -- consumed the
+                    # one-shot guard against IQ Lite (which never sends type-2 IQ frames by
+                    # design regardless of enable state) and then silently never re-enabled
+                    # anything for the real Full IQ device, so zero type-2 frames ever arrived.
+                    # Confirmed live: a full DAB test session showed t==1/t==3 frames only,
+                    # never t==2, even minutes after switching to Full IQ. Tracking per-mode
+                    # instead of a single boolean re-fires the handshake exactly once for each
+                    # distinct mode actually selected during the connection.
+                    #
+                    # BUGFIX #2 (July 25, 2026): a *set* still isn't right -- it fires once
+                    # per mode name for the life of the connection, not once per actual
+                    # re-entry into that mode. Confirmed live: Full IQ @ 2 MSPS -> IQ Lite ->
+                    # back to Full IQ within the same connection showed the type-2 tally
+                    # frozen at a fixed count (481) for 20+ seconds while type-1/type-3 kept
+                    # climbing -- SDRConnect's own stream-enable state doesn't persist across
+                    # a mode switch on its end, so re-entering a *previously visited* mode
+                    # needs the handshake resent too, and the set-based guard was silently
+                    # skipping it because 'Full IQ' was already a member from earlier in the
+                    # same connection. A single "last enabled mode" value fixes both cases:
+                    # it fires on every actual mode transition (including revisits) and still
+                    # only once per transition, not once per spurious duplicate property push.
+                    _iq_last_enabled_mode = [None]
                     # Debounce freq changes — band framing sends rapid-fire property_changed
                     _last_freq_broadcast = [0.0]  # Use list so it's mutable in inner scope
                     _pending_freq_update = [False]
@@ -8856,6 +9033,15 @@ async def sdr_bridge():
                                                     # input for an external decoder (e.g. AIS-catcher's -r
                                                     # file input with -ga FORMAT CF32) to compare against.
                                                     _rec_write_iq((_fiq_i + 1j * _fiq_q).astype(np.complex64), sr=_fiq_sr)
+                                                if state.get('dab_active') and _dab_proc is not None:
+                                                    # DAB-Radio (w034 engine) needs genuinely wideband IQ
+                                                    # centred on the DAB channel -- same reasoning as the
+                                                    # REC IQ tap just above, taken from the same RAW,
+                                                    # undecimated point, before _fiq_c's anti-alias/
+                                                    # decimation filter narrows the bandwidth down to the
+                                                    # ~48kHz CW/RTTY/AIS decoders need. See _dab_feed_iq()
+                                                    # for the resample-to-2.048MSPS + stdin write.
+                                                    _dab_feed_iq(_fiq_i, _fiq_q, _fiq_sr)
                                                 # (Re)build the decimation filter if the hw sample rate
                                                 # changed (e.g. device reconnect at a different rate) or
                                                 # this is the first packet. Decimation factor is chosen so
@@ -9694,9 +9880,10 @@ async def sdr_bridge():
                                             # nRSP-ST devices. Send it for ANY device once per
                                             # connection; harmless no-op if the device was already
                                             # streaming, but closes the gap for direct-USB RSPdx.
-                                            if cur_mode in ('IQ Lite', 'Full IQ', 'Compact') and not _iq_bounce_done[0]:
-                                                _iq_bounce_done[0] = True  # guard: only do this once
-                                                                           # per connection
+                                            if cur_mode in ('IQ Lite', 'Full IQ', 'Compact') and cur_mode != _iq_last_enabled_mode[0]:
+                                                _iq_last_enabled_mode[0] = cur_mode  # guard: once per
+                                                                                      # transition, fires
+                                                                                      # again on revisits
                                                 _iq_mode = cur_mode  # capture for closure
                                                 async def _deferred_iq_enable(_mode=_iq_mode):
                                                     # BUGFIX (w0.2.6, July 2026): was 2.0s. The full
@@ -10878,6 +11065,30 @@ async def browser_handler(ws):
                     await broadcast_json({"type": "stream_mode_changed",
                                           "stream_mode": new_mode,
                                           "iq_lite": new_mode == 'IQ Lite'})
+                    # BUGFIX (2026-07-24, w034 DAB live-test): this used to stop here,
+                    # optimistically assuming the switch succeeded once selected_device_name
+                    # was sent -- but the actual enable handshake (set_primary_device_enable/
+                    # device_stream_enable/iq_stream_enable, needed once per mode transition --
+                    # see _iq_last_enabled_mode above) lives entirely inside the 'active_device'
+                    # property handler, which only runs when SDRConnect itself PUSHES a
+                    # property_changed/get_property_response for active_device. Confirmed live:
+                    # switching IQ Lite -> Full IQ never produced a second 'Device: ...' log
+                    # line at all, meaning that handler never re-ran for the new mode and the
+                    # real IQ-enable sequence never fired for Full IQ -- explains zero type-2
+                    # frames even minutes after the switch. Per the official WebSocket API spec
+                    # (event_type get_property -> get_property_response), explicitly request
+                    # active_device after a short settle delay instead of relying on SDRConnect
+                    # to proactively push it, so the confirmation (and the enable handshake it
+                    # triggers) is guaranteed to actually happen.
+                    async def _confirm_device_switch():
+                        await asyncio.sleep(0.5)
+                        await sdr_queue.put(json.dumps({
+                            "event_type": "get_property",
+                            "property":   "active_device",
+                            "value":      "",
+                            "device":     "primary",
+                        }))
+                    asyncio.create_task(_confirm_device_switch())
 
             elif cmd == 'set_bw':
                 bw = int(d.get('bw_hz', 3000))
@@ -12284,12 +12495,27 @@ async def browser_handler(ws):
                 _dsd_messages.clear()
                 await broadcast_json({'type': 'dsd_clear'})
 
-            # ── DAB / DAB+ ───────────────────────────────────────────
+            # ── DAB / DAB+ (w034: DAB-Radio engine, piped IQ) ─────────
             elif cmd == 'dab_start':
                 state['dab_active'] = True
+                # BUGFIX (2026-07-26, live user report: "Active decoders: 0"
+                # shown at the bottom status bar while DAB is genuinely
+                # decoding): DAB was added as its own independent subsystem
+                # (dab_start/dab_stop/dab_set_channel) rather than through
+                # the shared 'activate_decoder' WS command every other
+                # decoder (cw/rtty/wefax/ft8/acars/pocsag/scanner/ais/
+                # fldigi) goes through -- so it never broadcast the
+                # 'decoder_status' message the frontend's active-decoder
+                # count/pill bar (_updateDecoderBar(), DS._activeDecoders)
+                # is driven by. That handler is slug-agnostic (just does
+                # DS._activeDecoders[msg.slug] = msg.active), so no frontend
+                # change is needed -- just tell it DAB exists.
+                await broadcast_json({'type': 'decoder_status', 'slug': 'dab', 'active': True})
             elif cmd == 'dab_stop':
                 state['dab_active'] = False
+                _dab_terminate()
                 await broadcast_json({'type': 'dab_status', 'running': False})
+                await broadcast_json({'type': 'decoder_status', 'slug': 'dab', 'active': False})
             elif cmd == 'dab_clear':
                 _dab_services.clear()
                 await broadcast_json({'type': 'dab_clear'})
@@ -12297,20 +12523,35 @@ async def browser_handler(ws):
                 state['dab_channel'] = d.get('channel', state.get('dab_channel', '12C'))
                 state['dab_freq_hz'] = int(float(d.get('freq_mhz', 227.360)) * 1e6)
                 state['dab_play_sid'] = None
-                # Force a relaunch on the next engine tick if already running
-                # (dab-cmdline has no runtime channel-switch — kill & restart)
+                # Unlike dab-cmdline (w033 and earlier), dab_radio_nexus owns no
+                # hardware itself -- it only decodes whatever IQ NEXUS pipes to
+                # its stdin, so the actual hardware retune has to happen through
+                # SDRConnect's normal tuning path. The frontend's
+                # dabTuneChannel() already sends a plain 'tune' command (forceMoveLO,
+                # not vfo_only) for the channel's RF centre BEFORE this
+                # dab_set_channel command, using the exact same
+                # device_center_frequency set_property mechanism the 'tune'
+                # handler above uses. This handler updates the channel-label
+                # bookkeeping and force-relaunches the subprocess.
+                # BUGFIX (2026-07-26): this comment used to assume "by the time
+                # this branch runs, the hardware is already retuned" -- live
+                # testing proved that wrong (see _DAB_RETUNE_SETTLE_S's own
+                # comment): the SDR's actual LO settle time isn't guaranteed to
+                # fit inside the gap between the frontend's 'tune' send and this
+                # handler running. Recording the timestamp here lets
+                # _dab_feed_iq() drop IQ for a short settle window after every
+                # retune instead of assuming the hardware already caught up.
+                state['dab_channel_changed_at'] = time.monotonic()
+                # The whole IQ stream dab_radio_nexus was decoding is now a
+                # different signal after that retune -- force a relaunch on
+                # the next engine tick rather than trying to resync mid-stream.
                 if state.get('dab_active'):
-                    global _dab_proc
-                    if _dab_proc is not None:
-                        try:
-                            _dab_proc.terminate()
-                        except Exception:
-                            pass
-                        _dab_proc = None
+                    _dab_terminate()
             elif cmd == 'dab_play_service':
-                # dab-cmdline selects the audio service via -S at launch —
-                # there's no live switch, so the engine relaunches the
-                # process when it sees dab_play_sid change.
+                # dab_radio_nexus decodes every discovered subchannel
+                # simultaneously (see dab_radio_nexus.cpp) -- switching which
+                # service plays is now a pure Python-side buffer selection,
+                # no subprocess relaunch needed.
                 state['dab_play_sid'] = d.get('sid')
             elif cmd == 'dab_stop_service':
                 state['dab_play_sid'] = None
@@ -12733,30 +12974,56 @@ class UIServer(BaseHTTPRequestHandler):
             self.wfile.write(b"DARKSKY HTML not found")
 
     def _serve_dab_audio(self):
-        """Stream the live PCM coming out of the dab-cmdline subprocess's
-        stdout, wrapped in a WAV header, so the browser <audio> tag can
-        play it directly. One connection at a time — a second listener
-        will just get the same live feed re-headered from whenever it
-        connects (no buffering/seek, this is a live tap, not a file)."""
-        proc = _dab_proc
-        if proc is None or proc.stdout is None or proc.poll() is not None:
+        """Stream the currently-selected DAB service's decoded PCM to the
+        browser <audio> tag, wrapped in a WAV header built from that
+        service's REAL sample rate/channel count/bit depth -- unlike the old
+        dab-cmdline engine (fixed 48000/2/16 always), dab_radio_nexus decodes
+        every discovered subchannel simultaneously and reports each one's
+        actual BasicAudioParams per frame (see StdoutFrameWriter in
+        dab_radio_nexus.cpp), so a DAB+ mono 32kHz service and a DAB stereo
+        48kHz service both play back at their own correct rate.
+
+        state['dab_play_sid'] selects which service's subchannel buffer to
+        drain; switching it is a pure Python-side change (see dab_play_service
+        WS handler) -- no subprocess relaunch, so switching stations is
+        near-instant. One connection at a time, live tap only (no seek)."""
+        sid = state.get('dab_play_sid')
+        svc = _dab_services.get(str(sid).upper()) if sid else None
+        subchannel_id = svc.get('subchannel_id') if svc else None
+        if subchannel_id is None or _dab_proc is None or _dab_proc.poll() is not None:
             self.send_response(503)
             self.end_headers()
-            self.wfile.write(b'DAB engine not running')
+            self.wfile.write(b'DAB engine not running or no service selected')
             return
         try:
             self.send_response(200)
             self.send_header('Content-Type', 'audio/wav')
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
-            self.wfile.write(_wav_header())
+            header_sent = False
+            last_read = 0
             while True:
-                if _dab_proc is not proc or proc.poll() is not None:
+                if _dab_proc is None or _dab_proc.poll() is not None or state.get('dab_play_sid') != sid:
                     break
-                chunk = proc.stdout.read(4096)
-                if not chunk:
-                    break
-                self.wfile.write(chunk)
+                entry = _dab_audio.get(subchannel_id)
+                if entry is None:
+                    time.sleep(0.1)
+                    continue
+                with entry['lock']:
+                    if not header_sent:
+                        bits = entry['bps'] * 8
+                        channels = 2 if entry['stereo'] else 1
+                        self.wfile.write(_wav_header(sample_rate=entry['sr'], channels=channels, bits=bits))
+                        header_sent = True
+                    chunk = bytes(entry['buf'])
+                    entry['buf'].clear()
+                if chunk:
+                    self.wfile.write(chunk)
+                    last_read = time.time()
+                else:
+                    if time.time() - last_read > 10 and last_read:
+                        break  # stale service (no new PCM for 10s) — stop the stream
+                    time.sleep(0.05)
         except (BrokenPipeError, ConnectionResetError):
             pass  # client disconnected/stopped playback — normal
         except Exception as e:
@@ -13556,202 +13823,660 @@ async def dsd_engine():
         await asyncio.sleep(2)
 
 
-# ── DAB / DAB+ ENGINE (dab-cmdline example-3, all-in-one receiver) ─────
-# dab-cmdline's "example-3" program (github.com/JvanKatwijk/dab-cmdline)
-# opens the SDR device itself (SDRplay/RTL-SDR/Airspy/HackRF/LimeSDR,
-# selected at COMPILE time via a CMake flag — there is no runtime device
-# switch) and does the *entire* DAB stack in-process: OFDM demod, FIC
-# decode, Reed-Solomon, MSC/audio decode (MP2 or HE-AAC for DAB+). There
-# is no separate ETI stage and no second tool — earlier notes in this
-# project describing an "eti-cmdline | dablin" pipe were wrong; this
-# binary is self-contained.
+# ── DAB / DAB+ ENGINE (w034: DAB-Radio, piped-IQ headless tool) ────────
+# w033 and earlier used dab-cmdline's "example-3" program, which opens the
+# SDRplay/RTL-SDR/Airspy API itself and does the entire DAB stack
+# in-process -- but that also means it can only ever see a directly
+# (USB) attached device on the SAME machine; it cannot read from
+# SDRConnect or a networked nRSP-ST at all (confirmed against
+# SDRplay's own API docs -- see NEXUS_decoder_build_macOS.md). w034
+# replaces it with `dab_radio_nexus`, a small headless tool built into a
+# clone of williamyang98/DAB-Radio (MIT) -- see
+# NEXUS_dab_radio_build_macOS.md for the clone+patch+build steps. It owns
+# no hardware at all: it reads raw IQ from its OWN stdin and writes
+# decoded PCM to its OWN stdout, so it works with ANY IQ source NEXUS can
+# already reach (direct RSPdx, networked nRSP-ST, RTL-SDR) as long as
+# NEXUS feeds it a live stream.
 #
-# stdout: raw 16-bit PCM (decoded audio for whichever service is
-#         selected via -P/-S at launch — NOT switchable while running).
-# stderr: ensemble name + per-service "name (SId) is part of the
-#         ensemble" lines as services are discovered during the FIC scan.
+# stdin:  interleaved 32-bit float IQ (raw_f32l), resampled by NEXUS from
+#         its live Full-IQ tap down to 2.048 MSPS (DAB transmission mode
+#         1's fixed OFDM rate) -- see _dab_feed_iq() below.
+# stdout: EVERY discovered audio subchannel is decoded simultaneously
+#         (the same "decode all, serve on demand" trade-off welle-cli's
+#         own -Dw flag uses) and framed so multiple subchannels can share
+#         one stdout stream:
+#           bytes 0..3   magic          "DAB1"
+#           bytes 4..7   subchannel_id  uint32 LE
+#           bytes 8..11  sample_rate    uint32 LE (Hz)
+#           byte  12     is_stereo      0 or 1
+#           byte  13     bytes_per_sample
+#           bytes 14..17 payload_len    uint32 LE
+#           bytes 18..   payload        raw PCM
+# stderr: one JSON line per status/ensemble update --
+#           {"type":"dab_status","running":true|false,"error":"..."}
+#           {"type":"dab_ensemble","ensemble_label":"...",
+#            "services":[{"sid":"C224","name":"...",
+#                         "subchannel_id":4,"is_dab_plus":true}, ...]}
 #
-# Build, per-device variant (binary name set by the project's CMake
-# `objectName` var — NOT "eti-cmdline-*"):
-#   cmake .. -DSDRPLAY_V3=ON   -> binary `dab-sdrplay-3`  (modern SDRplay API v3)
-#   cmake .. -DRTLSDR=ON       -> binary `dab-rtlsdr-3`
-#   cmake .. -DAIRSPY=ON       -> binary `dab-airspy-3`
-# Repo: github.com/JvanKatwijk/dab-cmdline, build target: example-3/
-#
-# Because service switching requires killing and relaunching the process
-# with a new -P/-S, "play this service" in the UI triggers a relaunch,
-# not a live re-tap of a shared stream.
+# Because dab_radio_nexus decodes every service at once, "play this
+# service" (dab_play_sid) is now a pure Python-side buffer selection (see
+# _serve_dab_audio) -- no relaunch needed. Only starting/stopping the
+# engine, or changing the DAB channel (which retunes the actual hardware
+# centre frequency -- see the dab_set_channel WS handler -- and so feeds
+# a completely different IQ signal), relaunches the subprocess.
 
-_dab_proc       = None     # dab-sdrplay-3 / dab-rtlsdr-3 / dab-airspy-3 subprocess
-_dab_thread     = None
-_dab_services: dict = {}   # sid -> {name, sid, bitrate}
-_dab_ensemble_label = ''
+_dab_proc            = None     # dab_radio_nexus subprocess
+_dab_stdin_lock      = threading.Lock()
+_dab_stdout_thread   = None
+_dab_stderr_thread   = None
+_dab_services: dict  = {}       # sid(hex str, e.g. "C224") -> {sid, name, subchannel_id, is_dab_plus}
+_dab_ensemble_label  = ''
+_dab_audio: dict     = {}       # subchannel_id(int) -> {'sr':int,'stereo':bool,'bps':int,'buf':bytearray,'lock':threading.Lock()}
+_DAB_AUDIO_MAX_BUF   = 2_000_000  # cap per-subchannel buffer bytes so an unwatched service can't grow unbounded
 
-import re as _re_dab
-_DAB_RE_SERVICE  = _re_dab.compile(r'^(.*\S)\s+\(([0-9A-Fa-f]+)\)\s+is part of the ensemble', _re_dab.I)
-_DAB_RE_ENSEMBLE = _re_dab.compile(r'ensemble\s+(.*\S)\s+is\s+\(([0-9A-Fa-f]+)\)\s+recognized', _re_dab.I)
-_DAB_RE_NOSIGNAL = _re_dab.compile(r'does not seem to be a DAB signal', _re_dab.I)
+# FEATURE (2026-07-25): Dynamic Label (DLS) text and MOT Slideshow images
+# for the dedicated player column -- cached per subchannel so a freshly
+# -sent dab_ensemble snapshot can carry the latest known DLS text (same
+# "enrich once we actually have real data" convention _dab_audio already
+# uses for sample_rate/buffer_bytes), and so a fresh dab_slideshow broadcast
+# always carries the full current image rather than requiring the frontend
+# to reconstruct it from fragments.
+_dab_dls: dict       = {}       # subchannel_id(int) -> str (latest Dynamic Label text)
+_dab_slideshow: dict = {}       # subchannel_id(int) -> {'image_type':int, 'data':bytes}
+
+# BUGFIX (2026-07-25, live user report: Band III scanner "not capturing an
+# ensemble where there is DAB transmission, and capturing ensembles where
+# there is no DAB transmission"): every dab_radio_nexus relaunch (each
+# channel change during a scan) starts a NEW pair of stdout/stderr reader
+# threads bound to that specific subprocess via closure -- but neither
+# thread ever checked whether the subprocess it was reading from was still
+# the CURRENT one. _dab_terminate() kills the old subprocess and resets
+# _dab_services immediately, but the OLD process doesn't die instantly
+# (SIGTERM has to be delivered and processed), so its stderr thread kept
+# running for a beat after the channel had already moved on -- and could
+# still emit one more real dab_ensemble message (genuinely detected on the
+# PREVIOUS channel) that got misattributed to whatever channel the scan
+# had since moved to, since the message carries no generation/channel tag
+# of its own. Net effect: a channel that genuinely DOES have DAB could get
+# its own real result delivered late, after the scan had already given up
+# on it and moved on -- credited to the wrong (usually DAB-less) channel
+# instead. A monotonic generation counter, bumped on every launch/terminate
+# and checked by both reader threads before touching any shared state,
+# closes this window.
+_dab_generation      = 0
+
+# BUGFIX (2026-07-26, live user report with screenshots: every channel
+# scanned from 5A through 10D reported the same real ensemble, "Aberdeen,
+# 15 stations" -- correctly TAGGED with each new channel (the 2026-07-25/26
+# generation-counter and launch-time-channel fixes above already guarantee
+# that part), but the DECODED CONTENT was wrong. Root cause is a different
+# bug from either of those: _dab_feed_iq() is called inline, synchronously,
+# for every raw IQ packet as it arrives from SDRConnect (see the call site
+# in the main receive loop) -- there is no buffering on NEXUS's own side to
+# flush on a channel change. dab_set_channel's WS handler sends the 'tune'
+# command and assumes "by the time this runs, the hardware is already
+# retuned" -- but that's never actually verified: the SDR's LO PLL lock
+# time, plus SDRConnect's own command round-trip, can genuinely take longer
+# than the gap between that assumption and dab_engine()'s 0.25s relaunch
+# tick. During a fast 32-channel scan (each channel getting only ~1-3s),
+# dab_radio_nexus was being fed and starting to decode IQ that was still
+# physically centred on the PREVIOUS channel for a beat after every retune
+# -- genuinely, correctly decoding whatever real ensemble was actually
+# there (Aberdeen), and correctly labelling it with the NEW channel because
+# that's what state['dab_channel'] said. Not a mislabelling bug -- a
+# feeding-stale-RF-content bug. Fixed by gating _dab_feed_iq() itself on
+# elapsed time since the last channel change (see state['dab_channel_
+# changed_at'], set in the dab_set_channel WS handler) -- IQ arriving
+# during the settle window is simply dropped rather than fed to the
+# subprocess at all, so no transitional-frequency content can ever reach
+# it.
+#
+# BUGFIX (2026-07-26, part 2 -- live re-test after deploying the 350ms
+# version above still showed the identical symptom, confirmed fresh via a
+# clean scan after restarting the backend AND clearing _dabEnsembleHistory,
+# so it genuinely wasn't just stale client state): 350ms turned out to be
+# less than half of what this exact same tuning pipeline already assumes
+# elsewhere. The 'tune' WS handler sets `state['ignore_center_until'] =
+# time.time() + 0.8` specifically because it doesn't trust SDRConnect's own
+# retune-confirmation echo (the real center_frequency property_changed
+# event) to have landed any sooner than 0.8s after a retune -- that's this
+# codebase's own, already-established estimate of real hardware/driver
+# settle time, not a new guess. 350ms was arbitrary and, evidently, wrong;
+# raised to 1.0s (a bit of margin over that 0.8s precedent) so the DAB
+# engine's own settle gate is at least as conservative as the rest of the
+# app already is about trusting a fresh retune. Still under 30% of the
+# scan's 3.5s per-channel budget.
+_DAB_RETUNE_SETTLE_S = 1.0
+
+# IQ resampler state (raw hardware-rate -> 2.048 MSPS for dab_radio_nexus's stdin)
+_DAB_TARGET_SR       = 2_048_000   # DAB transmission mode 1 (Band III) OFDM sample rate
+_DAB_RESAMP_HIST     = 64          # samples of history carried across packets purely to smooth the
+                                   # polyphase FIR's edge transient at packet boundaries -- resample_poly's
+                                   # own up/down ratio already keeps the long-term sample count correct
+_dab_resamp_src_sr   = None
+_dab_resamp_up       = 1
+_dab_resamp_down     = 1
+_dab_resamp_carry    = np.zeros(0, dtype=np.complex64)
 
 def _dab_find_binary():
-    """Find the dab-cmdline example-3 binary for whichever device variant
-    was built. Returns (path, device_kind) or (None, None)."""
+    """Find the dab_radio_nexus headless tool. Unlike the old dab-cmdline
+    binaries there's no per-device variant -- one binary, IQ piped in via
+    stdin, so there's nothing to autodetect beyond just finding it.
+
+    BUNDLED BUILD (2026-07-26): if the .spec files' optional binaries=[]
+    entry found a prebuilt binary under build/bundled/ at package time (see
+    DARKSKY_NEXUS_macOS.spec / DARKSKY_NEXUS_Windows.spec), PyInstaller
+    copies it in next to every other bundled resource -- the same place
+    _find_html() already reads DARKSKY_NEXUS_w034.html from (sys._MEIPASS:
+    Contents/MacOS/ inside the .app on macOS, the _internal/ folder next to
+    the .exe on Windows). Checked FIRST so a bundled binary always wins over
+    a same-named one the user happens to have on PATH from a source build --
+    this avoids ever launching an unexpected/mismatched external copy inside
+    a packaged app. Falls through to source-build / manually-installed
+    locations unchanged when nothing was bundled (the common case today)."""
+    if getattr(sys, 'frozen', False):
+        exe_name = 'dab_radio_nexus.exe' if sys.platform == 'win32' else 'dab_radio_nexus'
+        bundled = Path(sys._MEIPASS) / exe_name
+        if bundled.is_file():
+            return str(bundled)
+
     candidates = [
-        ('dab-sdrplay-3', 'sdrplay'),
-        ('dab-rtlsdr-3',  'rtlsdr'),
-        ('dab-airspy-3',  'airspy'),
-        ('/usr/local/bin/dab-sdrplay-3', 'sdrplay'),
-        ('/opt/homebrew/bin/dab-sdrplay-3', 'sdrplay'),
-        ('/usr/local/bin/dab-rtlsdr-3', 'rtlsdr'),
-        ('/opt/homebrew/bin/dab-rtlsdr-3', 'rtlsdr'),
+        'dab_radio_nexus',
+        '/usr/local/bin/dab_radio_nexus',
+        '/opt/homebrew/bin/dab_radio_nexus',
     ]
-    for path, kind in candidates:
+    if sys.platform == 'win32':
+        candidates += [
+            'dab_radio_nexus.exe',
+            r'C:\dab_radio_nexus\dab_radio_nexus.exe',
+            str(Path(os.environ.get('LOCALAPPDATA', '')) / 'dab_radio_nexus' / 'dab_radio_nexus.exe'),
+        ]
+    for path in candidates:
         try:
             if shutil.which(path) or Path(path).is_file():
-                return path, kind
+                return path
         except Exception:
             continue
-    return None, None
+    return None
 
-def _dab_parse_line(line: str):
-    """Parse a dab-cmdline stderr line for ensemble/service info. Mutates
-    _dab_services / _dab_ensemble_label. Returns True if state changed."""
+def _dab_terminate():
+    """Kill the dab_radio_nexus subprocess (if running) and reset all
+    per-run state. Shared by dab_engine()'s stop path, dab_stop, and
+    dab_set_channel (a channel change retunes the hardware, so the
+    in-flight ensemble scan is stale and needs a fresh subprocess).
+
+    BUGFIX (2026-07-25): this used to call proc.wait(timeout=3) -- a
+    blocking call -- directly from dab_set_channel's WS handler, on the
+    asyncio event loop thread itself. Every channel change during a scan
+    could freeze the ENTIRE server (all WS traffic, SDRConnect relay,
+    everything) for up to 3 seconds while waiting for the old subprocess
+    to actually exit. Just send the signal and return immediately --
+    dab_engine()'s own poll loop (now on a 0.25s tick, see below) detects
+    the exit and is the only place that clears _dab_proc, so nothing here
+    needs to block on it. Also bumps _dab_generation so either reader
+    thread from the outgoing subprocess bails on its very next message
+    instead of potentially misattributing a late, genuine result to
+    whatever channel got tuned next (see _dab_generation's own comment)."""
+    global _dab_proc, _dab_services, _dab_ensemble_label, _dab_audio
+    global _dab_resamp_src_sr, _dab_resamp_carry, _dab_generation
+    global _dab_dls, _dab_slideshow
+    _dab_generation += 1
+    if _dab_proc is not None:
+        try:
+            if _dab_proc.stdin:
+                _dab_proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            _dab_proc.terminate()
+        except Exception:
+            try: _dab_proc.kill()
+            except Exception: pass
+    _dab_services = {}
+    _dab_ensemble_label = ''
+    _dab_audio = {}
+    _dab_dls = {}
+    _dab_slideshow = {}
+    # Force the resampler to re-derive its up/down ratio and drop any
+    # carried-over samples from the old stream on the next feed.
+    _dab_resamp_src_sr = None
+    _dab_resamp_carry = np.zeros(0, dtype=np.complex64)
+
+def _dab_launch():
+    """Launch dab_radio_nexus. No channel/device args any more -- NEXUS
+    itself must already be tuned (device_center_frequency) to the DAB
+    channel's RF centre (see dab_set_channel WS handler); this tool just
+    demodulates whatever IQ NEXUS feeds it on stdin.
+
+    Bumps _dab_generation and returns it alongside the process so the
+    caller can hand it to the stdout/stderr reader threads -- see
+    _dab_generation's own comment for why."""
+    global _dab_proc, _dab_generation
+    binary = _dab_find_binary()
+    if not binary:
+        return None, None, ("dab_radio_nexus not found on PATH -- build it from a "
+                       "clone of github.com/williamyang98/DAB-Radio (see "
+                       "NEXUS_dab_radio_build_macOS.md for the exact "
+                       "clone+patch+build steps)")
+    # BUGFIX (2026-07-25): --radio-total-threads was never passed, so
+    # Basic_Radio_Block defaulted to 1 -- a single thread trying to
+    # Reed-Solomon-decode + AAC-decode EVERY discovered audio subchannel
+    # simultaneously (the deliberate "decode all, serve on demand"
+    # trade-off -- see attach_audio_channels() in dab_radio_nexus.cpp).
+    # A full Band III multiplex can carry a dozen+ services (e.g. BBC
+    # National DAB 12B has 15); one thread can't keep all of their MSC
+    # decode pipelines running in real time, so no subchannel ever
+    # finishes a superframe -- FIC (cheap, single ensemble-wide scan)
+    # still locks and reports the service list fine, giving the false
+    # impression the engine is fully working, while _dab_audio never
+    # gets populated for ANY service and playback hangs silently forever
+    # (confirmed live: GET /dab_audio?sid=... returned 200 audio/wav with
+    # headers but zero PCM bytes ever, no error, no timeout). Give MSC
+    # decode real parallelism -- OFDM demod itself is comparatively cheap
+    # and stays single-threaded.
+    radio_threads = max(2, (os.cpu_count() or 4) - 1)
+    args = [binary, '--ofdm-input-mode', 'raw_f32l', '--transmission-mode', '1',
+            '--radio-total-threads', str(radio_threads)]
+    # NOTE (2026-07-27): '--radio-enable-logging' was tried here briefly as
+    # part of the BBC Radio6Music MOT slideshow investigation, to surface
+    # DAB-Radio's internal PAD/MOT reassembly trace (pad_MOT_processor.cpp,
+    # MOT_processor.cpp, etc -- see the now-reverted stderr filter below).
+    # It produced ZERO trace lines for those tags even across multiple full
+    # BBC National DAB playback sessions, while also visibly degrading live
+    # audio (verbose easylogging across every one of the ~15 simultaneously
+    # -decoded subchannels on 9 threads is not free). Reverted: the empty
+    # trace turned out to be a real, useful negative result -- it means
+    # PAD_MOT_Processor's code path is never being entered at all for this
+    # station, not that logging was silently swallowing something. See the
+    # dab_radio_nexus.cpp CHANGELOG entry for where the investigation went
+    # next (Basic_Data_Packet_Channel / MSC packet-mode MOT, a completely
+    # separate transport from PAD that dab_radio_nexus.cpp never wires up).
+    log.info(f'DAB: launching {" ".join(args)}')
+    try:
+        _dab_proc = subprocess.Popen(
+            args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, bufsize=0)
+        _dab_generation += 1
+        return _dab_proc, _dab_generation, ''
+    except Exception as e:
+        return None, None, str(e)
+
+def _dab_feed_iq(i_arr: np.ndarray, q_arr: np.ndarray, src_sr: float):
+    """Resample raw (undecimated) hardware-rate IQ down to DAB's fixed
+    2.048 MSPS OFDM rate and write it to dab_radio_nexus's stdin as
+    interleaved raw_f32l. A short carry of raw samples is kept across
+    calls purely to smooth the polyphase FIR's transient at packet
+    boundaries -- the same convention as the existing _fiq_afft carry
+    buffer used for CW/RTTY decimation elsewhere in this file."""
+    import math
+    global _dab_resamp_carry, _dab_resamp_src_sr, _dab_resamp_up, _dab_resamp_down
+    proc = _dab_proc
+    if proc is None or proc.stdin is None or proc.poll() is not None:
+        return
+    if not _HAVE_SCIPY or len(i_arr) == 0:
+        return
+    # See _DAB_RETUNE_SETTLE_S's own comment above: drop IQ arriving within
+    # the settle window after a channel change rather than feeding it to
+    # the subprocess -- it may still be physically centred on the PREVIOUS
+    # channel's frequency, which would otherwise get correctly decoded and
+    # WRONGLY labelled with the new channel (not a mislabelling bug -- a
+    # genuinely-stale-RF-content bug).
+    since_retune = time.monotonic() - state.get('dab_channel_changed_at', 0.0)
+    if since_retune < _DAB_RETUNE_SETTLE_S:
+        return
+    try:
+        src_sr_int = int(round(src_sr))
+        if src_sr_int != _dab_resamp_src_sr:
+            g = math.gcd(_DAB_TARGET_SR, src_sr_int) or 1
+            _dab_resamp_up   = _DAB_TARGET_SR // g
+            _dab_resamp_down = src_sr_int // g
+            _dab_resamp_src_sr = src_sr_int
+            _dab_resamp_carry = np.zeros(0, dtype=np.complex64)
+            log.info(f"DAB: resampling {src_sr_int} Hz -> {_DAB_TARGET_SR} Hz "
+                     f"(ratio {_dab_resamp_up}/{_dab_resamp_down})")
+
+        iq_c = (i_arr + 1j * q_arr).astype(np.complex64)
+        hist_n = len(_dab_resamp_carry)
+        if hist_n:
+            iq_c = np.concatenate((_dab_resamp_carry, iq_c))
+        _dab_resamp_carry = iq_c[-_DAB_RESAMP_HIST:] if len(iq_c) >= _DAB_RESAMP_HIST else iq_c
+
+        if _dab_resamp_up == 1 and _dab_resamp_down == 1:
+            out = iq_c
+        else:
+            out = _scipy_signal.resample_poly(iq_c, _dab_resamp_up, _dab_resamp_down)
+        if hist_n:
+            drop_n = int(round(hist_n * _dab_resamp_up / _dab_resamp_down))
+            out = out[drop_n:]
+        if len(out) == 0:
+            return
+
+        # interleaved float32 I,Q,I,Q,... -- raw_f32l, dab_radio_nexus's default --ofdm-input-mode
+        interleaved = np.empty(len(out) * 2, dtype=np.float32)
+        interleaved[0::2] = out.real
+        interleaved[1::2] = out.imag
+        with _dab_stdin_lock:
+            proc.stdin.write(interleaved.tobytes())
+            proc.stdin.flush()
+    except (BrokenPipeError, OSError):
+        pass  # process exited -- next dab_engine() tick will notice and relaunch
+    except Exception as e:
+        # BUGFIX (2026-07-26, live user report: DAB scan finds nothing in the
+        # packaged .app but works fine running the .py directly): this was
+        # log.debug(...) -- but logging.basicConfig() sets the root logger to
+        # INFO, so a DEBUG call never even reaches the log file. Any real
+        # exception here (bad resample math, a scipy/numpy issue specific to
+        # the frozen build, whatever it turns out to be) was being silently
+        # swallowed with zero trace, while the subprocess sat starved of IQ
+        # and correctly found nothing on every channel -- indistinguishable
+        # from "no signal" without this actually being visible somewhere.
+        log.warning(f'DAB IQ feed error: {type(e).__name__}: {e}')
+
+def _dab_store_audio(subchannel_id: int, sample_rate: int, is_stereo: bool, bps: int, payload: bytes):
+    """Append one PCM frame to its subchannel's buffer. Every discovered
+    subchannel gets a buffer regardless of whether anyone's listening --
+    cheap (PCM only, no decode cost) and means switching dab_play_sid to
+    an already-discovered service plays back instantly with no relaunch."""
+    entry = _dab_audio.get(subchannel_id)
+    if entry is None:
+        entry = {'sr': sample_rate, 'stereo': is_stereo, 'bps': bps,
+                  'buf': bytearray(), 'lock': threading.Lock()}
+        _dab_audio[subchannel_id] = entry
+    with entry['lock']:
+        entry['sr'], entry['stereo'], entry['bps'] = sample_rate, is_stereo, bps
+        entry['buf'] += payload
+        if len(entry['buf']) > _DAB_AUDIO_MAX_BUF:
+            del entry['buf'][:len(entry['buf']) - _DAB_AUDIO_MAX_BUF]
+
+def _dab_store_slideshow(subchannel_id: int, image_type: int, data: bytes):
+    """Cache the latest MOT Slideshow image for a subchannel (station logo /
+    album art) and return the dict entry so the caller can broadcast it --
+    mirrors _dab_store_audio's "cache first, enrich/broadcast from the
+    cache" convention."""
+    entry = {'image_type': image_type, 'data': data}
+    _dab_slideshow[subchannel_id] = entry
+    return entry
+
+def _dab_stdout_thread_fn(proc, gen, loop, broadcast_fn):
+    """Background thread: demux dab_radio_nexus's framed stdout, which now
+    carries two frame types (see the header comment in dab_radio_nexus.cpp
+    for the exact byte layout of each):
+      "DAB1" -- PCM audio, stored per-subchannel for _serve_dab_audio()
+      "DAB2" -- a MOT Slideshow image (station logo / album art), cached
+                and broadcast to browsers as base64 (small/infrequent
+                enough that base64's ~33% overhead doesn't matter, and it
+                avoids needing a separate binary WS channel)
+
+    BUGFIX (2026-07-25): checks `gen` against the live _dab_generation
+    before storing each frame -- subchannel_id numbering is per-ensemble,
+    not globally unique, so without this check a straggler frame from an
+    old, already-superseded subprocess (still draining its stdout pipe
+    for a moment after the channel changed) could land under the same
+    subchannel_id a NEW channel's service now uses, corrupting playback
+    (or showing the wrong station's slideshow image) for a station that
+    has nothing to do with the old one. See _dab_generation's comment for
+    the full scan-bug story this is part of."""
+    import base64
+    buf = b''
+    try:
+        while True:
+            if gen != _dab_generation:
+                break
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                break
+            if gen != _dab_generation:
+                break
+            buf += chunk
+            while True:
+                if len(buf) < 4:
+                    break
+                magic = buf[0:4]
+                if magic not in (b'DAB1', b'DAB2'):
+                    idx_1 = buf.find(b'DAB1', 1)
+                    idx_2 = buf.find(b'DAB2', 1)
+                    candidates = [i for i in (idx_1, idx_2) if i != -1]
+                    if not candidates:
+                        buf = buf[-3:]   # keep a short tail in case the magic straddles this read
+                        break
+                    buf = buf[min(candidates):]
+                    continue
+                if magic == b'DAB1':
+                    if len(buf) < 18:
+                        break
+                    subchannel_id, sample_rate, is_stereo, bps, payload_len = \
+                        struct.unpack_from('<IIBBI', buf, 4)
+                    total_len = 18 + payload_len
+                    if len(buf) < total_len:
+                        break  # wait for more data
+                    payload = bytes(buf[18:total_len])
+                    buf = buf[total_len:]
+                    if gen == _dab_generation:
+                        _dab_store_audio(subchannel_id, sample_rate, bool(is_stereo), bps, payload)
+                else:  # DAB2 -- slideshow image
+                    if len(buf) < 13:
+                        break
+                    subchannel_id, image_type, payload_len = \
+                        struct.unpack_from('<IBI', buf, 4)
+                    total_len = 13 + payload_len
+                    if len(buf) < total_len:
+                        break  # wait for more data
+                    payload = bytes(buf[13:total_len])
+                    buf = buf[total_len:]
+                    if gen == _dab_generation and payload:
+                        _dab_store_slideshow(subchannel_id, image_type, payload)
+                        svc = next((s for s in _dab_services.values()
+                                    if s.get('subchannel_id') == subchannel_id), None)
+                        asyncio.run_coroutine_threadsafe(
+                            broadcast_fn({
+                                'type': 'dab_slideshow',
+                                'subchannel_id': subchannel_id,
+                                'sid': svc.get('sid') if svc else None,
+                                'image_type': image_type,
+                                'image_b64': base64.b64encode(payload).decode('ascii'),
+                            }),
+                            loop
+                        )
+    except Exception as e:
+        log.debug(f'DAB stdout thread ended: {e}')
+
+def _dab_stderr_thread_fn(proc, gen, channel, loop, broadcast_fn):
+    """Background thread: parse dab_radio_nexus's JSON status lines and
+    schedule broadcasts to connected browsers.
+
+    BUGFIX (2026-07-25, live user report: Band III scanner missing real
+    ensembles and reporting fake ones): this thread used to have no way
+    to tell whether the subprocess it was reading from was still the
+    CURRENT one. A channel change kills the old subprocess and clears
+    _dab_services immediately, but SIGTERM takes a beat to actually land
+    -- during that window this thread could still read and broadcast one
+    more real dab_ensemble line from the OLD channel, now misattributed
+    to whatever channel the scan had since moved to (the message carries
+    no channel tag of its own). `gen` is this thread's own subprocess
+    generation, captured at launch; bail the instant _dab_generation has
+    moved past it instead of touching shared state or broadcasting
+    anything more.
+
+    `channel` is this thread's subprocess's OWN Band III channel, also
+    captured once at launch (see dab_engine()) -- see the BUGFIX note at
+    the dab_ensemble broadcast below for why this can't just be read live
+    from state['dab_channel'] at broadcast time."""
     global _dab_ensemble_label
-    line = line.strip()
-    if not line:
-        return False
-
-    m = _DAB_RE_ENSEMBLE.search(line)
-    if m:
-        _dab_ensemble_label = m.group(1).strip()
-        return True
-
-    m = _DAB_RE_SERVICE.search(line)
-    if m:
-        name = m.group(1).strip()
-        sid  = m.group(2).upper()
-        svc  = _dab_services.setdefault(sid, {'sid': sid, 'name': name, 'bitrate': 0})
-        svc['name'] = name
-        return True
-
-    return False
-
-def _dab_reader_thread(proc, loop, broadcast_fn):
-    """Background thread: read dab-cmdline stderr, parse ensemble/service
-    info as it's discovered, schedule broadcasts. (stdout carries raw PCM
-    audio and is intentionally not read here — see _dab_launch.)"""
     try:
         for raw in proc.stderr:
-            line = raw.decode('utf-8', errors='replace').rstrip('\r\n')
-            if _DAB_RE_NOSIGNAL.search(line):
-                asyncio.run_coroutine_threadsafe(
-                    broadcast_fn({'type': 'dab_status', 'running': False,
-                                  'error': 'No DAB signal detected on this channel'}),
-                    loop
-                )
+            if gen != _dab_generation:
+                break
+            line = raw.decode('utf-8', errors='replace').strip()
+            if not line:
                 continue
-            if _dab_parse_line(line):
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                log.debug(f'DAB (non-JSON stderr): {line}')
+                continue
+            mtype = msg.get('type')
+            if mtype == 'dab_status':
+                if not msg.get('running', True):
+                    # BUGFIX (2026-07-24): this used to only reach connected browsers as
+                    # a toast (easy to miss/lose) -- log it server-side too, since this is
+                    # exactly the message dab_radio_nexus prints on exit/error (e.g. "stdin
+                    # IQ stream ended") and is the first thing worth checking when the
+                    # subprocess unexpectedly relaunches.
+                    if msg.get('error'):
+                        log.warning(f"DAB: {msg['error']}")
+                    asyncio.run_coroutine_threadsafe(broadcast_fn(msg), loop)
+            elif mtype == 'dab_dls':
+                # FEATURE (2026-07-25): live Dynamic Label text for the
+                # dedicated player column. Cache it (same convention as
+                # _dab_audio) so a subsequent dab_ensemble snapshot can carry
+                # the latest known text, then forward the update itself
+                # immediately -- DLS changes (song change, new headline)
+                # should show up the moment they arrive, not wait for the
+                # next ensemble re-broadcast.
+                sub_id = msg.get('subchannel_id')
+                text = msg.get('text', '')
+                if sub_id is not None:
+                    _dab_dls[sub_id] = text
+                    svc = next((s for s in _dab_services.values()
+                                if s.get('subchannel_id') == sub_id), None)
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast_fn({
+                            'type': 'dab_dls',
+                            'subchannel_id': sub_id,
+                            'sid': svc.get('sid') if svc else None,
+                            'text': text,
+                        }),
+                        loop
+                    )
+            elif mtype == 'dab_ensemble':
+                _dab_ensemble_label = msg.get('ensemble_label', '')
+                _dab_services.clear()
+                for svc in msg.get('services', []):
+                    sid = str(svc.get('sid', '')).upper()
+                    if sid:
+                        _dab_services[sid] = svc
+                # Enrich each service with real audio metadata once
+                # dab_radio_nexus has actually decoded at least one PCM
+                # frame for its subchannel -- lets the frontend's Technical
+                # Details / diagnostics drawer show genuine sample rate,
+                # bit depth, stereo/mono, and live buffer fill instead of
+                # nothing, with no change needed to dab_radio_nexus.cpp
+                # itself (this data already arrives per-frame in the DAB1
+                # header and is cached by _dab_store_audio()). Fields are
+                # simply absent until that subchannel's first audio frame
+                # decodes -- never fabricated.
+                services_out = []
+                for svc in sorted(_dab_services.values(), key=lambda s: s.get('name', '')):
+                    out = dict(svc)
+                    sub_id = svc.get('subchannel_id')
+                    entry = _dab_audio.get(sub_id)
+                    if entry is not None:
+                        with entry['lock']:
+                            out['sample_rate']     = entry['sr']
+                            out['stereo']          = entry['stereo']
+                            out['bits_per_sample']  = entry['bps'] * 8
+                            out['buffer_bytes']     = len(entry['buf'])
+                    # FEATURE (2026-07-25): carry the latest known DLS text
+                    # and whether a slideshow image has been seen yet, same
+                    # "absent until we actually have it" convention as the
+                    # audio fields above -- the actual image bytes are sent
+                    # separately via dab_slideshow broadcasts (base64'd JPEG/
+                    # PNG per update would bloat every ensemble snapshot).
+                    if sub_id in _dab_dls:
+                        out['dls_text'] = _dab_dls[sub_id]
+                    if sub_id in _dab_slideshow:
+                        out['has_slideshow'] = True
+                    services_out.append(out)
                 asyncio.run_coroutine_threadsafe(
                     broadcast_fn({
                         'type': 'dab_ensemble',
                         'ensemble_label': _dab_ensemble_label,
-                        'channel': state.get('dab_channel', ''),
-                        'services': sorted(_dab_services.values(), key=lambda s: s['name']),
+                        # BUGFIX (2026-07-26, live user report: Band III scan
+                        # attributing one real, pre-scan-locked ensemble --
+                        # e.g. "D1 National, 29 stations" -- to every channel
+                        # tested, 5A through 12D): this used to read
+                        # state.get('dab_channel', '') fresh, right here, at
+                        # broadcast time -- completely decoupled from which
+                        # subprocess/generation this data actually came from.
+                        # state['dab_channel'] is updated synchronously and
+                        # immediately by dab_set_channel's WS handler on
+                        # EVERY scan step, so if this thread's subprocess
+                        # (still gen-current, so not blocked by the
+                        # generation guard above) took even a moment to
+                        # assemble and send this message, the channel tag
+                        # could already reflect a LATER channel than the one
+                        # this ensemble data is really about -- correct
+                        # data, wrong label, exactly matching the reported
+                        # symptom. `channel` is now the value captured once,
+                        # at THIS subprocess's launch time (see dab_engine()),
+                        # never re-read live -- permanently bound to the
+                        # generation that produced it.
+                        'channel': channel,
+                        'services': services_out,
+                        'buffer_max_bytes': _DAB_AUDIO_MAX_BUF,
                     }),
                     loop
                 )
     except Exception as e:
-        log.debug(f'DAB reader thread ended: {e}')
-
-def _dab_launch(channel: str, sid: str = None):
-    """Launch the dab-cmdline example-3 binary tuned to one Band III channel.
-    If sid is given, passes -S <hex SId> so that service's audio is what
-    comes out on stdout; otherwise the binary's default (first service /
-    -P "Sky Radio") is used and stdout PCM is not meaningful until a
-    service is explicitly selected."""
-    global _dab_proc
-    binary, kind = _dab_find_binary()
-    if not binary:
-        return None, ("dab-cmdline 'example-3' binary not found on PATH "
-                       "(build with -DSDRPLAY_V3=ON / -DRTLSDR=ON / -DAIRSPY=ON "
-                       "from github.com/JvanKatwijk/dab-cmdline, example-3/)")
-
-    args = [binary, '-B', 'BAND_III', '-C', str(channel)]
-    if kind == 'sdrplay':
-        args += ['-G', str(state.get('dab_grdb', 30)), '-L', str(state.get('dab_lna', 2))]
-    elif kind == 'rtlsdr':
-        args += ['-G', str(state.get('dab_gain', 50)), '-Q']
-    if sid:
-        args += ['-S', str(sid)]
-
-    log.info(f'DAB: launching ({kind}) {" ".join(args)}')
-    try:
-        _dab_proc = subprocess.Popen(
-            args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
-        return _dab_proc, ''
-    except Exception as e:
-        return None, str(e)
+        log.debug(f'DAB stderr thread ended: {e}')
 
 async def dab_engine():
-    """Long-running task: manage the dab-cmdline example-3 subprocess
-    lifecycle. A service switch (dab_play_sid changing) requires killing
-    and relaunching the process with a new -S, since this binary has no
-    runtime service-switch control."""
-    global _dab_proc, _dab_thread, _dab_services, _dab_ensemble_label
+    """Long-running task: manage the dab_radio_nexus subprocess lifecycle.
+    A service switch (dab_play_sid changing) needs no action here at all
+    -- every discovered subchannel is already decoding simultaneously, so
+    _serve_dab_audio() just reads a different buffer. Only start/stop and
+    a channel change (which force-terminates via _dab_terminate(), see the
+    dab_set_channel WS handler) touch the subprocess itself.
+
+    BUGFIX (2026-07-25): the poll tick used to be 2s AND _dab_terminate()
+    used to block synchronously for up to 3s waiting for the old process
+    to die -- between a channel change and this loop noticing proc_dead
+    and relaunching, a scan's per-channel window (client-side timeout
+    3.5s) could lose most of its budget to this loop's own bookkeeping
+    before dab_radio_nexus had even started re-syncing on the new
+    channel's real IQ. _dab_terminate() no longer blocks (see its own
+    comment); dropping this tick to 0.25s closes most of the rest of that
+    gap so a channel that genuinely has DAB gets close to the full
+    scan window to actually prove it, instead of losing over half of it
+    to polling latency alone."""
+    global _dab_proc, _dab_stdout_thread, _dab_stderr_thread
     loop = asyncio.get_running_loop()
-    _last_sid = None
 
     while True:
-        active   = state.get('dab_active', False)
-        cur_sid  = state.get('dab_play_sid')
+        active    = state.get('dab_active', False)
         proc_dead = (_dab_proc is None or _dab_proc.poll() is not None)
-        sid_changed = active and not proc_dead and cur_sid != _last_sid
 
-        if active and (proc_dead or sid_changed):
-            if _dab_proc is not None:
-                try:
-                    _dab_proc.terminate()
-                    _dab_proc.wait(timeout=3)
-                except Exception:
-                    try: _dab_proc.kill()
-                    except Exception: pass
-                _dab_proc = None
-
-            channel = state.get('dab_channel', '12C')
-            proc, err = _dab_launch(channel, cur_sid)
+        if active and proc_dead:
+            # BUGFIX (2026-07-26): captured once, right here, at the exact
+            # moment this specific subprocess is launched -- NOT read again
+            # later at broadcast time. See the dab_ensemble broadcast's own
+            # comment in _dab_stderr_thread_fn for why re-reading
+            # state['dab_channel'] live was the actual root cause of the
+            # scan misattributing one real ensemble to every channel tested.
+            launch_channel = state.get('dab_channel', '')
+            proc, gen, err = _dab_launch()
             if not proc:
                 await broadcast_json({'type': 'dab_status', 'running': False, 'error': err})
                 state['dab_active'] = False
                 await asyncio.sleep(5)
                 continue
 
-            _last_sid = cur_sid
-            if not sid_changed:
-                # Fresh tune to a channel — service list resets; a service
-                # switch on the same ensemble keeps the already-known list.
-                _dab_services = {}
-                _dab_ensemble_label = ''
-            _dab_thread = threading.Thread(
-                target=_dab_reader_thread,
-                args=(proc, loop, broadcast_json),
-                daemon=True, name='dab-reader',
-            )
-            _dab_thread.start()
-            await broadcast_json({'type': 'dab_status', 'running': True, 'channel': channel})
-            log.info(f'DAB: running on channel {channel}' + (f' (SId {cur_sid})' if cur_sid else ''))
+            _dab_stdout_thread = threading.Thread(
+                target=_dab_stdout_thread_fn, args=(proc, gen, loop, broadcast_json), daemon=True, name='dab-stdout')
+            _dab_stderr_thread = threading.Thread(
+                target=_dab_stderr_thread_fn, args=(proc, gen, launch_channel, loop, broadcast_json), daemon=True, name='dab-stderr')
+            _dab_stdout_thread.start()
+            _dab_stderr_thread.start()
+            await broadcast_json({'type': 'dab_status', 'running': True,
+                                   'channel': launch_channel})
+            log.info(f"DAB: dab_radio_nexus running, feeding from the Full-IQ tap "
+                     f"(channel {launch_channel})")
 
         elif not active and _dab_proc is not None:
-            try:
-                _dab_proc.terminate()
-                _dab_proc.wait(timeout=3)
-            except Exception:
-                try: _dab_proc.kill()
-                except Exception: pass
-            _dab_proc = None
-            _dab_services = {}
-            _last_sid = None
+            _dab_terminate()
             await broadcast_json({'type': 'dab_status', 'running': False})
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.25)
 
 
 # ── TRUNKED P25/DMR/NXDN ENGINE (OP25 / trunk-recorder) ───────────────

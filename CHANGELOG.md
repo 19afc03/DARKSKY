@@ -1,4 +1,4 @@
-# DARKSKY NEXUS w033 — Build History
+# DARKSKY NEXUS w034 — Build History
 
 WebSocket bridge and signal intelligence companion for SDRplay RSPdx and
 compatible SDRplay receivers. Interfaces with SDRConnect via WebSocket.
@@ -17,6 +17,1500 @@ since `w030_NEXUS.py`'s docstring only carries the current version's
 summary.
 
 ---
+
+### Verified (2026-07-27) — Windows DAB engine build, first real end-to-end run
+
+`WRITING/NEXUS_dab_radio_build_windows.md` had never actually been run
+against a real Windows machine (flagged as such in the doc itself since
+2026-07-26). Jon ran it end-to-end today — build succeeded and the engine
+was confirmed decoding a live ensemble (BBC National DAB, 12B / 225.648
+MHz) via a real RSPdx through SDRConnect, with audio playing.
+
+**Real-build fix:** Step 3's static-linking flags
+(`-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`) didn't take effect even
+after a full clean `rmdir /s /q build` + reconfigure — `dumpbin
+/dependents` on the resulting `dab_radio_nexus.exe` still showed
+`MSVCP140.dll`/`VCRUNTIME140.dll`/`VCRUNTIME140_1.dll`, meaning the exe
+was still linking the dynamic MSVC runtime. Root cause: DAB-Radio's own
+`CMakeLists.txt` declares `cmake_minimum_required(VERSION 3.10)`, and
+CMake's `CMP0091` policy — which is what makes
+`CMAKE_MSVC_RUNTIME_LIBRARY` do anything at all — only defaults to `NEW`
+when the project requests CMake 3.15+. Below that, the policy silently
+stays `OLD` and the runtime-library setting is ignored outright, with no
+warning. Fix (no edit to DAB-Radio's own `CMakeLists.txt` needed): add
+`-DCMAKE_POLICY_DEFAULT_CMP0091=NEW` to the Step 3 configure command.
+Confirmed: `dumpbin` afterward showed only `KERNEL32.dll`, matching the
+doc's original expected output. `WRITING/NEXUS_dab_radio_build_windows.md`
+updated with this flag baked into Step 3's command, a new explanation
+paragraph, and a corrected Troubleshooting entry (the doc previously
+attributed this failure mode purely to a stale `build\` folder, which
+real testing showed doesn't fix it on its own).
+
+**Also documented:** Step 5's raw-file test needs a capture at exactly
+2.048 MSPS, which SDRConnect on this project's hardware can't produce
+directly (only fixed rates like 2 or 5 MSPS) — the doc now notes
+resampling the file yourself first, or the simpler alternative used for
+this real run: running `w034_NEXUS.py` itself against live SDRConnect,
+since `_dab_feed_iq()` already resamples arbitrary source rates and this
+exercises the whole real pipeline rather than the engine in isolation.
+
+---
+
+### Changed (2026-07-27) — DAB tab: removed manual tune control + Now Playing bar-graph
+
+Live user request, two items:
+
+1. **Manual [MHz] Tune removed.** The free-entry frequency input next to
+   the Band III quick-tune grid is redundant now that the background
+   scanner (`dabScanChannels()`) already covers every Band III channel —
+   nothing manual entry could reach that scan doesn't already find.
+   Removed the `.dab-manual-tune` CSS block, the `<div id="dab-manual-tune">`
+   markup (input + Tune button), the `dabManualTune()` function, and the
+   `manualEl` show/hide references in `dabPopulateChannels()`.
+2. **Now Playing bar-graph removed.** The 20-bar orange equalizer
+   (`#dab-eq`/`.dab-np-eq`) under the slideshow art was a real Web Audio
+   `AnalyserNode` tap on the decoded PCM (not decorative), but added no
+   real value for an SDR tool — it visualizes the audio codec's output,
+   not RF signal quality, which is what a DAB user actually cares about.
+   Removed the CSS, the `<div id="dab-eq">` markup, `_dabEnsureAnalyser()`,
+   and the `_dabEqTick()` rAF loop. That loop was also the ~1s throttle
+   driving the signal-bars/elapsed-time/diagnostics-drawer refresh, so it
+   was replaced (not just deleted) with a plain `setInterval`-based ticker
+   (`_dabStartNpTicker()`/`_dabStopNpTicker()`) that keeps those three real
+   readouts updating exactly as before, without any audio analysis or
+   bar rendering.
+
+No backend changes — both were frontend-only. Verified both inline
+`<script>` blocks with `node --check` after the edits.
+
+---
+
+### Diagnostic (2026-07-27) — DAB MOT slideshow never appears (BBC Radio6Music)
+
+Live user report: BBC Radio6Music (BBC National DAB, 12B) plays audio and
+updates DLS text ("Lauren Laverne" etc.) perfectly, but the NOW PLAYING
+column never shows a slideshow image. Side-by-side comparison against
+AbracaDABra on the exact same station/channel/moment confirmed the
+broadcast genuinely IS carrying an MOT slideshow (BBC 6 Music logo) right
+now — so this is a real decode gap in NEXUS, not a "station doesn't send
+one" situation. Traced the whole pipeline: frontend `dabUpdateSlideshow()`,
+`w034_NEXUS.py`'s DAB2-frame relay, and `dab_radio_nexus.cpp`'s subscribe-
+and-forward wiring to DAB-Radio's `Basic_Slideshow_Manager` are all
+confirmed correct — none of them are where this is being lost. Since DLS
+text (which rides the same underlying `PAD_Processor`) works fine on this
+exact station, PAD/X-PAD data is provably reaching the decoder; the
+remaining suspect is upstream, inside DAB-Radio's own MOT reassembly/
+classification (`Basic_Slideshow_Manager::Process_MOT_Entity()` silently
+returns nullptr — no log line — for any completed MOT entity whose
+content_type/content_sub_type doesn't map to exactly IMAGE_JPEG/IMAGE_PNG).
+
+Added a temporary diagnostic hook (`emit_mot_debug()` + a new
+`channel.OnMOTEntity().Attach(...)` subscription in `attach_audio_channels()`,
+`dab_radio_nexus.cpp`) onto `Basic_Audio_Channel`'s existing but previously
+unused `OnMOTEntity()` observable, which receives every completed MOT
+entity `Process_MOT_Entity()` rejected as non-slideshow. Emits a
+`dab_mot_debug` stderr JSON line with subchannel_id/transport_id/
+content_type/content_sub_type/header_size/body_size/content_name for each
+one. Next build+test on BBC Radio6Music will show either (a) this never
+fires — bug is further upstream in `PAD_MOT_Processor`'s X-PAD reassembly
+never completing — or (b) it fires with a content_type/sub_type that isn't
+IMAGE_JPEG/IMAGE_PNG — BBC is sending a slideshow variant DAB-Radio's
+classification doesn't recognise, needing a small upstream fix. Purely
+additive/diagnostic — no existing behaviour changed. Remove once the root
+cause is confirmed.
+
+---
+
+### Fixed (2026-07-26) — DAB player Dynamic Label (DLS) text clipped top/bottom
+
+Live user report with screenshot: the scrolling "now playing" text under
+the slideshow art (station DLS feed — song title, "Call the Shots", etc.)
+looked visually cut, like characters were sliced in half. Root cause:
+`.dab-np-dls-wrap` was 15px tall (border-box), minus its 1px top/bottom
+borders and 2px top/bottom padding left only 9px of content area for a
+10px-font `.dab-np-dls-track` with normal line-height (~12px) — the
+`overflow:hidden` needed for the scroll animation was clipping every
+glyph's ascenders/descenders. Bumped the wrap to 20px (14px content area),
+made it `display:flex;align-items:center` so text centers regardless of
+exact font metrics, and set the track's `line-height:1` to tighten its own
+box. No JS changes — pure CSS fix.
+
+### Fixed (2026-07-26) — DAB never counted toward "Active decoders: N"
+
+Live user report: the bottom status bar reads "Active decoders: 0" the
+entire time DAB is genuinely decoding. Root cause: every other decoder
+(cw/rtty/wefax/ft8/acars/pocsag/scanner/ais/fldigi) goes through a shared
+`activate_decoder`/`deactivate_decoder` WS command that broadcasts
+`{"type":"decoder_status","slug":...,"active":...}` — the message
+`_updateDecoderBar()`/`DS._activeDecoders` (and the status-bar count/pill
+list it drives) actually listens for. DAB was built later as its own fully
+independent subsystem (`dab_start`/`dab_stop`/`dab_set_channel`, its own
+subprocess lifecycle) and never participated in that shared mechanism, so
+it never sent this message at all — not a bug in the counting logic
+itself, just a decoder that was silently invisible to it. Since the
+frontend handler is slug-agnostic (`DS._activeDecoders[msg.slug] =
+msg.active`), no frontend change was needed: added the same
+`decoder_status` broadcast to `dab_start`/`dab_stop` (`w034_NEXUS.py`).
+Also added a `dab` entry to the frontend's `DECODER_COLOURS` lookup
+(`DARKSKY_NEXUS_w034.html`) so it gets a proper "📻 DAB/DAB+" pill instead
+of falling back to a bare uppercased slug.
+
+**Python-only + browser reload — no C++ rebuild.** Restart
+`w034_NEXUS.py` and refresh; starting DAB should now show "Active
+decoders: 1" with a DAB pill, same as every other decoder.
+
+### Investigated (2026-07-26) — station logo never appears in DAB player
+
+Live user report: no MOT Slideshow image ever shows for the station
+they're listening to. Traced the entire pipeline end to end rather than
+guessing — all four layers check out correct:
+
+- **`dab_radio_nexus.cpp`**: `radio.On_Audio_Channel().Attach(...)` fires
+  once per newly-discovered subchannel, and *inside* that per-subchannel
+  callback, `channel.GetSlideshowManager().OnNewSlideshow().Attach(...)`
+  is registered individually for every service (not just one channel by
+  mistake) — confirmed by reading the actual attachment code, not assumed.
+- **`_dab_stdout_thread_fn()`** (`w034_NEXUS.py`): correctly demuxes
+  `"DAB2"` slideshow frames alongside `"DAB1"` audio frames, generation-
+  gates them the same way audio is gated, and broadcasts
+  `{"type":"dab_slideshow",...,"image_b64":...}` correctly.
+- **`dabUpdateSlideshow()`** (`DARKSKY_NEXUS_w034.html`): correctly filters
+  to `msg.sid === _dabPlayingSid` (same guard `dabUpdateDls()` uses) and
+  renders the base64 image with the right MIME type once that matches.
+
+No bug found anywhere in the chain. The far more likely explanation,
+already anticipated in this codebase's own comments
+(`_dabResetDlsAndSlideshow()`: "not every station sends one"): MOT
+Slideshow is optional broadcaster-side encoding, and plenty of UK local/
+regional DAB+ stations only send DLS text, never a logo image — this is
+normal, not a defect. Worth confirming by tuning to a station more likely
+to actually broadcast one (e.g. BBC National DAB) before assuming this is
+still a NEXUS-side bug.
+
+### Fixed (2026-07-26) — Scan STILL misattributing one real ensemble to every channel (real root cause this time)
+
+Live user report, with screenshot, of the exact same symptom the
+2026-07-25/26 generation-counter and launch-time-channel fixes (above)
+were supposed to have closed: every channel from 5A through 10D listed
+in both the sidebar and the "other ensembles" grid rows as "Aberdeen,
+15 stations" — a single real ensemble smeared across 20+ channels that
+can't possibly all be broadcasting the identical multiplex.
+
+Re-verified the earlier fixes are actually solid: `_dab_generation` is
+bumped and checked correctly, and `dab_ensemble` broadcasts really do
+carry `channel` captured once at each subprocess's own launch time, never
+re-read live. So this is a **different bug wearing the same symptom** —
+not mislabelling, but genuinely stale RF content reaching a correctly
+labelled subprocess. `_dab_feed_iq()` is called inline, synchronously, for
+every raw IQ packet the instant SDRConnect delivers it — there's no
+buffering on NEXUS's own side to flush on a channel change. The
+`dab_set_channel` handler's own comment assumed "by the time this branch
+runs, the hardware is already retuned" — untested, and wrong: an SDR's LO
+PLL lock time plus SDRConnect's command round-trip isn't guaranteed to fit
+inside the gap between sending 'tune' and this handler running,
+especially across a fast 32-channel scan where each channel gets only
+1–3 seconds. `dab_radio_nexus` was being fed (and decoding) IQ still
+physically centred on the *previous* channel for a beat after every
+retune — genuinely, correctly decoding whatever real ensemble was
+actually there (Aberdeen), and correctly labelling it with the *new*
+channel because that's what `state['dab_channel']` said by then.
+
+Fixed with a settle gate, not a re-litigation of the tagging logic: new
+`state['dab_channel_changed_at']`, stamped in the `dab_set_channel`
+handler; `_dab_feed_iq()` now drops any IQ arriving within
+`_DAB_RETUNE_SETTLE_S` (350ms) of the last channel change instead of
+feeding it to the subprocess at all, so no transitional-frequency content
+can ever reach it. 350ms is under 10% of the scan's existing 3.5s
+per-channel budget (`_DAB_SCAN_TIMEOUT_MS` in the frontend, unchanged) —
+deliberately short, but should safely clear typical SDRplay LO settle
+time.
+
+**Python-only — no C++ rebuild, no frontend change.** Restart
+`w034_NEXUS.py` and re-run the scan to verify: this needs a real
+over-the-air retest since it depends on actual SDR settle timing, not
+something a syntax check can confirm.
+
+### Fixed (2026-07-26, part 2) — 350ms settle gate wasn't nearly enough
+
+Live re-test, after a confirmed clean run (backend restarted, browser
+`_dabEnsembleHistory` cleared first — so this genuinely wasn't stale
+client-side state): the identical symptom persisted, now with a
+screenshot showing the scan's own found/miss tally correctly narrowed to
+just 11C/12A/12B (proving the generation-counter and channel-tag fixes
+above really do work), while the sidebar/collapsed-grid ensemble history
+*still* showed 5A through 8A all as the same real 29-station national
+multiplex. That ruled out mislabelling as the cause a second time and
+pointed squarely at the settle gate's duration: 350ms was an arbitrary
+guess. This exact tuning pipeline already has its own, already-established
+estimate for real SDR/driver settle time — the `'tune'` WS handler sets
+`ignore_center_until = time.time() + 0.8` specifically because it doesn't
+trust SDRConnect's own retune-confirmation echo to land any sooner. Raised
+`_DAB_RETUNE_SETTLE_S` to 1.0s (a little margin over that existing 0.8s
+precedent) instead of inventing another number. Also checked whether the
+SDRConnect command queue itself could be backing up under a fast scan's
+rapid tune commands (would make any fixed delay unreliable regardless of
+its length) — its drain loop (`tx()`) sends immediately with no rate
+limiting, so queue backlog isn't the bottleneck; this is genuinely just
+hardware/driver settle time.
+
+**Python-only — restart `w034_NEXUS.py` and re-scan to verify.** If this
+still reproduces, the next thing to check is whether the SDR is actually
+confirming the new center frequency at all within a few seconds (add
+temporary logging around the `center_hz` echo handler) rather than
+guessing at a longer timer again.
+
+### Fixed (2026-07-26) — DAB equalizer: right-hand bars dead, panel "bouncing"
+
+Live user report with screenshot, two symptoms circled on the NOW PLAYING
+equalizer (`_dabEqTick()`, tapped off a real Web Audio AnalyserNode on the
+`#dab-audio` element — not a decorative canned animation):
+
+**"These bars never move":** each of the 20 bars sampled exactly one FFT
+bin, spread linearly across the analyser's 32 bins (`fftSize=64`). That put
+the right-hand bars on the highest-frequency bins, which sit near-silent
+for typical DAB content (speech/talk radio — the screenshot was talkSPORT
+commentary — and most music besides). They weren't frozen, they were
+honestly reporting close to zero energy up there; it just looked broken.
+Changed to a log-scale band grouping (squaring the fractional bar
+position widens each band toward the high end, concentrating resolution
+where energy actually lives) with a **peak** (not average) taken across
+each bar's band, so every bar now reflects real content regardless of
+program material.
+
+**"Graph causing slideshow box and text to bounce":** the bar height
+formula could reach `2 + 1×33 = 35px` — 3px taller than `.dab-np-eq`'s
+fixed 32px box, which had no `overflow:hidden`. Since `.dab-player` (the
+whole NOW PLAYING column) has `overflow-y:auto`, that intermittent 3px
+overflow nudged the panel's scrollable content height every time a bar
+peaked, jittering every sibling above it (slideshow art, DLS text) at
+whatever rate the audio was peaking. Added `overflow:hidden` to
+`.dab-np-eq` as a hard backstop, and capped the new peak formula at
+`2 + v×28 = 30px` so the box is never actually pushed to clip anything in
+normal operation.
+
+### Added (2026-07-26) — Manual DAB frequency entry
+
+Live user request: let users tune to any frequency, not just the fixed
+32-button Band III grid. As investigated above, this needed **zero
+backend changes** — `dab_set_channel` already accepts any channel label +
+`freq_mhz` with no validation, and `dabTuneChannel()` is the same
+channel-agnostic retune entry point every existing DAB UI trigger already
+uses. Added a compact "Manual [MHz input] Tune" widget to the DAB topbar,
+right next to the channel grid (`#dab-manual-tune`, styled to match the
+grid's density). Enter key or the Tune button both call the new
+`dabManualTune()`, which parses the typed value, rejects non-numeric input
+and anything outside a loose 174–240 MHz Band III sanity range (via
+`toast(..., 'error')`, same pattern used elsewhere for bad frequency
+entry), then calls `dabTuneChannel('Manual ' + freq.toFixed(3), freq)` —
+identical retune path to clicking a grid button, so hardware retune,
+subprocess relaunch, and now-playing state reset all just work. Hidden for
+ITU-2 (Americas) the same way the grid itself is, via a small addition to
+`dabPopulateChannels()` that toggles the widget's visibility alongside the
+existing region check.
+
+Live user report after completing their first macOS bundled build: scan
+runs (log confirms `dab_radio_nexus` launches and stays alive on every
+channel — checked with `ps aux` mid-scan, not crashing), but finds zero
+ensembles anywhere, including channels confirmed working moments earlier
+via `python3 w034_NEXUS.py` on the same machine/hardware.
+
+Ruled out: binary discovery (`_dab_find_binary()` correctly resolves
+`/usr/local/bin/dab_radio_nexus` in both cases — log shows identical
+launch command both times) and a crash (process stays alive, confirmed
+via `ps aux`, and no crash report). Also checked that scipy's compiled
+`.so` extensions are genuinely present in the built `.app` (`Contents/
+Frameworks/scipy`, symlinked from `Contents/Resources/scipy` — standard
+PyInstaller layout, not obviously broken).
+
+**Found a real bug either way, whether or not it's the actual root cause
+here:** `_dab_feed_iq()` (the function that resamples raw hardware IQ down
+to DAB's fixed 2.048 MSPS and writes it to the subprocess's stdin) wraps
+its work in a bare `except Exception as e: log.debug(...)` — but
+`logging.basicConfig(level=logging.INFO, ...)` means DEBUG-level calls
+never reach the log file at all. Any real exception in the resample step
+(scipy/numpy issue, bad math, anything) would be swallowed with zero
+trace, while the subprocess sits starved of IQ and correctly reports no
+ensembles on every channel — indistinguishable from "no signal" without
+this being visible. Changed to `log.warning` with the exception type
+included. Also added two one-line startup log entries reporting whether
+`scipy` and `sounddevice` imported successfully at all — neither failure
+was ever logged anywhere before this, despite scipy underlying DAB's IQ
+feed, CW/RTTY/AIS filtering, and WSPR decimation.
+
+**Next step:** rebuild (Python-only — `build_macOS.sh`, no C++ rebuild
+needed since `dab_radio_nexus.cpp` didn't change) and re-run the same
+scan. Check `~/Library/Logs/DARKSKY NEXUS/darksky_nexus.log` for a
+`Startup: scipy ...` line and any `DAB IQ feed error: ...` lines — those
+two will tell us definitively whether this is the actual cause or whether
+the search continues elsewhere (SDRConnect connection during the .app
+run, a Full-IQ tap timing difference, or something not yet considered).
+
+---
+
+### Fixed (2026-07-26) — channel text nearly invisible, player column too cramped
+
+Live user report + screenshot: "Channel text is partially obscured. could
+we make the player column a bit bigger, and reduce the size of the
+station cards?"
+
+**Root cause of the obscured text:** `.dab-ch-miss` (a Band III channel
+the scan tested and found nothing on) set its label's text colour to
+`var(--border)` — a hairline-outline colour, not a text colour. In the
+dark theme `--border` (`#1e2530`) sits almost exactly on top of the panel
+background (`#0f1318`), so a "miss" channel's label — 8D in the
+screenshot — rendered nearly invisible rather than just de-emphasised.
+Switched to `var(--muted)` (tuned per-theme for legible secondary text)
+dimmed further with `opacity:.55`, so a miss still reads as clearly
+lower-priority without disappearing into the background.
+
+**Player column widened** 230px → 290px, and the **station card grid
+densified** to make room for it: min column width 150px → 128px, card
+padding/gap and every text size inside a card (name, sid, badges) trimmed
+by 1-2px each. Individually small changes, but the combined effect is a
+noticeably bigger player column with the same number of stations
+comfortably fitting in less width.
+
+Pure CSS — browser reload only, no restart needed.
+
+---
+
+### Added (2026-07-26) — Optional one-click bundling of the DAB engine
+
+User asked: can DAB be bundled so an installed user just clicks DAB and it
+works, no separate build/install step? Answer: yes, and this wires up the
+software side of it — the actual compiling still has to happen once per
+platform, on a real macOS/Windows machine (this sandbox can't do it).
+
+**`_dab_find_binary()` (`w034_NEXUS.py`):** now checks a bundled location
+first when running as a packaged app — `sys._MEIPASS` (the same place
+`_find_html()` already reads the bundled HTML from: `Contents/MacOS/`
+inside the `.app` on macOS, the `_internal/` folder next to the `.exe` on
+Windows) — before falling through to today's PATH/Homebrew search. Also
+added Windows-specific candidate paths, which DAB never had (every other
+decoder with a Windows-aware search — multimon-ng, freedv_rx, wsprd — already
+does).
+
+**Both `.spec` files:** `binaries=[]` is now populated conditionally from
+`build/bundled/dab_radio_nexus` (macOS) / `build/bundled/dab_radio_nexus.exe`
+(Windows) if either exists at build time — falls back to the unmodified
+behaviour (nothing bundled, DAB looks itself up at runtime) if not, so
+this is fully backward compatible with every existing build.
+
+**`WRITING/NEXUS_dab_radio_build_macOS.md`:** added a new "Bundling for
+distribution" section (Step 7) — the built binary's one non-system
+dependency (Homebrew's `libfftw3f.dylib`) needs `install_name_tool`-ing to
+`@executable_path/...` and re-signing before it's safe to ship on a Mac
+that doesn't have Homebrew's fftw installed. Untested against a real
+build yet — flagged as such in the doc itself.
+
+**`WRITING/NEXUS_dab_radio_build_windows.md` (new):** DAB-Radio officially
+supports Windows (their own CI builds it via vcpkg + MSVC) even though
+this project never had a Windows DAB build before. Uses vcpkg's
+`x64-windows-static` triplet specifically so the result has zero DLL
+dependencies of its own — much simpler to bundle than chasing down
+glfw3/portaudio/fftw3 DLLs individually. Also untested end-to-end.
+
+**`build_macOS.sh` / `build_Windows.bat`:** added an informational
+"checking for bundled DAB engine" step so the build output tells you
+which case you're in, without needing to go check `build/bundled/`
+yourself.
+
+**Net effect once both binaries have actually been built once:** an end
+user who downloads the installer gets a DAB tab that works immediately —
+no separate install, matching what was asked. Until then, behaviour is
+unchanged from today (DAB looks for a manually-installed binary at
+runtime, per the existing build guide).
+
+---
+
+### Added (2026-07-26) — w034 User Manual / Quick Start / Troubleshooting docs
+
+w034 never had its own docx doc set (only w031/w032/w033 do) — user copied the
+w033 set into `docs/word/w033` as a starting point and asked for it updated.
+The original JS build pipeline that generated the w033 docx isn't present
+anywhere in the project (only the final built files survived), so these were
+updated by editing the actual `.docx` XML directly rather than reconstructing
+that pipeline — same net result, different route.
+
+**User Manual:** rewrote Section 6.17 (DAB/DAB+) top to bottom — it still
+described the old dab-cmdline engine (per-service relaunch, no scan, no
+player column). Now covers `dab_radio_nexus` (any IQ source, not just a
+direct RSPdx), the Band III scan grid, the dedicated player column, and
+live DLS/MOT Slideshow. Added a w034 overview callout (same style as the
+existing w031 one) summarizing the engine swap and the two scan/audio bugs
+fixed along the way. Fixed the Appendix C credits line, which still
+credited dab-cmdline — now credits williamyang98/DAB-Radio instead.
+
+**Troubleshooting:** added a new "DAB / DAB+ Issues (w034 only)" section
+with three entries — classic DAB (MP2) silence, the scan
+channel-misattribution bug, and the topbar's channel-grid height/selection-
+colour polish.
+
+**Quick Start:** added `dab_radio_nexus` to the "Optional external tools"
+table — it (and dab-cmdline before it) had never actually been listed
+there, alongside fldigi/dumphfdl/dumpvdl2/multimon-ng/DSD+/freedv_rx. Note:
+`rtl_433` (added in w033) has the same gap and still isn't listed — not
+fixed here since it wasn't part of this ask, flagging for a future pass.
+
+All three also got a long-standing footer bug fixed for free: the footer
+said "DARKSKY NEXUS w0.2.3" all the way from w031 through w033 (never
+updated after the version-number → codename switch); now reads "w034"
+like the header already did.
+
+---
+
+### Changed (2026-07-26) — DAB topbar polish: shorter channel grid, prominent lock, fixed selection color
+
+Live user feedback on the topbar (channel grid / scan ring / ensemble
+status row): "a lot of redundant space... could reduce the height",
+"the locked ensemble could also be more prominent", and "the ensemble
+button when selected remains the same colour."
+
+**1. Shorter channel grid.** The Band III quick-tune grid was capped at
+`max-width:296px`, forcing all 32 channels into 4 wrapped rows even
+though the rest of the topbar (scan ring, ensemble status, device badge)
+left most of the row's width empty. Widened to `620px` (fits ~16
+chips/row, so 2 rows instead of 4) and tightened chip padding, row gap,
+and topbar padding — cuts the topbar's height roughly in half.
+
+**2. Locked ensemble is now visually prominent.** The ensemble name used
+to render at the same 10px/weight-500 as every other label in the
+topbar. `dabUpdateEnsemble()` (and `dabClear()`) now toggle a `.locked`
+class on the status pill itself, driven by the same "services.length > 0"
+condition already used for the lock dot; CSS steps the name up to 13px/
+bold/green with a subtle pill background when actually locked, while the
+idle "No ensemble locked" state stays exactly as understated as before.
+
+**3. Fixed: selected channel indistinguishable from a merely-"found"
+one.** `.dab-qt-btn.active` (the currently-tuned channel) set its own
+color/border-color to the orange "selected" accent, but
+`.dab-ch-found`/`.dab-ch-miss`/`.dab-ch-testing` each mark color/
+border-color `!important` — so once a scan had also flagged that same
+channel as found/missed/tested, its scan-result color won and the
+"currently selected" state became invisible; a selected-and-found channel
+looked identical to every other green "found" channel. Moved `.active`
+after the scan-result rules and marked its own properties `!important`
+too — equal selector specificity + later source order wins, so the
+active chip always shows the orange selected treatment regardless of
+what scan state it also carries.
+
+**Browser reload only — no rebuild, no restart.** Pure CSS/HTML/JS in
+`DARKSKY_NEXUS_w034.html`; nothing backend-side changed.
+
+---
+
+### Fixed (2026-07-25) — scan still misattributing stale ensemble data to the wrong channel
+
+Follow-up to the generation-counter scan fix directly below this entry:
+user reported, with screenshots, that a scan still marked 11D as "found"
+using an ensemble ("D1 National", 29 stations) that wasn't actually
+transmitting on 11D — then reported the same thing happening on 12C and
+12D. The generation counter closes the race where a stale thread keeps
+running after its subprocess should have died, but it doesn't fix a
+second, separate bug: the `dab_ensemble` broadcast tagged its data with
+`state['dab_channel']` read live, *at the moment the message was built* —
+not the channel that was actually current when the underlying
+`dab_radio_nexus` subprocess was launched. Since `state['dab_channel']`
+updates synchronously the instant the scan moves to the next channel, a
+still-generation-valid message describing data captured on channel N could
+end up broadcast carrying channel N+1's (or later) tag if the scan had
+already advanced by the time the message went out — same "found" flag,
+same station list, wrong channel.
+
+Fixed in two places: **backend root cause**, `w034_NEXUS.py` —
+`dab_engine()` now captures `launch_channel` once, right before calling
+`_dab_launch()`, and threads it through to `_dab_stderr_thread_fn()` (new
+`channel` parameter) so the `dab_ensemble` broadcast's `channel` field is
+always the channel that was live when *that specific subprocess* was
+started, never a later live read of shared state. **Frontend
+defense-in-depth**, `DARKSKY_NEXUS_w034.html` — `dabScanChannels()` now
+records the channel it's currently probing in `_dabScanTargetChannel`
+before each tune, and the scan's early-resolve check in
+`dabUpdateEnsemble()` now requires `msg.channel === _dabScanTargetChannel`
+in addition to `services.length`, so even a mistagged message can no
+longer resolve the wrong channel's scan step as a "found."
+
+**Python-only + browser reload — no C++ rebuild needed.** Neither
+`dab_radio_nexus.cpp` nor its wire protocol changed; restart
+`w034_NEXUS.py` and refresh the tab.
+
+---
+
+### Added (2026-07-25) — dedicated player column with live DLS text + MOT slideshow, and a scan-accuracy fix
+
+Two pieces of work from the same live-testing session, right after the
+classic-DAB-silent fix documented just below this entry:
+
+**1. Dedicated player column with live Dynamic Label text and MOT
+Slideshow images**, per explicit user request. The now-playing bar moved
+off the bottom of the tab into its own fixed-width column alongside the
+sidebar and station grid — always visible rather than a collapsed/expanded
+overlay, with room for a station logo/album-art image and a scrolling text
+ticker. Researched DAB-Radio's real PAD-decode API before touching
+anything: `SetIsDecodeData(true)` (previously off) makes the library run
+its own `PAD_Processor` internally and hand back *finished* text/images —
+`Basic_Audio_Channel::OnDynamicLabel()` for DLS text,
+`GetSlideshowManager().OnNewSlideshow()` for a ready-to-decode JPEG/PNG
+byte buffer — no PAD/X-PAD/MOT parsing of our own needed. `dab_radio_nexus`
+now emits DLS updates as a `dab_dls` stderr JSON line and slideshow images
+as a new binary stdout frame type (`"DAB2"`, alongside the existing PCM
+`"DAB1"` frames); `w034_NEXUS.py` demuxes both, caches the latest of each
+per subchannel (enriching the `dab_ensemble` broadcast the same way
+`buffer_bytes`/`sample_rate` already were), and forwards live updates to
+the browser (slideshow images base64'd into the WS message — small/
+infrequent enough that the ~33% overhead doesn't matter). DLS is
+deliberately one freeform scrolling text field, not separate structured
+song/artist/headline/weather/traffic fields — that's genuinely all DAB
+gives you; what shows up depends entirely on what the broadcaster sends.
+
+**2. Band III scanner missing real ensembles and reporting fake ones** —
+user report: "not capturing an ensemble where there is DAB transmission,
+and capturing ensembles where there is no DAB transmission." Root cause,
+in `w034_NEXUS.py`: every channel change during a scan starts a new
+`dab_radio_nexus` subprocess and a new pair of stdout/stderr reader
+threads, but neither thread ever checked whether the subprocess it was
+reading from was still the *current* one. `_dab_terminate()` reset
+`_dab_services` immediately, but the old subprocess doesn't die the
+instant SIGTERM is sent — its stderr thread could keep running for a beat
+and still deliver one more *genuine* `dab_ensemble` message detected on
+the *previous* channel, misattributed to whatever channel the scan had
+since moved to (the message carries no channel tag of its own). A channel
+that genuinely has DAB could lose its own real result to this and get
+marked "miss," while a DAB-less channel next in the scan order could
+inherit that stale real result and get marked "found." Fixed with a
+monotonic `_dab_generation` counter, bumped on every launch/terminate and
+checked by both reader threads before touching shared state or
+broadcasting anything. Also removed two sources of pure timing-budget
+loss that made the scan's tight ~3.5s per-channel window worse than it
+needed to be: `_dab_terminate()` used to block the *entire asyncio event
+loop* for up to 3s waiting for the old subprocess to actually exit
+(`proc.wait(timeout=3)` called synchronously from the WS handler) — it now
+just signals and returns; and `dab_engine()`'s own relaunch-detection poll
+dropped from a 2s tick to 0.25s, so a real ensemble gets close to its full
+scan window to prove it instead of losing most of it to backend
+bookkeeping alone.
+
+**Requires rebuilding `dab_radio_nexus`** (item 1 touches the C++ engine)
+and simply restarting `w034_NEXUS.py` (item 2 is Python-only). See
+`WRITING/NEXUS_dab_radio_build_macOS.md` for the rebuild steps.
+
+---
+
+### Fixed (2026-07-25) — DAB "no audio" after retuning, and total audio silence introduced by the two fixes above
+
+Two separate bugs, found live in the same session as the tab rebuild and
+the two backend fixes below it, both reported simply as "no audio":
+
+**1. Stale now-playing indicator after a channel retune (frontend).**
+`dab_set_channel`'s WS handler correctly resets `state['dab_play_sid']` to
+`None` on every retune (the old subchannel's decode is meaningless once the
+hardware retunes to a different channel) — but `dabTuneChannel()` in
+`DARKSKY_NEXUS_w034.html` never mirrored that reset client-side, so the
+now-playing bar and the "playing" card glow kept pointing at a `sid` the
+backend had already forgotten. Confirmed live: a direct
+`fetch('/dab_audio?sid=...')` for the still-"playing" station returned
+`503 DAB engine not running or no service selected` while the UI showed
+it as happily playing. Fixed by calling `dabStopPlayback()` up front
+whenever the channel actually changes.
+
+**2. Total audio silence — zero PCM bytes ever, for every service, DAB
+and DAB+ alike (backend, `dab_radio_nexus.cpp`).** Once bug 1 stopped
+masking things, `/dab_audio` reliably returned `200`, but with an empty,
+never-ending body — confirmed by reading the raw response stream directly
+in the browser (bypassing the `<audio>` element, which never surfaces a
+"connected but nothing arriving" state clearly). Root cause: this
+session's *station-names* fix (below) added a background thread that
+polls `BasicRadio::GetDatabaseStatistics().nb_updates` every 750ms and,
+on change, re-serializes the whole ensemble — but it did that **while
+holding `radio.GetMutex()` for the entire walk** (services × components,
+plus string formatting and an `fprintf`). That same session's
+*thread-count* fix (also below) had just raised MSC/audio decode from 1
+thread to up to 9 (`--radio-total-threads`) — and the pre-existing
+`On_Audio_Channel` call site that this new thread copied its
+`emit_ensemble_snapshot()` call from had **never** taken that lock itself,
+relying instead on already running inside the library's own synchronized
+callback context. Adding an explicit, comparatively long-held lock on a
+750ms timer, right as up to 9 independent audio-decode worker threads
+started needing the same mutex to commit each decoded frame, serialized
+— and very plausibly deadlocked — the two fixes against each other:
+station names kept updating (FIG parsing apparently doesn't contend the
+same lock the same way), while MSC audio decode never produced a single
+frame. Fixed by shrinking the lock to just the `nb_updates` compare (a
+single `size_t` read) and calling `emit_ensemble_snapshot()` unlocked
+afterwards — matching the original call site's convention exactly.
+
+**Requires rebuilding `dab_radio_nexus`** (C++ change) — bug 2 is not
+fixable by a browser reload or a Python restart alone. See
+`WRITING/NEXUS_dab_radio_build_macOS.md` for the rebuild steps.
+
+---
+
+### Fixed (2026-07-25) — classic DAB (MP2) services silent while DAB+ (AAC) plays fine
+
+User report, live, after the mutex-serialization fix above landed:
+every DAB+ service on the multiplex now played correctly, but every
+classic DAB (MPEG-1 Layer II) service stayed completely silent — no
+error, no crash, `/dab_audio` streamed a valid WAV header and then
+nothing.
+
+Researched the actual DAB-Radio library source
+(`williamyang98/DAB-Radio`) rather than guessing: `attach_audio_channels()`
+in `dab_radio_nexus.cpp` calls `controls.SetIsDecodeAudio(true)` and
+`controls.SetIsPlayAudio(false)` on every discovered channel (the `false`
+was written assuming "play audio" meant *local hardware* playback, which
+NEXUS never wants since it's the audio sink itself). It turns out that
+flag means something different depending on the channel type:
+`Basic_DAB_Plus_Channel` (DAB+/AAC) emits its decoded PCM to our
+`OnAudioData` callback whenever `GetIsDecodeAudio()` is true — so DAB+
+worked regardless of `SetIsPlayAudio()`. `Basic_DAB_Channel` (classic
+DAB/MP2) decodes every frame either way, but only calls the same emit
+path when `GetIsPlayAudio()` is true — with it left `false`, MP2 frames
+were decoded and then silently thrown away, never reaching our stdout
+writer at all. Fixed by setting `SetIsPlayAudio(true)` too — harmless for
+DAB+ channels (they ignore it), required for MP2 channels to emit
+anything.
+
+**Requires rebuilding `dab_radio_nexus`** again — same rebuild steps as
+above.
+
+---
+
+### Rebuilt (2026-07-25) — DAB Decoder tab, full spec revision
+
+Full rebuild of the DAB tab per a detailed spec: top bar (Band III
+quick-tune + a real circular scan-progress ring + ensemble/lock status +
+device label + a diagnostics gear), a favourites row (tap to play, long
+-press to remove, persisted in `localStorage`), an ensemble-grouped
+station grid (the currently-tuned multiplex renders full cards; any other
+ensembles found earlier this session collapse to a click-to-retune
+summary row instead of showing fabricated "still there?" station tiles
+for a channel we're not tuned to and can't verify), a bottom-pinned
+now-playing bar with collapsed/expanded states (mini equalizer, elapsed
+-time ticker, stereo/mono + DAB/DAB+ badges, and a hidden "Technical
+Details" drawer), and a scan-manager sidebar (progress bar + a real
+per-session list of ensembles found, click to retune).
+
+Two decisions made explicitly with the user before starting: (1) palette
+reuses NEXUS's existing `--bg`/`--panel`/`--accent`/`--orange` etc.
+variables rather than the spec's own `#0C0C1A`/`#6A4BFF` scheme, so the
+tab inherits dark/light theming for free and stays visually consistent
+with the rest of the app instead of standing apart; (2) the spec's
+`<dab-topbar>`/`<dab-favourites>`/etc. module names are plain `<div>`
+sections using those names as id/class hooks, not real Web Components —
+nothing else in this 25,000+ line file uses shadow DOM, and introducing
+it for one tab would fight the existing CSS-variable cascade instead of
+using it.
+
+Backend addition to make the "Technical Details" drawer honest rather
+than empty: `w034_NEXUS.py`'s `dab_ensemble` broadcast now enriches each
+service with `sample_rate`/`stereo`/`bits_per_sample`/`buffer_bytes` (read
+from `_dab_audio`, already populated per-frame by `_dab_store_audio()`)
+plus a top-level `buffer_max_bytes`, once that service's first PCM frame
+has actually decoded — fields stay absent until then rather than being
+guessed. Codec mode (HE-AAC vs MPEG-1 Layer II) is shown as a fact of the
+DAB+/DAB standard itself rather than a per-stream measurement, which is
+accurate rather than assumed.
+
+All "real data or nothing" conventions from the rest of this session's DAB
+work carried forward unchanged: the background per-channel scanner, the
+real Web Audio-driven equalizer, the ITU-region gate, and the shared-SNR
+signal reading (DAB has no meaningful per-service SNR).
+
+---
+
+### Fixed (2026-07-25) — DAB station names blank for most services on a full multiplex
+
+User report, live (BBC-format ensemble, 31 services after a scan): only 6
+of 31 stations ever showed a real name — the rest stayed on the "—"
+placeholder permanently, even though the ensemble had clearly locked and
+audio played fine for the ones with names.
+
+Root cause, in `dab_radio_nexus.cpp`: `emit_ensemble_snapshot()` (which
+serializes the current service list, including each service's `.label`,
+to stderr JSON) was only ever called from inside
+`On_Audio_Channel().Attach(...)`'s callback — a signal that fires once per
+newly-*discovered* subchannel (FIG 0/2 linking a service to a subchannel)
+and then goes quiet once every subchannel in the ensemble has been found,
+typically within the first couple of seconds. A station's actual name
+comes from a *different* FIG (1/0, "service label") that cycles on its own
+schedule, independently of and often much slower than FIG 0/2 — on a
+30+-service multiplex, covering every service's label in the FIG 1/0
+rotation can take a good deal longer than "every subchannel discovered".
+So most labels finished decoding well after the last snapshot had already
+gone out, and — because nothing else ever triggered another snapshot —
+were simply never sent to the frontend at all, forever, even though
+`BasicRadio` had them internally the whole time.
+
+Fix: added a small background thread that polls
+`BasicRadio::GetDatabaseStatistics().nb_updates` (a monotonic counter the
+library already increments on every accepted FIG write, including label
+writes) roughly twice a second, and only re-runs `emit_ensemble_snapshot()`
+when that counter has actually moved since the last check — so newly
+-arrived labels get pushed out promptly without blind-resending the whole
+list on a fixed timer when nothing changed. Reads `GetDatabase()` under
+`GetMutex()` since FIC processing runs on its own thread and the database
+isn't otherwise synchronized.
+
+**Requires rebuilding `dab_radio_nexus`** (this is a source change to the
+C++ tool itself, not the Python bridge) — see
+`NEXUS_dab_radio_build_macOS.md` for the build steps.
+
+---
+
+### Fixed (2026-07-25) — DAB audio never plays: MSC decode starved to a single thread
+
+User report, live on real hardware (RSPdx via USB, SDRConnect Full IQ @
+2 MSPS): channel scan works fine, ensemble locks, all 15 real BBC National
+DAB 12B services show up — but clicking any station produces no audio at
+all, no error, nothing.
+
+Confirmed live by hitting the stream endpoint directly
+(`GET /dab_audio?sid=C336`) from the browser console: it returns
+`200 audio/wav` with correct headers, and then... nothing. Zero PCM bytes,
+no timeout, no disconnect — the connection just sits open forever.
+
+Root cause: `_dab_launch()` in `w034_NEXUS.py` never passed
+`--radio-total-threads` to `dab_radio_nexus`, so `Basic_Radio_Block`
+defaulted to a single thread. `attach_audio_channels()` in
+`dab_radio_nexus.cpp` deliberately decodes **every** discovered audio
+subchannel simultaneously (no per-service enable/disable control channel —
+see the w034 DAB engine entry below for why), which is fine for FIC (the
+small, cheap, ensemble-wide scan that produces the service list) but is a
+real load-bearing decision for MSC: Reed-Solomon + AAC/MP2 decoding a
+dozen-plus full audio services at once on one thread can't keep up with
+2.048 MSPS in real time. FIC kept locking and reporting services correctly
+(giving every appearance the engine was fully working), while MSC decode
+permanently fell behind and never finished a single superframe for any
+subchannel — so `_dab_store_audio()` was never called, `_dab_audio` stayed
+empty forever, and `_serve_dab_audio()`'s `entry is None: time.sleep(0.1);
+continue` loop spun silently with the connection open and zero bytes
+written, matching the live repro exactly.
+
+Fix: `_dab_launch()` now passes `--radio-total-threads` sized to
+`max(2, cpu_count - 1)`, giving MSC decode real parallelism across
+services. OFDM demod itself stays single-threaded (`--ofdm-total-threads`
+untouched) since it's comparatively cheap and single-threaded was never
+the bottleneck.
+
+**Requires restarting `w034_NEXUS.py`** — this is a subprocess launch
+argument, not something a browser reload picks up.
+
+---
+
+### Added (2026-07-25) — location-aware DAB channel gating + real background scan
+
+Follow-up to "would it be possible to only show channels available in the
+user's area — and does the current setup even work for the US?" Checked
+rather than assumed on the US question: the US never adopted Eureka-147
+DAB (this decoder's actual standard) — it picked HD Radio/IBOC in 2002,
+a fundamentally different in-band-on-channel technology this decoder
+can't read, and Canada wound its own experimental L-band DAB network down
+starting 2010. So the entire Band III channel grid is dead air anywhere
+in North or South America regardless of which channels are shown.
+
+Two pieces, deliberately different in approach:
+
+1. **ITU-region gate** (coarse, free). Reuses `_bpRegion`, a global
+   already geo-detected on page load via `navigator.geolocation` for the
+   band-plan strip's own ITU-1/2/3 coloring (`_bpAutoDetect()`) — no new
+   location code needed. `dabPopulateChannels()` now checks it: if
+   `ITU-2` (the Americas), the whole channel grid is replaced with a
+   plain explanation instead of 32 buttons that will never do anything.
+   Hooked `_bpSetRegion()` to force-refresh the DAB tab too, since
+   geolocation resolves asynchronously and can land after the tab was
+   already opened (defaults to ITU-1 until then).
+2. **Real background scan** (fine-grained, self-updating). Rather than
+   shipping a static per-country/per-region DAB channel-plan database —
+   which goes stale the moment a multiplex is added, dropped, or
+   relicensed, and would make an active claim about the local airwaves
+   that could just be wrong — `dabScanChannels()` does a real sweep:
+   retunes through every Band III channel in turn (reusing the existing
+   `dabTuneChannel()`/`dab_set_channel` path, no backend changes needed),
+   waits up to 3.5s for a real `dab_ensemble` broadcast with actual
+   services, and only highlights the channels that genuinely answered
+   (green = found, dim = checked and empty, amber pulse = currently
+   testing). `dabUpdateEnsemble()` resolves the wait early the moment a
+   real ensemble lock arrives rather than always burning the full
+   timeout. Works identically in any country with zero geo/database
+   lookup for this part — it's reporting what's actually in the air
+   right now, not what a list says should be there.
+
+Also fixed a real bug found while in this code: the `case 'dab_clear':`
+WS-message handler set `dab-svc-rows.innerHTML = ''` directly, which
+stomped the friendly `DAB_EMPTY_HTML` empty state `dabClear()` had just
+set locally the instant the backend's rebroadcast of the same clear
+command echoed back to the sender — the nice empty state would flash for
+an instant then go blank. Now reuses the same constant.
+
+---
+
+### Redesigned (2026-07-25) — DAB tab rebuilt for a non-technical audience
+
+Follow-up to the card-grid pass earlier the same day: asked directly "if
+you had free reign, how would you lay this out for maximum visual impact,
+aimed at a non-tech user." Rebuilt the tab around that brief rather than
+just polishing the existing engineering-console layout:
+
+- **Now-playing hero.** Station name in large type, a circular monogram
+  avatar whose gradient color is deterministically hashed from the station
+  name (`_dabColorFromName`/`_dabHash`) so a given station is always the
+  same color, and a real 20-bar audio-reactive equalizer — a Web Audio
+  `AnalyserNode` tapped directly off the actual `#dab-audio` element via
+  `createMediaElementSource` (same lazy-AudioContext-on-first-gesture
+  pattern already used by `_freedvEnsureContext()`/`audioContext_ft8`
+  elsewhere in this file), not a decorative canned animation. Bars settle
+  flat automatically whenever nothing is playing, no extra state needed.
+- **One honest signal reading, not a fabricated one.** DAB doesn't have a
+  meaningful *per-service* SNR — every station in an ensemble rides the
+  same RF channel — so rather than inventing a different number per card,
+  the hero's 4-bar signal indicator reuses the same link SNR already
+  shown in the main toolbar (`DS.vfos.a.snr`), bucketed into 4 tiers.
+- **Jargon moved, not deleted.** The old always-visible engineering bullet
+  list (dab_radio_nexus, Full-IQ tap, 2.048 MSPS, FIC/MSC) is now behind a
+  "How this works ▾" expander, collapsed by default. What a first-time
+  user sees instead: "Free digital radio, out of thin air" + one line
+  about tapping Start — the technical detail is still there for anyone
+  curious, just not shoved in front of everyone by default.
+- **Friendlier empty/scanning states.** Replaced the plain "Start decoder
+  — requires dab_radio_nexus, Full IQ stream" text with a broadcast-wave
+  icon + "No stations yet" / "Tap Start above..." copy, and a separate
+  pulsing variant ("Searching the airwaves…") for the actual scanning
+  state instead of static "Scanning ensemble…" text.
+- Renamed "SERVICE" → "STATIONS" in the list header and "click a card to
+  play" → "tap a station to play" — small wording choices, same idea of
+  addressing a listener, not an engineer.
+
+Nothing about the underlying dab_radio_nexus/Full-IQ pipeline changed —
+this is presentation only, built on the same `dab_play_service`/
+`dab_stop_service` commands and `dab_ensemble` broadcasts as before.
+
+---
+
+### Fixed + Redesigned (2026-07-25) — DAB player never appeared; service list is now a card grid
+
+Two more things found live-testing the working DAB ensemble lock (BBC National
+DAB, 12B, 8 services):
+
+1. **The player panel never appeared, no matter what was clicked.**
+   `dabPlayService()` set `wrap.style.display = ''` on click, which clears
+   the *inline* style but doesn't remove a matching external rule —
+   `#dab-player-wrap{...display:none}` in the stylesheet (a leftover from
+   an earlier iteration of this panel) still applied, so the panel stayed
+   hidden regardless of clicking a service. No error anywhere; it just
+   silently never showed. Fixed by setting an explicit `'flex'` instead of
+   `''`, which wins over the external rule.
+
+2. **Redesigned the service list from a scrollable row list into a card
+   grid**, per direct request. New `.dab-svc-grid`/`.dab-svc-card` classes
+   follow the same `repeat(auto-fill,minmax(...))` convention already used
+   by `.dec-params`/`.sig-grid` elsewhere in this file, so cards reflow
+   into however many columns fit the panel width. Each card shows the
+   station name, SID, a DAB/DAB+ type badge, and a play/now-playing
+   indicator (filled square + amber border + a small pulsing dot,
+   matching the existing amber DAB accent color rather than introducing a
+   new one). Removed the now-unused old `.dab-svc-row`/`.dab-service-list`
+   CSS (leftovers from a prior iteration that predated the current
+   `dab-svc-rows` markup and were no longer referenced anywhere).
+   Restyled the player panel itself to match — a "NOW PLAYING" eyebrow +
+   pulsing dot + station name row above the native `<audio>` control,
+   instead of a bare label.
+
+---
+
+### Fixed (2026-07-25) — IQ-enable guard still stale on mode revisit; HTML still said w033
+
+Two bugs found during live Full IQ @ 2 MSPS DAB testing:
+
+1. **`_iq_enabled_modes` guard was a set, not a "last mode" tracker.** The
+   July 24 fix (see below) correctly re-fires the enable handshake
+   (`set_primary_device_enable`/`device_stream_enable`/`iq_stream_enable`)
+   once per distinct mode name, but a `set` remembers every mode ever seen
+   for the life of the connection — so re-entering a mode already visited
+   earlier in the same session (Full IQ -> IQ Lite -> back to Full IQ) never
+   refired it. Confirmed live: a 20+ second window showed the type-2 tally
+   frozen at a fixed count while type-1/type-3 kept climbing normally —
+   SDRConnect's own stream-enable state doesn't persist across a mode
+   switch on its end, so a stale "already enabled" guard silently starved
+   real IQ frames with no error anywhere. Replaced the set with a single
+   `_iq_last_enabled_mode = [None]` tracker: fires on every actual mode
+   transition, including revisits, and still only once per transition.
+
+2. **`DARKSKY_NEXUS_w034.html` still said "w033" everywhere it matters.**
+   The w033->w034 fork (2026-07-24) never got a version-identity pass (the
+   w031->w032 and w032->w033 forks both had one as a dedicated step; this
+   one was missed). `<title>`, both `w033` version badges (connection-setup
+   dialog and the main `#brand-version` brand-bar badge), and — the one with
+   real live impact — the JS version-mismatch check, were all still
+   hardcoded to `'w033'` while the Python backend already correctly sends
+   `VERSION = "w034"` as `server_version`. Net effect: every single page
+   load fired a spurious "Version mismatch: bridge is w034 but HTML is
+   w033 — Cmd+Shift+R to reload" warning, even on a perfectly matched
+   w034/w034 pair. Fixed the title, both badges, and the mismatch check
+   (now compares against `'w034'`), plus three internal comments that
+   cross-reference "w033_NEXUS.py" as a file path (now w034_NEXUS.py) since
+   that file doesn't exist in this folder. Left ~34 genuinely historical,
+   dated comments alone (e.g. "SSTV (w033 fork, 2026-07-19)", "added
+   w033") — those are accurate feature-origin/bugfix history, not identity
+   strings, and should stay as-is per the same convention used throughout
+   this file's own "PRIOR VERSION" sections.
+
+---
+
+### Added (2026-07-24) — SSTV Robot 36/72 decode (previously detected-only)
+
+Follow-up to a self-audit ("is there anything in w033 that needs attention?")
+that turned up one real, still-open gap: the SSTV decoder (added 2026-07-19)
+fully decodes Martin M1/M2 and Scottie S1/S2/DX but only *recognised* Robot 36
+and Robot 72 — VIS header detected, mode name shown, a toast fired ("detected
+but decoding that mode isn't implemented yet") — because their YCbCr format
+with alternating/subsampled chroma was judged too easy to get subtly wrong
+without a real signal to check against.
+
+Implemented both properly using the numeric scan-line timing table (Table
+4.3) in Martin Bruchanov OK2MNM's public SSTV Handbook (sstv-handbook.com) —
+the same source already cited for the existing Martin/Scottie constants.
+Robot 36 is YCbCr 4:2:0: one chroma channel (Cr or Cb) per line, alternating
+by line parity; the channel not present on a given line is held over from
+whichever line last supplied it (`_last_cr`/`_last_cb` on `SstvDecoder`,
+reset to neutral 128 on a fresh tune) — the standard way every real Robot 36
+decoder handles the format's vertical chroma subsampling. Robot 72 is YCbCr
+4:2:2: both Cr and Cb sent every line, no alternation, no hold-over needed.
+Added a new `_decode_line_robot()` method (separate from the existing
+`_decode_line()`, which assumes direct RGB channel tags and doesn't apply
+here) doing the YCbCr→RGB conversion; `_compute_line_layout()` gained
+`robot420`/`robot422` branches building the segment lists from each mode's
+published sync/Y/chroma durations.
+
+Verified two ways before shipping: (1) each mode's line-segment durations
+were summed and checked against its published lines-per-minute figure —
+Robot 36's 10.5+90+4.5+45ms sums to exactly 150ms at 400lpm, Robot 72's
+12+138+6+69+6+69ms sums to exactly 300ms at 200lpm; (2) the YCbCr→RGB
+formula was round-tripped numerically against several test RGB triples
+(pure red/green/blue/white/black plus two arbitrary colours) and reconstructed
+each within <1/255 (clipping-only) error.
+
+**Caveat, unchanged from the original SSTV work**: like Martin/Scottie before
+it, this has not been checked against a real captured Robot 36/72
+transmission — only against the published spec and the round-trip math
+above. The even/odd Cr/Cb parity convention (even line = Cr, odd = Cb) is
+the standard one, but if colours come out swapped on real traffic, that
+parity assumption in `_decode_line_robot()` is the first thing to flip.
+
+Frontend: updated the SSTV panel's Start button tooltip and status-bar note,
+which both still said Robot 36/72 were detected-only.
+
+---
+
+## w034
+
+w034 is forked directly from w033 (2026-07-24), specifically to replace the
+DAB/DAB+ engine's underlying decoder. Nothing in w033 was touched — it
+remains a separate, stable release using dab-cmdline, per an explicit
+decision to keep it as a fallback while this fork's DAB work was in
+progress.
+
+**Why**: w033's DAB engine (`dab-cmdline`'s `example-3` binary) opens the
+SDRplay API directly and grabs the RSPdx itself, which only works if the
+device is physically USB-attached to the same machine NEXUS runs on. It
+cannot read from SDRConnect's own network protocols, and cannot see a
+networked nRSP-ST at all — confirmed against SDRplay's own API
+documentation, which doesn't enumerate network-only devices. This surfaced
+while debugging a `dyld` rpath error on macOS building dab-cmdline, and led
+to evaluating three alternative DAB backends: welle.io (GPL-2, unmaintained
+on macOS/Apple Silicon per its own README), DABlin (GPL-3, but does no
+OFDM/FIC/Reed-Solomon at all — needs an external demodulator upstream, so
+it can't replace dab-cmdline standalone), and DAB-Radio (MIT,
+williamyang98) — chosen because its library API cleanly exposes a
+per-subchannel PCM callback independent of its GUI/PortAudio code, and its
+own examples already demonstrate raw-IQ-over-stdin piping as a first-class
+pattern.
+
+**New engine — `dab_radio_nexus`**: a new headless C++ tool
+(`examples/dab_radio_nexus.cpp`, ~300 lines) added to a clone of
+DAB-Radio, registered as a new CMake target via a small patch to
+`examples/CMakeLists.txt`. It owns no hardware at all:
+- **stdin**: interleaved 32-bit float IQ (`raw_f32l`), fed continuously by
+  NEXUS.
+- **stdout**: every discovered audio subchannel decodes simultaneously
+  (same "decode all, serve on demand" trade-off as welle-cli's own `-Dw`
+  flag) and is written as a small self-describing frame (`DAB1` magic +
+  subchannel id + sample rate + channel count + bit depth + payload) so
+  multiple subchannels share one stdout stream.
+- **stderr**: one JSON line per ensemble/service discovery
+  (`{"type":"dab_ensemble", ...}`) and a status line at startup/exit
+  (`{"type":"dab_status", ...}`) — deliberately matching the JSON shape
+  NEXUS's frontend already expected, so the UI needed almost no changes.
+
+Built by subscribing to `Basic_Audio_Channel::OnAudioData()` (a public
+callback independent of DAB-Radio's PortAudio/GUI code, found by reading
+`src/basic_scraper/basic_scraper.cpp`'s existing usage as a template) —
+DAB-Radio's own shipped CLI example (`basic_radio_app_cli`) excludes the
+entire audio-output path behind a `#if`, so this had to be written fresh
+rather than reused.
+
+**Verification**: syntax-validated with `g++ -fsyntax-only` against the
+real upstream headers (two genuine bugs found and fixed: missing logging
+macro defines, missing `#include <fmt/ranges.h>` for `fmt::join`) — zero
+errors after. A real `libfftw3f` shared object (extracted from the
+`pyFFTW` manylinux wheel, matching architecture) was linked and its 541
+`fftwf_*` symbols confirmed present, validating the one genuine precision-
+sensitive external dependency. A full CMake configure+build+run test could
+not be completed in the sandbox this was built in: DAB-Radio's root
+`CMakeLists.txt` unconditionally requires GLFW3 and OpenGL (for its GUI
+targets, even when building only this headless target), and CMake refuses
+to disable `REQUIRED` `find_package()` calls — installing real GLFW3/
+OpenGL dev packages needs `apt`/root, unavailable there. This final
+build+run verification needs to happen on a real macOS machine via
+Homebrew (see `NEXUS_dab_radio_build_macOS.md`).
+
+**Real-build fix (2026-07-24, found during Jon's actual macOS build)**: the
+`target_link_libraries` in the CMakeLists.txt patch above originally
+omitted `basic_scraper`, since `dab_radio_nexus` doesn't use any scraper
+functionality. That broke the build with `use of undeclared identifier
+'BASIC_SCRAPER_LOGGER'` — `examples/app_helpers/app_logging.h`'s shared
+`setup_easylogging()` helper unconditionally references that constant, but
+it's only declared once something links `basic_scraper` (its own
+`CMakeLists.txt` exposes the enabling macro as a `PUBLIC` compile
+definition, propagated only to linked targets — not a global setting).
+This is exactly the class of bug the sandbox's syntax-only check couldn't
+catch (it's a link-graph propagation issue, not a syntax error) and is
+also why `basic_radio_app_cli` links `basic_scraper` despite not scraping
+anything either. Fixed by adding `basic_scraper` to `dab_radio_nexus`'s
+link list — both `NEXUS_dab_radio_build_macOS.md` and this repo's
+`CMakeLists.txt` patch instructions now include it correctly.
+
+**Real-build fix #2 (2026-07-24, same build)**: after the fix above,
+compiling succeeded but linking failed with `Undefined symbols ...
+el::base::elStorage`, referenced from `dab_radio_nexus.cpp.o`.
+easyloggingpp requires the `INITIALIZE_EASYLOGGINGPP` macro invoked exactly
+once, in exactly one translation unit of the final binary, to instantiate
+its global storage object -- `dab_radio_nexus.cpp` never included it.
+`basic_radio_app.cpp` and `radio_app.cpp` both place this macro on its own
+line directly before their own `main()`; `dab_radio_nexus.cpp` now does the
+same. Also a link-only bug the sandbox's `-fsyntax-only` check couldn't
+have caught. Both `dab_radio_nexus.cpp` and
+`NEXUS_dab_radio_build_macOS.md` are updated.
+
+**Python side (`w034_NEXUS.py`)**: replaced the entire dab-cmdline engine
+(`_dab_find_binary`, `_dab_launch`, `dab_engine`, `_dab_parse_line`,
+`_dab_reader_thread`, `_serve_dab_audio`, `_wav_header` usage) with:
+- `_dab_feed_iq()` — resamples NEXUS's raw, undecimated Full-IQ tap (the
+  same tap point `_rec_write_iq()` already used for IQ recording) down to
+  DAB's fixed 2.048 MSPS OFDM rate via `scipy.signal.resample_poly`, with a
+  short carried-sample history across packets to smooth the polyphase
+  FIR's transient at packet boundaries, and writes it to the subprocess's
+  stdin.
+- `_dab_stdout_thread_fn()` / `_dab_store_audio()` — demux the framed
+  stdout stream into one PCM buffer per subchannel, capped at ~2MB each so
+  an unwatched service can't grow unbounded.
+- `_dab_stderr_thread_fn()` — parses the JSON status lines and rebroadcasts
+  `dab_ensemble`/`dab_status` exactly as before.
+- `_serve_dab_audio()` — rewritten to stream whichever subchannel
+  `dab_play_sid` currently selects, with a WAV header built from that
+  service's REAL sample rate/channel count/bit depth (previously hardcoded
+  48000/2/16 for every service).
+- `dab_set_channel` WS handler — a channel change now needs the actual
+  SDRConnect hardware to retune (dab_radio_nexus has no hardware access of
+  its own, unlike dab-cmdline); confirmed the frontend's existing
+  `dabTuneChannel()` already sends a normal `tune` command before
+  `dab_set_channel`, so no new retune code was needed there — only the
+  forced-relaunch bookkeeping.
+- Service switching (`dab_play_service`) no longer relaunches the
+  subprocess at all — every service already has a live buffer, so it's a
+  pure Python-side selection change.
+
+**Frontend**: removed the 3-second relaunch delay before pointing `<audio>`
+at `/dab_audio` (no longer needed — playback starts instantly now),
+replaced the now-nonexistent `bitrate` column with a DAB/DAB+ type badge
+(`is_dab_plus`), and rewrote the DAB tab's stale left-sidebar description
+and button tooltips/labels that still referenced dab-cmdline/example-3.
+
+**Docs**: added `NEXUS_dab_radio_build_macOS.md` (clone + patch + build
+steps for `dab_radio_nexus`) and a pointer note in the existing
+`NEXUS_decoder_build_macOS.md` (Part 4, dab-cmdline) directing w034 users
+to the new document; Part 4 itself is left unchanged as w033's own
+documentation.
+
+**Live-test fix (2026-07-24, found testing the built binary end to end in
+NEXUS against a real nRSP-ST)**: `dab_radio_nexus` built and ran, but never
+received any real IQ -- the backend log showed only spectrum (t==1) and
+audio (t==3) frames the entire session, never a single raw-IQ (t==2) frame,
+even minutes after switching the device to Full IQ mode. Root cause predates
+this fork entirely and isn't specific to DAB: NEXUS's SDRConnect enable
+handshake (`set_primary_device_enable` / `device_stream_enable` /
+`iq_stream_enable`) was gated by a one-shot-per-connection flag
+(`_iq_bounce_done`). SDRConnect exposes IQ Lite/Compact/Full IQ as separate
+selectable device entries (confirmed via the `SDRConnect available devices`
+log line listing all three plus `IQ File`), each needing its own enable
+sequence -- but the flag fired once, against whichever mode was active at
+connect time (nRSP-ST defaults to IQ Lite, which never sends real IQ frames
+by design per this code's own earlier comments), and never fired again when
+the session later switched to Full IQ (e.g. via `dabTuneChannel()`'s
+1536000 Hz tune triggering `set_stream_mode`). Fixed by tracking enabled
+modes as a set (`_iq_enabled_modes`) instead of a single boolean, so the
+handshake re-fires once per distinct mode actually selected during a
+connection, not just once ever. This is a real, general Full-IQ bug --
+would have silently blocked any Full-IQ-dependent feature (DAB, HFDL,
+VDL2, AIS, ...) in a session that starts in IQ Lite/Compact and switches
+later, not just DAB. Also added server-side `log.warning()` logging for
+`dab_status` error messages (e.g. "stdin IQ stream ended"), previously only
+reaching connected browsers as an easy-to-miss toast.
+
+**Live-test fix #2 (2026-07-24, same investigation)**: even with the
+per-mode handshake fix above, the enable sequence never actually re-fired
+for Full IQ, because the code that fires it lives entirely inside the
+`active_device` property handler, which only runs reactively when
+SDRConnect itself pushes a `property_changed`/`get_property_response` for
+that property. `set_stream_mode`'s WS command handler sent
+`selected_device_name` and then optimistically set `state['stream_mode']`
+locally, broadcasting a `stream_mode_changed` message to the browser UI --
+but never actually confirmed with SDRConnect that the switch happened, and
+never requested that confirmation either. Confirmed live: switching IQ
+Lite -> Full IQ produced zero further `Device: ...` log lines, meaning the
+`active_device` handler (and the IQ-enable handshake nested inside it)
+never ran again for the new mode -- the UI showed "Full IQ" as active while
+SDRConnect may never have actually completed the switch, or NEXUS was
+simply never told either way. Fixed per the official WebSocket API's
+documented `get_property`/`get_property_response` round-trip: after sending
+`selected_device_name`, `set_stream_mode` now explicitly requests
+`active_device` again (0.5s settle delay) instead of assuming success,
+guaranteeing the confirmation -- and the enable handshake it triggers --
+actually happens. Verified the official spec (fetched directly from
+sdrplay.com/docs/SDRconnect_WebSocket_API.pdf, v1.0.3) before writing this
+fix, after a pasted third-party summary claimed two API fields
+(`vrx_index`, `iq_stream_sample_rate`) that turned out not to exist
+anywhere in the real spec -- neither is real, and no code was written
+against them.
+
+---
+
+### Improved (2026-07-22) — FT8 INTERNAL toolbar: spread controls out to fill the row
+
+User-reported (with screenshot): every control in the FT8 toolbar was bunched
+at the left edge, leaving a large dead gap before the timer/status cluster on
+the right — same story one row down for the band quick-tune chips, and again
+for the Decodes/Callsigns/Countries stat badges. No new elements added (that
+direction was offered and declined in favor of just spreading out what's
+already there): the control row's single flex-spacer became two (row gap
+6px→10px), the monitor volume slider widened 60px→110px, the band chips'
+gap/padding both increased (3px→8px gap, 1px 6px→4px 14px padding), and the
+three stat badges now use flex:1 + centered text to stretch across the row
+instead of hugging the left.
+
+---
+
+### Added (2026-07-22) — "Populate Log" button inside the FT8 INTERNAL panel
+
+Previously the only way to import a session's FT8 decodes into the
+Reporting/Logbook tab was `populateLogbookFromFT8()`, wired to a button that
+only existed inside the Reporting tab — meaning logging your decodes meant
+switching away from the FT8 panel first. Added a second button directly in
+the FT8 toolbar (next to Clear) that calls the exact same
+`populateLogbookFromFT8()` function — no logic duplicated, both buttons
+trigger identical dedup/import behavior and toast feedback.
+
+---
+
+### Fixed (2026-07-22) — FT8 INTERNAL "Hop" button did nothing
+
+`openHopModal()` was declared twice at the same top-level scope: once near
+the ft8ts banner comment (correctly calling `_ensureHopModal()` to build the
+modal's DOM, then `renderHopModal()`), and again later near
+`loadHopConfig()`/`toggleHopping()` (missing the `_ensureHopModal()` call).
+JS silently lets a later function declaration override an earlier same-named
+one in the same scope, so the second, broken definition was always the one
+actually bound to `openHopModal` and invoked by `ft8HopBtn`'s `onclick`.
+Since it never created `#hopModal`, `document.getElementById('hopModal')`
+returned `null` and the assignment to `.style.display` threw immediately —
+silently, since it's an inline `onclick` handler — before the modal could
+ever appear. Same failure mode as the earlier `openStationMapModal` bug
+(see that fix's own comment further down in this file).
+
+Fixed by adding the missing `_ensureHopModal()` call to the surviving
+(active) `openHopModal()`, and removing the dead, shadowed duplicate
+entirely so this can't silently recur. Verified `closeHopModal`,
+`renderHopModal`, `toggleHopping`, `addHopRow`, `resetHopStats`, `advanceHop`
+each now have exactly one definition in the file.
+
+---
+
+### Improved (2026-07-21) — Multimon-NG Quick Tune: 2-column grid + live per-mode dimming
+
+Follow-up to the Marine channel-grid fix, applied to Multimon-NG's Quick Tune
+list at the user's request. Also answered a question raised alongside it:
+Quick Tune entries are NOT filtered by which demodulator checkboxes are
+ticked — it's a fixed set of 11 buttons (POCSAG×3, APRS×3, FLEX×3, NOAA
+WX×2), deliberately limited to modes with one universal, well-known
+frequency (DTMF/ZVEI/EEA/EIA/CCIR/FSK9600/MORSE were excluded from Quick
+Tune from the start, since those selcall/data modes have no single
+canonical frequency).
+
+Converted the list from a single-column stack of full-width buttons to a
+2-column grid (matching Marine's tile style: frequency on top, description
+below, ellipsis+title for anything too long) and added the filtering the
+user asked for — as a live visual hint rather than a hard gate. Each tile
+now carries `data-mmon-modes` (the `.mmon-mode` checkbox value(s) it's
+relevant to; the three POCSAG baud-rate checkboxes all count as "relevant"
+for any POCSAG tile since the quick-tune frequency doesn't depend on baud
+rate). `_mmonUpdateQuickTuneHighlight()` dims a tile to 40% opacity when
+none of its modes are currently checked, full opacity when at least one is,
+and runs on page load plus on every `.mmon-mode` checkbox's `onchange`
+(wired individually — Multimon doesn't have a single "modes changed" event,
+Apply only fires on the button click). Clicking a dimmed tile still tunes
+normally — this doesn't gate the action, since tuning first and enabling
+the demodulator + Apply afterward is a reasonable order to do things in.
+
+Caught and fixed a bug in my own first pass at this: the initial rewrite of
+the Quick Tune block accidentally dropped both the section's outer wrapper
+div and its "QUICK TUNE" label entirely (only the button grid content
+survived), which both broke the visible label and left the file with an
+unbalanced `<div>`/`</div>` count for the whole panel. Found via the
+per-panel div-balance check (opens≠closes within `tab-multimon`'s exact
+span), traced to the missing wrapper, and restored it around the grid.
+
+---
+
+### Improved (2026-07-21) — Marine/VHF channel list: button grid, sorted by frequency
+
+User-reported layout issue, with a screenshot: the CHANNELS column (220px
+wide) rendered all 16 channels as a category-grouped, full-width stacked
+list, so the last several channels (Port Operations onward) needed a
+vertical scroll to reach, while the right-hand "Now Tuned" column sat mostly
+empty. Rewrote `_populateMarineChannels()` to render a 2-column button grid
+instead — narrowed the column to 170px (freeing width for the still-empty
+right side isn't the fix here, but the narrower list column is now
+proportionate to a grid rather than a full-width list) and switched the sort
+from category grouping to straight frequency order, per the user's own
+suggestion. Each tile now shows just the channel number and frequency
+(previously a two-line row with the full purpose text visible) — the full
+"Ch NN — freq MHz — purpose (category)" text moved into the tile's `title`
+tooltip so nothing was actually lost, just made click-to-reveal instead of
+always-on. All 16 channels now fit in the column with no scrolling.
+`MARINE_CHANNELS` itself is untouched (still declared in its original
+category order with the `cat` field intact for the tooltip) — sorting
+happens at render time via an index array, so `_marineTune(idx)` still
+indexes straight into the unsorted source array with no other call site
+needing to change.
+
+**Follow-up (same day):** the first pass above dropped the purpose text down
+to the tooltip-only, which turned out to lose more than intended — user
+asked for the description back. Widened the column 170px→240px (still a
+2-column grid, still sorted by frequency, still no scrolling) and gave each
+tile a third line for the description, truncated with `overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap` per the app's established
+truncation convention — the tile's own `title` tooltip still carries the
+full untruncated text for anything long enough to get cut off (e.g. Ch
+22A's "Coast Guard Liaison / Safety Info").
+
+---
+
+### Changed (2026-07-21) — App-wide font swap: Share Tech Mono → Radio Canada
+
+Followed up on the earlier "does Radio Canada actually show up anywhere"
+question. It didn't — the `--ui` custom property existed but had exactly one
+call site (the `html,body` fallback), while `--mono` (Share Tech Mono) was
+still driving all 1112 other font-family declarations across the app:
+buttons, tabs, badges, labels, tables, logs, and every data readout. Explored
+splitting the two — UI chrome to Radio Canada, genuinely data-like content
+(frequencies, callsigns, decode logs) staying monospace — but the app's
+retro-terminal look comes from Share Tech Mono being used *everywhere*
+uniformly, and 256 CSS rules plus 846 scattered inline `style=` attributes
+mix both categories in ways that don't split mechanically. Asked and the
+answer was simpler than a split: replace Share Tech Mono outright, app-wide,
+no split.
+
+Implementation was a single-point change rather than 1112 edits: `--mono`'s
+*value* was redefined from `'Share Tech Mono',monospace` to `'Radio
+Canada',sans-serif` (the variable name stayed `--mono` — renaming it would've
+meant touching every one of those 1112 call sites for no functional gain).
+Every element using `var(--mono)` picked up the new font automatically.
+Separately fixed 3 canvas `ctx.font` strings (waterfall frequency-axis
+ticks, spectrum dB-grid labels, bookmark waterfall pins) that hardcode the
+family name directly, since canvas text can't read CSS custom properties —
+these don't reference `--mono` at all and would've kept rendering Share Tech
+Mono silently otherwise. Also dropped the now-unused Share Tech Mono weight
+from the Google Fonts `<link>` import (Radio Canada + Orbitron remain).
+Verified via grep that no code (only this changelog/comment) still names
+Share Tech Mono, and re-ran the `node --check` JS-syntax pass clean.
+
+---
+
+### Fixed (2026-07-21) — CW/RTTY/ACARS/Multimon/AIS: closing out the UI/UX audit on the "top tier" panels
+
+These five were rated most-polished in the original audit. Re-checked each
+against the specific conventions found broken (and fixed) elsewhere this
+session, rather than assuming they were fine. Multimon and AIS came back
+genuinely clean — no changes. The other three had real, concrete issues:
+
+- **RTTY — Clear button was under-clearing.** It set two divs' `innerHTML`
+  directly instead of calling `rttyClear()`, a function that already
+  existed and already correctly reset the char counter, the FIGS/LTRS
+  badge, and both decode panes to a proper placeholder — same bug class as
+  CW's own Clear button had before an earlier fix. Wired the button to
+  call `rttyClear()`. Also added an empty-state placeholder to
+  `rtty-decode-out-nexus` (RTTY's default-engine output pane had none,
+  unlike every sibling fldigi/NEXUS decode-out pane in the app), and fixed
+  an unguarded `getElementById(...).textContent` in `rttyHandleFrame()` —
+  four id lookups (`rtty-live-baud/-shift/-mark/-space`) had no null check,
+  unlike the identical id list three lines below in `rttyHandleAutodetect()`
+  which already guards them. Those ids don't exist anywhere in the current
+  HTML (leftover from an earlier layout), so any `rtty_frame` carrying
+  `msg.baud`/`shift`/`mark_hz`/`space_hz` would throw and silently abort the
+  rest of the handler — meaning the badge/log update at the end of that
+  function never ran for that frame. Guarded to match the established
+  pattern used everywhere else in the file.
+- **CW — Clear button left the TUNED DECODE ticker stale.** `cwClear()`
+  reset the char count, activity scope, WPM trend, and decode log, but not
+  `cw-tuned-ticker` — after Clear it kept showing the last decoded snippet
+  until the next frame overwrote it. Added the reset.
+- **ACARS — badge contradicted the app's own gating code.** The panel
+  header said "● COMPACT" (audio-only), but ACARS is in both
+  `_WIDEBAND_DECODERS` and `_IQ_DECODERS`, and the Decoders dropdown
+  already lists it under FULL IQ — starting it in Compact mode gets
+  toast-blocked with "ACARS requires IQ stream…", directly contradicting
+  what the tab's own badge claimed. Corrected the badge to "○ FULL IQ" to
+  match the dropdown and the actual enforcement code. Also removed a
+  stray orphaned `<!-- AIS -->` comment sitting near ACARS/tab-sigint
+  (confirmed still present from the earlier full-app audit) — harmless,
+  but confusing leftover from a past tab reorganization.
+
+### Fixed/Improved (2026-07-21) — PSK31/NAVTEX/Olivia/Rivet/FreeDV/ADS-B: the mid-tier panels, per the same UI/UX audit
+
+- **PSK31 and NAVTEX** — read through both in full; genuinely solid,
+  consistent with the RTTY/CW fldigi-column convention. No changes needed.
+- **Olivia — real capability gap, not just polish.** Of the five
+  fldigi-engine tabs (CW/RTTY/PSK31/NAVTEX/Olivia), Olivia was the only one
+  with no waterfall at all — you could see numeric telemetry (the Live
+  Status box) but never the actual spectrum, and had no way to toggle AFC
+  or squelch. Added the same waterfall+carrier+AFC+SQL block NAVTEX uses
+  (Olivia has no adjustable BW either, so no drag brackets, matching
+  NAVTEX exactly) by adding `'olivia'` to the frontend's `_FLDIGI_TAGS`
+  list and teaching `_fldigiModeToTag()` to route OLIVIA/CONTESTIA/MFSK/
+  FELDHELL/DOMINOEX there — the resize, PNG-waterfall-render, carrier
+  overlay, and AFC/SQL sync code all already iterate that tag list, so
+  this needed no new rendering logic, just the markup and the routing.
+  Removed the now-redundant "Carrier" row from the Live Status box since
+  the waterfall's own CARRIER readout replaces it.
+- **Rivet — reordering bug.** The 240px detail column had DSC QUICK TUNE
+  *below* the Decode Detail pane — the opposite order Multimon already
+  uses for the identical layout, and exactly the bug Multimon's own
+  2026-07 fix addressed (an empty detail pane's `flex:1` claims the whole
+  column height, pushing Quick Tune out of reach). Reordered to match.
+- **FreeDV** — was the only decoder panel with no Clear button. Added one,
+  wired to the existing `_freedvResetScope()` (previously only called on
+  Stop) since FreeDV has no message log to clear — just the SNR/sync
+  trend scope, the same kind of rolling history CW's WPM sparkline has.
+- **ADS-B — nested double-scroll.** The aircraft table had two independent
+  scroll regions nested inside each other (outer wrapper `max-height:160px`
+  and `#adsb-rows` `max-height:130px`, both `overflow-y:auto`), so the list
+  had two different scrollbars with ~30px of dead space between their
+  limits. Collapsed to one scroll region on the outer wrapper — the header
+  row's `position:sticky` already does its job across a single container.
+
+### Improved (2026-07-21) — HFDL/VDL2/rtl_433/DSD/DAB/Trunk: consistency pass on the "external tool" panel family
+
+Follow-up to the UI/UX audit below: these six panels share a near-identical
+template (install-notes column + message table) and were flagged as
+competent but generic, with a few small cross-panel inconsistencies:
+
+- **Missing tooltips.** Every Stop and Clear button across all six had no
+  `title` attribute (only Start did) — added, matching every other decoder
+  panel in the app.
+- **Architecture badge was inconsistent and, in one case, missing real
+  information.** Trunk alone carried an "◈ EXTERNAL" badge; HFDL, VDL2, and
+  rtl_433 have the exact same architecture (their own subprocess grabs the
+  SDR hardware directly — see "SDRConnect must be closed first" in HFDL/
+  VDL2's own info boxes, and the 2026-07-20 rtl_433 device-autodetect work)
+  but showed no such indicator. Added the same EXTERNAL badge to all three.
+  DSD is architecturally different — it reads a *virtual audio* input
+  (BlackHole/VB-Cable), never touching the SDR at all — so it got a
+  distinct "◆ AUDIO IN" badge instead of an inaccurate reused EXTERNAL one.
+  DAB's existing "▢ FULL IQ" badge was left as-is — unlike the other five,
+  DAB genuinely does depend on NEXUS's own Full-IQ stream mode
+  (`_IQ_DECODERS`/`_WIDEBAND_DECODERS` in the frontend), so that badge was
+  already correct.
+- **Row text could overflow and break table alignment.** HFDL/VDL2/DSD/
+  Trunk's message-table rows had no width constraint on their last (message/
+  status) column — an unusually long value would wrap and grow that one row
+  taller than its neighbours. Added the same `overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap` + hover-title convention
+  Multimon/POCSAG already use. Safe to truncate since the full text remains
+  visible in each panel's own scrolling decode-out log just below the
+  table. (rtl_433 left alone — its reading strings are already capped at
+  construction time, and it has no decode-out pane to duplicate into.)
+
+Deliberately did *not* add a click-to-detail pane (the ACARS/Multimon/
+POCSAG pattern) to these five — HFDL/VDL2/DSD/Trunk already show the full
+message text in their decode-out log, so a second detail view would just
+duplicate it. DAB already has better-than-detail-pane interactivity (click
+a row to actually play the service).
+
+### Fixed/Improved (2026-07-21) — Marine/WEFAX/SSTV/POCSAG: the four weakest decoder panels, per a full-app UI/UX audit
+
+A layout review of every decoder panel flagged these four as noticeably
+thinner than the rest of the app — Marine was mostly empty space, WEFAX/SSTV
+had no progress feedback or history, and POCSAG had a real bug: its message
+list was never actually connected to anything.
+
+**POCSAG — real bug, not just thin UI.** `pocsag_message` events were only
+ever mirrored into the shared `#hf-decode-out` log; the tab's own
+`#pocsag-decode-out` div existed in the markup but nothing ever wrote to it,
+so the POCSAG tab always looked empty even while pages were decoding fine.
+Replaced with a proper message table (TIME/CAPCODE/FUNC/MESSAGE) + detail
+pane, the same list/detail shape ACARS/Multimon/Rivet already use. Also
+added the message-count badge and Clear button every other panel has (both
+were missing).
+
+**WEFAX — no Clear button, no progress feedback, images vanished on the next
+decode.** `wefax_clear` was already a working backend command but nothing in
+the UI ever sent it. Added: a Clear button; a status bar showing live line
+count + elapsed time; a Download PNG button; a real empty-state message
+instead of a blank div; and a small history strip that archives the current
+image (cropped to its actual height, not the over-allocated canvas) before
+it's replaced, so switching away from a fax you were watching doesn't just
+destroy it.
+
+**SSTV — same treatment.** Added a progress readout (X / Y lines, from the
+VIS header's known height), elapsed time, Download PNG, and the same
+image-history strip, archiving the previous image whenever a new VIS header
+arrives (a new transmission starting) as well as on Clear.
+
+**Marine/VHF — was a channel list next to a redirect notice, roughly
+two-thirds of the tab empty.** Marine has no decoder of its own by design
+(audio-only channel monitoring — see the 2026-07-17 AIS-removal note above),
+so this wasn't about faking a decoder UI. Added: a live "Now Tuned" readout
+that updates when you click a channel; the channel list expanded from 8 to
+16 channels and grouped by purpose (Distress & Calling / Navigation Safety /
+Port Operations / Coastguard & SAR / Ship-to-Ship & Leisure), the way a
+printed VHF channel card is laid out — channel 70 (DSC) is labelled clearly
+as data-only so it's obvious why it doesn't sound like voice; a custom-
+frequency quick-tune for local/regional channels not in the list; and the
+AIS jump-link demoted to a small secondary card instead of being the
+dominant element on the tab.
+
+### Changed (2026-07-21) — UI font: Rajdhani → Radio Canada; Orbitron wordmark now actually used
+
+`--ui` was set to Rajdhani but only had one live use in the whole stylesheet
+(`--mono`/Share Tech Mono covers ~1000+ selectors — labels, readouts, panel
+titles, table cells), so the visible effect of this swap is concentrated on
+that one spot plus the body-level fallback. Orbitron had been imported since
+the original build but never applied anywhere (0 CSS matches) — it's now
+wired to a new `--brand` var and applied to `#brand-name` (the "DARKSKY
+NEXUS" wordmark in the brand bar), which previously rendered in Share Tech
+Mono like everything else.
+
+- Google Fonts `<link>`: `Rajdhani:wght@300;400;600` → `Radio+Canada:wght@300;400;500;600`, kept Share Tech Mono + Orbitron
+- `--ui` → `'Radio Canada',sans-serif`; added `--brand:'Orbitron',sans-serif`
+- `#brand-name` now uses `var(--brand)` at weight 700 instead of `var(--mono)`
+
+Checked `sn.textContent = 'DARKSKY NEXUS — Live Spectrum Intelligence'`
+(line ~11650, `cin-signal-name`) as a possible second wordmark — that id has
+no matching element anywhere in the markup, so it's a dead reference (the
+`if (sn)` guard just no-ops). `#brand-name` is the only real rendered
+wordmark.
+
+Broader "reclassify general UI text from mono to Radio Canada" pass not
+done here — out of scope for this request, flagged as an optional follow-up.
 
 ### Added (2026-07-20) — rtl_433 device autodetection (rtlsdr vs SDRplay)
 
