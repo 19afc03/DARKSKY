@@ -56,6 +56,25 @@ exercises the whole real pipeline rather than the engine in isolation.
 
 ---
 
+### Added (2026-07-27) — Troubleshooting doc: macOS "app is damaged" Gatekeeper entry
+
+Live user report: downloading the w033 `.dmg` in Brave produced `"DARKSKY
+NEXUS w033 macOS.app" is damaged and can't be opened. You should eject the
+disk image.` — a much scarier message than the existing "unidentified
+developer" warning already documented, even though the root cause is the
+same (unsigned, non-notarized build + browser quarantine flag). macOS
+Ventura and newer show this "damaged" wording instead of "unidentified
+developer" once Gatekeeper's signature check fails outright rather than
+just missing a signature — the download itself is not corrupted. Added a
+new entry right after the existing one in the macOS Specific section
+covering both fixes: `xattr -cr` in Terminal (fastest), and the no-Terminal
+System Settings → Privacy & Security → "Open Anyway" path. Also fixed a
+stale "DARKSKY NEXUS w033 macOS" reference in the existing entry's
+instructions (should have read w034). Rebuilt docx + PDF and verified via
+LibreOffice render.
+
+---
+
 ### Changed (2026-07-27) — DAB tab: removed manual tune control + Now Playing bar-graph
 
 Live user request, two items:
