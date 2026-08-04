@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DARKSKY w034 — SDRConnect Companion
+DARKSKY w035 — SDRConnect Companion
 ================================================================================
 WebSocket bridge and signal intelligence companion for SDRplay RSPdx and
 compatible SDRplay receivers. Interfaces with SDRConnect via WebSocket.
@@ -9,8 +9,8 @@ Also supports RTL-SDR USB dongles via rtl_tcp (direct, no SDRConnect needed).
 ================================================================================
 Full build history (w0.0.5 -> present): see CHANGELOG.md in this folder.
 
-CURRENT VERSION — w034:
-w034      Forked from w033 (2026-07-24) to replace the DAB/DAB+ engine.
+CURRENT VERSION — w035:
+w035      Forked from w033 (2026-07-24) to replace the DAB/DAB+ engine.
           w033's dab-cmdline engine opens the SDRplay API directly and can
           only ever see a physically USB-attached RSPdx -- it can't read
           from SDRConnect's network protocols or a networked nRSP-ST at
@@ -22,179 +22,63 @@ w034      Forked from w033 (2026-07-24) to replace the DAB/DAB+ engine.
           continuously; every discovered service decodes simultaneously,
           so switching stations is now an instant Python-side buffer
           swap instead of a subprocess relaunch (only a channel change,
-          which retunes the hardware, restarts the subprocess). See
-          NEXUS_dab_radio_build_macOS.md for the build steps and
-          CHANGELOG.md for the full itemised record.
+          which retunes the hardware, restarts the subprocess). DAB tab
+          then went through several redesign/fix passes (card-grid service
+          list, dedicated player column with live DLS text + MOT slideshow,
+          background Band III scan, topbar polish) and a Cinematic Mode
+          "Retro" scene rebuild (vintage valve radio with a real nixie-tube
+          frequency display, brass panel, DAB now-playing info). See
+          NEXUS_dab_radio_build_macOS.md for the DAB build steps.
 
-PRIOR VERSION — w033:
-w033      Forked from w032 (2026-07-19) to merge in an experimental
-          Dire Wolf-derived AIS decoder (multi-slicer interpolated PLL,
-          rate-scaled AGC, resample-to-48kHz-before-filter) running in
-          parallel with the existing rtl-ais-derived AisDecoder. Vessel
-          updates from both are merged by MMSI so either decoder can
-          catch a frame the other misses. See CHANGELOG.md for the full
-          research background (Gemini-generated decoder evaluation,
-          Dire Wolf port, ground-truth bit-level diagnostics, per-bug
-          fixes). w032 is unchanged and remains a separate release.
-          Also added: a native REPORTING/Logbook tab (manual entries +
-          FT8 auto-populate, ADIF/CSV export, JSON persistence) and a
-          native SSTV decoder + rtl_433 ISM-sensor engine.
-          FT8 INTERNAL Full IQ fix, take two (2026-07-20): the 2026-07-19
-          fix (below) removed Full IQ's own FT8 audio broadcast entirely,
-          assuming SDRConnect's Compact-mode broadcast always supplies the
-          FT8 buffer regardless of display mode — true only for networked
-          nRSP-ST units. A directly-connected RSPdx never gets a
-          Compact-mode broadcast at all, so that "fix" left it with zero
-          audio path to the FT8 decoder in its only available mode. Fixed
-          by restoring the Full IQ broadcast, this time mixing `_fiq_c`
-          down by the VFO-to-hardware-centre offset before taking the real
-          part, instead of the earlier version's un-shifted (and thus
-          wrong-frequency) `_fiq_c.real`. See CHANGELOG.md.
-          FT8 INTERNAL Full IQ fix, take one (2026-07-19): removed the Full
-          IQ branch's FT8 audio broadcast after finding it was sending
-          hardware-LO-centred wideband IQ, not VFO-centred demodulated
-          audio — superseded by the take-two fix above, kept here for
-          history. See CHANGELOG.md.
-          Status badge reworded (2026-07-20): "Full IQ (USB direct)" implied
-          a verified local USB connection that was never actually checked —
-          relabeled "Full IQ (only mode)" to state only the fact that IS
-          checked (this device type has no Compact/IQ-Lite mode selector).
-          RTTY auto-detect fake-confidence fix (2026-07-20): auto-detect
-          could confidently report "85% / GOOD / Signal locked" on pure
-          noise — the backend never actually measured a confidence value
-          and the frontend silently defaulted to a hardcoded 85% on every
-          reply. Added a real SNR gate to the detector and wired a genuine,
-          measured confidence score through end to end. See CHANGELOG.md.
-          RTTY tone scope "jumping" fix, three takes (2026-07-20): after the
-          confidence fix above, the live tone scope visibly jumped. Take
-          one gated auto-detect's retune on the new confidence value instead
-          of applying every reply unconditionally. Take two found a second,
-          independent bug — the Full-IQ audio_fft broadcaster only ever
-          re-centred its output for CW, never RTTY. Take three found that
-          even after both agreed on where to centre, they were still two
-          separately-computed sources at different native resolutions
-          racing for one display; the Full-IQ broadcaster is now suppressed
-          entirely on networked (nRSP-ST) units, which already get a
-          correct, single feed from the always-on Compact-mode broadcast.
-          See CHANGELOG.md for the full three-part diagnosis.
-          Build scripts fixed (2026-07-20): the entire build/ folder was
-          never updated when w033 was forked — build_macOS.sh,
-          build_Windows.bat, both .spec files, the .iss installer,
-          BUILD_NOTES.md and version_info.txt all still referenced
-          w032_NEXUS.py/DARKSKY_NEXUS_w032.html, which don't exist in this
-          folder, breaking `build_macOS.sh` immediately. All seven files
-          now reference w033; the .iss was renamed to match.
-          SSTV Robot 36/72 decode added (2026-07-24): these two modes were
-          only ever recognised (VIS-detected, name shown, toast fired) not
-          actually decoded to an image, per the caveat left in the original
-          SSTV implementation. Implemented using the numeric scan-line
-          timing table in Martin Bruchanov OK2MNM's public SSTV Handbook
-          (same source already cited for Martin/Scottie) — Robot 36 is
-          YCbCr 4:2:0 (one chroma channel per line, alternating Cr/Cb,
-          held over between lines the way every real Robot 36 decoder
-          handles the format); Robot 72 is 4:2:2 (both chroma channels
-          every line, no alternation). Line-timing sums were checked
-          against each mode's published lines-per-minute figure, and the
-          YCbCr->RGB conversion was checked with a numeric round-trip test
-          before shipping. The even/odd Cr/Cb parity convention itself is
-          the standard one but — like the rest of this decoder — hasn't
-          been checked against a real captured Robot 36/72 transmission.
+          DRM/DRM+ decoder added (2026-07-28), via `dream_nexus` -- a
+          headless tool on the open-source Dream DRM receiver engine,
+          same piped-IQ pattern as dab_radio_nexus. Confirmed decoding a
+          real off-air DRM station end to end; the quick-tune list was
+          reworked into a card grid in a 3-column tab layout, and a WAV-
+          header/sample-rate mismatch that made audio sound "slurred/
+          slowed" during live testing was fixed (the header is sent once
+          per stream but DRM's xHE-AAC/SBR codec can report a different
+          rate on later frames -- NEXUS now detects the drift and closes
+          the stream so the browser reconnects for a fresh header). See
+          NEXUS_dream_drm_build_macOS.md for the build steps.
 
-PRIOR VERSION — w032:
-w032      Forked from w031 (2026-07-16) to implement a CW decoder/UI
-          overhaul: fixed the Skimmer candidate-detection pipeline (was
-          gated on display-only spectrum bins, not real SNR), added an
-          error placeholder for unmatched Morse symbol patterns instead of
-          silently dropping them, and reworked the CW tab layout — no more
-          hard SKIMMER/SINGLE exclusivity, Skimmer channel markers overlaid
-          directly on the mini-waterfall, consolidated waterfall toolbar,
-          and a larger waterfall. Also fixed the audio_fft broadcast
-          discarding half its real frequency resolution in an unnecessary
-          server-side resample step, and turned the mini-waterfall's zoom
-          control into a genuine higher-resolution "zoom FFT" (server-side
-          FFT size scales with zoom level) instead of a client-side crop of
-          the same fixed-resolution bins. Also fixed the FT8 INTERNAL band
-          quick-tune/Hop mode never actually retuning the SDR, and added a
-          DC/CFO tracker to the native AIS GMSK decoder (zero-crossing bit
-          slicer had no compensation for real-world carrier offset, so
-          genuine on-channel AIS bursts never produced a CRC-OK frame).
-          Fixed the Marine tab's own vessel list never rendering (only the
-          standalone AIS tab's table was ever wired up). Added GUI
-          VesselAPI key entry in the AIS tab so distributed builds never
-          need a developer's personal key baked in — each user pastes
-          their own free-tier key. See CHANGELOG.md for the itemised list.
+          SSH Launcher now defaults to SDRconnect Headless (2026-07-29)
+          instead of the old `--server` + local-GUI-client combination --
+          headless serves the WebSocket API directly from the remote box,
+          so no second local SDRconnect instance is needed. Added an
+          explicit device_preference setting (Auto / Force USB RSP / Force
+          nRSP-ST) so a user with both a USB-attached RSP and a networked
+          nRSP-ST reachable at once can pin which one NEXUS uses, instead
+          of an automatic USB-always-wins heuristic. Live user report: with
+          `device_preference=auto`, the nRSP-ST -- often already actively
+          streaming as SDRConnect's own remembered last device -- won every
+          time regardless, with no way to switch to USB. `_auto_select_
+          device()` now detects that specific ambiguity (a USB device AND a
+          networked nRSP-ST both visible in `valid_devices` at once) and
+          asks instead of guessing: broadcasts `device_choice_available`,
+          the frontend shows a picker, and a new `select_device` WS command
+          applies the choice with the same send + confirm-handshake pattern
+          already proven for live stream-mode switches. A general device
+          selector also now lives in the top bar itself (not just during an
+          SSH session) so switching stays available at any time afterward,
+          not just on first connect.
 
-CURRENT VERSION (inherited) — w031:
-w031      Forked from w030 (2026-07-15) as the working branch for a live,
-          in-Chrome decoder testing pass (WSPR Beacons, CW native engine,
-          Marine/VHF, Multimon, Rivet numbers-station, FreeDV) plus the new
-          PSK Reporter spot-upload feature. Bugs found by static review and/
-          or live testing are fixed here, not in w030; see CHANGELOG.md for
-          the itemised list as each is closed out.
+          Other fixes: bookmark labels on the spectrum/waterfall and the BM
+          panel showed Notes instead of Name whenever Name was 4 characters
+          or shorter -- Name now always wins when present. Decoder
+          subprocesses (DAB, DRM, P25/DMR trunking) were left running as
+          orphans after quitting NEXUS because they were never added to the
+          shutdown-termination list -- fixed, closing the "audio persists
+          after quitting NEXUS" report. `_escHtml` was referenced
+          throughout the frontend but never actually defined (app-wide,
+          pre-existing bug, only surfaced once a code path finally hit it).
+          See CHANGELOG.md for the full itemised record, including the
+          Cinematic Retro scene's iterative redesign and the DAB tab's
+          several fix/polish passes not summarised above.
 
-CURRENT VERSION (inherited) — w030:
-w030      Forked from w026 (2026-07-11) — NOT from w029. w029 turned out to
-          be forked from the ancient w0.1.2 HTML snapshot by mistake, losing
-          most of w026's decoders/UI (HFDL, VDL2, RIVET, Trunk, full RTTY,
-          etc.); w026 is the actually-deployed baseline, so w030 starts
-          there instead. Ported w029's one genuinely new piece of work — a
-          client-side native FT8/FT4 decoder (ft8ts, GPL v3, runs in a Web
-          Worker, no WSJT-X needed) — onto this w026 base, alongside the
-          existing WSJT-X ALL.txt-bridge FT8 mode. See CHANGELOG.md for full
-          detail, including a pre-existing bug fixed along the way: enabling
-          FT8 previously called ft8_dec.process()/process_iq(), methods that
-          don't exist on FT8Decoder (an ALL.txt tailer, not a per-packet
-          decoder) — this threw on the next audio frame and crashed/
-          reconnected the SDRConnect bridge every time, silently, since
-          whenever this class was introduced.
-          Fixed (2026-07-12/13): RttyDecoder had no way to tell real signal
-          from band noise — mark/space tone power were only ever compared to
-          each other, never checked against an actual noise floor, so a dead
-          frequency could decode plausible-looking garbage indefinitely. Added
-          a spectral squelch (third Goertzel reference bin, live SNR, gates new
-          frame acquisition on an actual lock) — backend (this file) plus a
-          Signal: LOCKED/NO SIGNAL + dB badge on the frontend. Also fixed the
-          FT8 INTERNAL Decode toggle's contrast bug by converting it to a
-          Start/Stop button pair matching every other decoder, added a
-          drag-resize handle for the propagation map column, stopped manual
-          band-switching from wiping the map/decode list (now matches Hop
-          mode's already-correct behaviour), and added a 5-provider map style
-          picker to both FT8 maps (INTERNAL and the WSJT-X bridge). A 🌐 Globe
-          view (great-circle propagation arcs from the user's saved location)
-          was built, evaluated, and then removed the same day after an honest
-          look at what it actually added over the flat map — see CHANGELOG.md.
-          Added a Maidenhead grid-locator input and a callsign field (frontend/
-          localStorage only, prep for a planned PSK Reporter spot-upload
-          feature — not yet implemented) to the HF Utility location bar. All
-          frontend/HTML+JS except the RTTY squelch gate, which is this file.
-          See CHANGELOG.md for full detail on each of the above.
-
-CURRENT VERSION (inherited) — w0.2.6:
-w0.2.6    Re-synced from w0.2.4 (2026-06-23): the original w0.2.4→w0.2.6 fork
-          was taken before several w0.2.4 fixes landed, leaving w0.2.6 stale.
-          Replaced w0_2_6_NEXUS.py and DARKSKY_NEXUS_w0_2_6.html wholesale
-          with current w0.2.4 content (self-references renamed; historical
-          changelog entries above preserved as-is). Pulls in, among other
-          w0.2.4-era fixes: the CW/RTTY engine-toggle-stuck-on-fldigi fix
-          (with toast warning), and the AIS speed/course/heading/status/
-          destination field-name fix. Docs (md + docx) and build/ packaging
-          scripts (macOS/Windows spec + build scripts, BUILD_NOTES.md) synced
-          to match.
-          Fixed (2026-06-23): CW Skimmer "active but no signals" bug — the
-          main CW Start button (decoderStart('cw') -> skStart('monitor'))
-          only changed a badge label and sent a no-op probe; it never set
-          skDetectOn or started _skDetectLoop(), the loop that scans the
-          spectrum for candidate signals and feeds them to the backend's
-          CWSkimmerPool via skimmer_set_channels. Result: the header/footer
-          showed "CW Skimmer active" and the decoder itself was genuinely
-          running, but the Skimmer waterfall and decoded-text panels stayed
-          on placeholder text indefinitely unless the user separately
-          clicked "Start Detection" in the Skimmer Channels panel. skStart()
-          now mirrors skToggleDetect()'s logic for monitor mode so the main
-          Start button drives detection directly (HTML/JS only — no backend
-          change needed).
-          Added (2026-07-09): Light/dark theme toggle (HTML/JS/CSS only —
-          no backend change). See CHANGELOG.md for details.
+Prior version history (w0.0.5 -- w034): see CHANGELOG.md in this folder
+for the full itemised record of every earlier fork's changes -- kept
+there rather than duplicated here so this docstring doesn't grow forever.
 ================================================================================
 """
 
@@ -210,7 +94,6 @@ try:
     _HAVE_SOUNDDEVICE = True
 except (ImportError, OSError):
     _HAVE_SOUNDDEVICE = False
-
 
 def _rtl_demod_worker(host, port, sample_rate, mode_queue, pcm_queue, stop_evt):
     """Separate process: read IQ from rtl_tcp, demodulate, put PCM in queue.
@@ -335,7 +218,7 @@ except Exception:
     DECODERS = []
 
 # --- MASTER CONFIG ---
-VERSION      = "w034"
+VERSION      = "w035"
 
 # --- BUILD HISTORY ---
 # w0.1.9 — nRSP-ST Full Support
@@ -363,9 +246,9 @@ VERSION      = "w034"
 # — neither is the WebSocket API. SDRConnect must always be running to use NEXUS.
 #
 # Usage:
-#   Local SDRConnect (default):            python3 w034_NEXUS.py
-#   Remote SDRConnect on another machine:  python3 w034_NEXUS.py --sdr 192.168.1.xx
-#   Remote SDRConnect custom port:         python3 w034_NEXUS.py --sdr 192.168.1.xx:5454
+#   Local SDRConnect (default):            python3 w035_NEXUS.py
+#   Remote SDRConnect on another machine:  python3 w035_NEXUS.py --sdr 192.168.1.xx
+#   Remote SDRConnect custom port:         python3 w035_NEXUS.py --sdr 192.168.1.xx:5454
 _sdr_host = "127.0.0.1"
 _sdr_port = 5454
 for _i, _a in enumerate(sys.argv[1:]):
@@ -377,6 +260,23 @@ for _i, _a in enumerate(sys.argv[1:]):
         else:
             _sdr_host = _val
 SDRCONNECT_WS = f"ws://{_sdr_host}:{_sdr_port}"
+
+def _sdr_set_target(host: str, port: int = 5454):
+    """Repoint the live SDRConnect WebSocket bridge target at runtime.
+    Added for the SSH launcher's 'remote headless, no local client' mode
+    (see _ssh_do_launch()): SDRconnect Headless (SDRconnect 1.0.7+) can
+    open the RSP and serve the WebSocket API entirely on the remote box, so
+    there's no longer any need to also run a local GUI/headless client on
+    this Mac just to re-expose the API at 127.0.0.1 -- NEXUS can just talk
+    to <remote_host>:5454 directly. sdr_bridge()'s reconnect loop reads
+    SDRCONNECT_WS by name fresh on every iteration (it's not captured as a
+    local before the loop), so reassigning this global takes effect on the
+    very next (re)connect attempt with no restart needed."""
+    global _sdr_host, _sdr_port, SDRCONNECT_WS
+    _sdr_host = host
+    _sdr_port = port
+    SDRCONNECT_WS = f"ws://{_sdr_host}:{_sdr_port}"
+    log.info(f"SDRConnect bridge target repointed to {SDRCONNECT_WS}")
 
 # nRSP-ST detection — set solely by active_device property_changed from SDRConnect.
 # Never set based on host address: the WebSocket API always runs in SDRConnect desktop,
@@ -420,7 +320,7 @@ def _find_html() -> Path:
         if candidates:
             return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
         # Final fallback path (will show "not found" page)
-        return meipass / 'DARKSKY_NEXUS_w034.html'
+        return meipass / 'DARKSKY_NEXUS_w035.html'
 
     here = Path(__file__).resolve().parent
 
@@ -429,14 +329,14 @@ def _find_html() -> Path:
     if same_stem.exists():
         return same_stem
 
-    # 2. Fallback: newest DARKSKY*w034*.html in the same folder
-    matches = glob.glob(str(here / "DARKSKY*w034*.html"))
+    # 2. Fallback: newest DARKSKY*w035*.html in the same folder
+    matches = glob.glob(str(here / "DARKSKY*w035*.html"))
     if matches:
         matches.sort(key=lambda p: Path(p).stat().st_mtime, reverse=True)
         return Path(matches[0])
 
     # 3. Hard fallback — will trigger "not found" page with the correct path shown
-    return here / "DARKSKY_NEXUS_w034.html"
+    return here / "DARKSKY_NEXUS_w035.html"
 
 DARKSKY_HTML = _find_html()
 HTTP_PORT     = 8888
@@ -683,6 +583,11 @@ _main_task      = None  # set at the top of main() — excluded from the shutdow
 sdr_queue    = asyncio.Queue()
 last_ui_update = 0
 _sr_set_time   = 0.0   # timestamp of last set_sample_rate command (snap-back guard)
+_sr_set_target = None  # rate (Hz) last requested via set_sample_rate — a confirmation
+                        # matching this value is always accepted even inside the 3s
+                        # snap-back guard window below, since it's genuine confirmation
+                        # the change took effect, not a stale echo of the OLD rate. See
+                        # the 2026-07-31 DAB zero-ensembles bugfix at its use site.
 _last_iq2_frame_time = 0.0   # w0.2.3: timestamp of last real type-2 IQ frame seen
                               # (frame-count based IQ availability check, see _check_iq_mode)
 state        = {
@@ -738,6 +643,12 @@ state        = {
     # nothing more specific has been set.
     "rtl433_device":    "auto",
     "rtl433_freq_mhz":  433.92,     # common EU/US ISM band; 315/915 also common in the US
+    # Startup connection picker (added 2026-07-29) — '' until resolved (see
+    # _connection_mode_ready), then one of 'nrsp_ws' / 'usb_local_ws' /
+    # 'usb_remote_ws' / 'rtlsdr'. Included in the initial state broadcast so
+    # a newly-connected browser knows immediately whether to show the
+    # blocking picker or just render the top-bar Connection control.
+    "connection_mode":  "",
     # Device capabilities — populated on connect via active_device query
     "active_device":    "",
     "valid_devices":    "",
@@ -3498,6 +3409,74 @@ def save_bookmarks(bm_list):
 
 bookmarks = load_bookmarks()
 
+# ── DRM/DRM+ quick-tune list (added w035, Step 5 live testing) ──────────────
+# Same persisted-JSON-list pattern as bookmarks above. Unlike bookmarks
+# (blank by default), this one ships seeded with publicly reported real DRM
+# transmissions -- manual entry alone isn't very useful for DRM since there's
+# no dial-scanning convention most users already know the way there is for
+# broadcast FM/AM; a starting list of known frequencies is what actually
+# gets someone to a real signal on the first try. Schedules/active status
+# for the shortwave and DRM+ trial entries can and do change over time
+# (seasonal SW schedules especially) -- the AIR (India) mediumwave network is
+# the most reliably 24/7 of the three groups as of when this was seeded.
+# Fully user-editable after the initial seed: add/remove like bookmarks.
+DRM_QUICKTUNE_FILE = SCRIPT_DIR / "darksky_drm_quicktune.json"
+
+_DRM_QUICKTUNE_SEED = [
+    # AIR (Akashvani), India -- mediumwave DRM simulcast network, reported
+    # to run 24/7 across a large number of channels.
+    *[{"freq_khz": f, "label": "AIR DRM (India)", "group": "AIR MW (India)"} for f in [
+        549, 558, 594, 603, 612, 648, 666, 702, 711, 720, 729, 738, 747, 756,
+        783, 792, 801, 810, 828, 837, 864, 909, 918, 927,
+    ]],
+    # Shortwave DRM broadcasters -- schedules vary, check current listings
+    # (e.g. drmna.org, hfcc.org) if one doesn't come in.
+    {"freq_khz": 3955,  "label": "BBC World Service (Woofferton)",   "group": "Shortwave DRM"},
+    {"freq_khz": 5875,  "label": "BBC World Service (Woofferton)",   "group": "Shortwave DRM"},
+    {"freq_khz": 5910,  "label": "Radio Romania International",      "group": "Shortwave DRM"},
+    {"freq_khz": 9570,  "label": "Radio Romania International",      "group": "Shortwave DRM"},
+    {"freq_khz": 17580, "label": "Radio Romania International",      "group": "Shortwave DRM"},
+    {"freq_khz": 11615, "label": "Music 4 Joy (Nauen, Germany)",      "group": "Shortwave DRM"},
+    {"freq_khz": 11710, "label": "Music 4 Joy (Nauen, Germany)",      "group": "Shortwave DRM"},
+    {"freq_khz": 13730, "label": "Music 4 Joy (Nauen, Germany)",      "group": "Shortwave DRM"},
+    {"freq_khz": 13740, "label": "TDF (Issoudun, France)",            "group": "Shortwave DRM"},
+    {"freq_khz": 9780,  "label": "RNZI (New Zealand)",                "group": "Shortwave DRM"},
+    {"freq_khz": 11690, "label": "RNZI (New Zealand)",                "group": "Shortwave DRM"},
+    {"freq_khz": 13840, "label": "RNZI (New Zealand)",                "group": "Shortwave DRM"},
+    # DRM+ (VHF/FM-band) trial frequencies -- these were experimental
+    # trials, not standing broadcasts; may no longer be active.
+    {"freq_khz": 95200,  "label": "DRM+ trial (Germany)",     "group": "DRM+ trials"},
+    {"freq_khz": 100100, "label": "DRM+ trial (Switzerland)", "group": "DRM+ trials"},
+    {"freq_khz": 102000, "label": "DRM+ trial (France)",      "group": "DRM+ trials"},
+]
+
+def load_drm_quicktune():
+    try:
+        if DRM_QUICKTUNE_FILE.exists():
+            data = json.loads(DRM_QUICKTUNE_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+    except Exception as e:
+        log.warning(f"DRM quick-tune list load failed: {e}")
+    # First run: seed with the known-frequency list above, each entry given
+    # a stable id up front so add/delete work immediately without needing a
+    # save round-trip first.
+    import uuid as _uuid_seed
+    seeded = [dict(entry, id=str(_uuid_seed.uuid4())[:8]) for entry in _DRM_QUICKTUNE_SEED]
+    try:
+        DRM_QUICKTUNE_FILE.write_text(json.dumps(seeded, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning(f"DRM quick-tune list seed-save failed: {e}")
+    return seeded
+
+def save_drm_quicktune(qt_list):
+    try:
+        DRM_QUICKTUNE_FILE.write_text(json.dumps(qt_list, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning(f"DRM quick-tune list save failed: {e}")
+
+drm_quicktune = load_drm_quicktune()
+
 # ── LOGBOOK (Reporting tab, added w033) ─────────────────────────────────────
 # Same persisted-JSON-list pattern as bookmarks above (load/save/mutate a
 # module-level list, broadcast the whole list to every client after any
@@ -5862,7 +5841,7 @@ def _dx_spots_fetch_blocking(url):
     """Blocking HTTP GET + JSON parse. Always called via run_in_executor —
     never call this directly from the event loop."""
     req = urllib.request.Request(url, headers={"User-Agent": "DARKSKY-NEXUS/2.6"})
-    with urllib.request.urlopen(req, timeout=8) as r:
+    with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode('utf-8', errors='replace'))
 
 
@@ -5911,7 +5890,15 @@ async def dx_spots_poller():
                 last_err = e
                 continue
         else:
-            log.debug(f"dx_spots: all endpoints failed: {last_err}")
+            # BUGFIX (2026-07-31, live report: "why it's always blank" — panel
+            # has apparently never worked, with zero diagnostic evidence why):
+            # was log.debug, invisible at the default INFO level, same blind
+            # spot as _dab_stderr_thread_fn()'s non-JSON line fixed earlier
+            # today. The frontend's own fallback text ("unknown error") fires
+            # whenever this string is empty/falsy, which can mask a real but
+            # oddly-stringified exception too -- elevating this is the only
+            # way to actually see what's failing.
+            log.warning(f"dx_spots: all endpoints failed: {last_err!r}")
             await broadcast_json({"type": "dx_spots", "spots": [], "error": str(last_err) if last_err else "unknown error"})
         await asyncio.sleep(90)
 
@@ -6485,6 +6472,22 @@ async def broadcast_json(msg):
         except Exception:
             clients.discard(c)
 
+async def _broadcast_startup_status(text: str, kind: str = 'info'):
+    """Push a short line to the frontend's live startup status strip.
+
+    Added 2026-07-31 (startup UX audit — user: "examine the start up
+    sequence for the user, as even for me it's a bit disjointed"). Before
+    this, every startup decision (launching SDRConnect, connecting,
+    device ambiguity, final device confirmation) only ever showed up as a
+    Python console log line — the actual browser UI gave no indication
+    anything was happening until it had already finished, which is why
+    diagnosing any startup issue always came down to pasting the terminal
+    log. This narrates the same events directly in the UI instead.
+
+    kind: 'info' | 'ok' | 'warn' — purely cosmetic (colour) on the
+    frontend; carries no other meaning."""
+    await broadcast_json({"type": "startup_status", "text": text, "kind": kind})
+
 
 # ── SDR BRIDGE ────────────────────────────────────────────────────────
 cw_dec    = MorseDecoder()
@@ -6898,7 +6901,7 @@ class PskReporterUploader:
     TEMPLATE_RESEND_INTERVAL = 3600.0
     MAX_RECORDS_PER_PACKET  = 80      # spec: "80 to 90 records" fits a safe UDP datagram
     DEDUPE_SECS             = 300.0   # spec: no more than once per 5 min per callsign
-    SOFTWARE_NAME = 'DARKSKY NEXUS w034'
+    SOFTWARE_NAME = 'DARKSKY NEXUS w035'
 
     # Receiver info record format descriptor (receiverCallsign, receiverLocator,
     # decodingSoftware) — verbatim from pskreporter.info/pskdev.html
@@ -8205,12 +8208,86 @@ def deactivate_all_decoders():
         freedv_dec.stop()
     active_decoder_slug = None
 
+async def _wait_for_sdrconnect_port(host: str, port: int, timeout: float = 20.0) -> bool:
+    """Poll for SDRConnect's WebSocket port to actually be listening, rather
+    than firing the first connect attempt blind.
+
+    BUGFIX (2026-08-03, user feedback: startup feels "clunky"): without
+    this, sdr_bridge()'s connect loop below used to fire its very first
+    websockets.connect() immediately after _local_launch_sdrconnect()
+    returned -- which was guaranteed to fail (ConnectionRefusedError, full
+    traceback logged) on every single local-launch startup, since
+    SDRConnect's WebSocket API takes several seconds to initialise after
+    the process spawns. That guaranteed failure was pure noise: the retry
+    loop already handled it fine, but it made every startup look broken
+    for the first ~5s. Polling a raw TCP connect is cheap (one syscall per
+    attempt) and lets the real websockets.connect() succeed on its first
+    real try instead. Returns True once the port is open, False on
+    timeout -- callers should fall through to the existing retry loop
+    unchanged either way, so this is a pure latency/log-noise optimisation,
+    not a new failure mode or a required gate."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=1.0)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return True
+        except (ConnectionRefusedError, OSError, asyncio.TimeoutError):
+            await asyncio.sleep(0.3)
+    return False
+
 async def sdr_bridge():
     global last_ui_update
     # _is_nrsp_st is module-level. Do NOT declare global here — conditional assignment
     # inside nested scope causes UnboundLocalError on reads before assignment runs.
     # Write via globals() at the assignment site instead.
     import websockets
+
+    # Real startup gate (added 2026-07-29) — see _connection_mode_ready's
+    # module-level comment. Nothing here even attempts a connection until
+    # connection_mode is resolved, so there's no "nRSP-ST already live
+    # behind the picker" possible any more — it genuinely waits.
+    await _connection_mode_ready.wait()
+    if _connection_mode == 'rtlsdr':
+        log.info("sdr_bridge: connection_mode='rtlsdr' — SDRConnect path not "
+                 "selected this session, standing down (rtl_bridge handles it)")
+        return
+
+    # Added 2026-07-31 — optional local auto-launch of SDRConnect for the
+    # local connection modes (see _local_launch_sdrconnect()'s docstring).
+    # Best-effort, one-shot: 'none' (default) leaves this loop's behaviour
+    # exactly as every prior version. The remote mode ('usb_remote_ws') has
+    # its own separate launcher (_ssh_do_launch/_apply_remote_launch_mode)
+    # and is intentionally not touched here.
+    if _connection_mode in ('nrsp_ws', 'usb_local_ws'):
+        _launch_cfg = _ssh_load_config()
+        _llm = _launch_cfg.get('local_launch_mode', 'none')
+        if _llm != 'none':
+            _mode_label = 'Headless' if _llm == 'headless' else 'Full GUI'
+            await _broadcast_startup_status(f"Launching SDRConnect ({_mode_label})…")
+            _launch_proc = _local_launch_sdrconnect(_launch_cfg)
+            if _launch_proc:
+                await _broadcast_startup_status(
+                    f"SDRConnect ({_mode_label}) launched — waiting for it to come up…")
+                # See _wait_for_sdrconnect_port()'s own docstring (2026-08-03
+                # "startup feels clunky" fix): poll the port instead of
+                # racing straight into the connect loop below, which used
+                # to guarantee one failed attempt + traceback on every
+                # single local-launch startup.
+                if not await _wait_for_sdrconnect_port(_sdr_host, _sdr_port, timeout=20.0):
+                    log.warning(f"SDRConnect port {_sdr_host}:{_sdr_port} still not open after "
+                                f"20s — falling back to the normal retry loop")
+            else:
+                await _broadcast_startup_status(
+                    "Couldn't auto-launch SDRConnect — waiting for it to be started manually",
+                    kind='warn')
+        else:
+            await _broadcast_startup_status("Waiting for SDRConnect…")
+
     while True:
         # If SSH launcher is active but not yet ready, wait rather than hammering
         # port 5454 with connections that will fail or get dropped mid-handshake.
@@ -8231,6 +8308,7 @@ async def sdr_bridge():
             # never get a chance to arrive before the next reconnect.
             async with websockets.connect(SDRCONNECT_WS, max_size=16 * 1024 * 1024) as ws:
                 log.info(f"Connected to SDRConnect at {SDRCONNECT_WS}")
+                await _broadcast_startup_status("Connected to SDRConnect — checking devices…", kind='ok')
                 globals()['_last_iq2_frame_time'] = time.perf_counter()  # w0.2.3: grace period start
 
                 # Enable spectrum stream
@@ -8297,30 +8375,92 @@ async def sdr_bridge():
                         "device": "primary",
                     }))
 
-                async def _auto_select_device():
-                    """Pick a device to select on connect, without hardcoding
-                    a specific unit's name in config.
+                # Dedupes repeated identical 'device_choice_available' broadcasts
+                # when valid_devices re-arrives with the same USB/nRSP-ST pair
+                # (SDRConnect can resend the property on unrelated changes).
+                _device_choice_last_pair = [None]  # 1-elem list = poor man's nonlocal cell
 
-                    Priority:
-                      1. A directly-connected USB RSP (e.g. RSPdx) — these
-                         appear in valid_devices with NO mode suffix, unlike
-                         networked nRSP-ST entries which always end in
-                         "(IQ Lite)" / "(Compact)" / "(Full IQ)". A locally
-                         attached unit is almost always what's wanted, and a
-                         direct USB link is required for true Full IQ anyway.
-                      2. Fall back to default_device from SSH config, if set
-                         (lets a user pin a specific nRSP-ST/mode when no USB
-                         RSP is present).
-                      3. Otherwise send nothing — leave SDRConnect's own
-                         current selection alone rather than forcing one.
+                async def _evaluate_device_selection(trigger):
+                    """Decide (or re-decide) which device to select, using
+                    whatever is currently in state['valid_devices'] right now
+                    — no polling/waiting here, the caller handles that.
 
-                    Waits for valid_devices to actually arrive (requested
-                    above) before deciding — polls state rather than relying
-                    on a fixed delay, since the get_property_response can
-                    take longer than a flat sleep to come back, especially
-                    right after SDRConnect detects a freshly-plugged USB
-                    device. Falls through to default_device/no-op if it
-                    never shows up within the timeout.
+                    Split out of the old _auto_select_device() on 2026-07-29
+                    because that function only ever ran ONCE, at connect
+                    time, after a bounded 5s poll for valid_devices to first
+                    appear. Live user report + Claude-in-Chrome inspection
+                    confirmed the actual bug this caused: the RSPdx was
+                    physically connected and macOS/SDRConnect's own UI both
+                    saw it, but SDRConnect can take longer than 5s to finish
+                    enumerating a USB RSP after NEXUS's WebSocket connects —
+                    so valid_devices arrived with only the nRSP-ST entries
+                    at the 5s mark, the one-shot check logged "No USB RSP...
+                    leaving selection unchanged" and gave up for good, and
+                    the later valid_devices update (once SDRConnect finished
+                    seeing the RSPdx) was received and stored but nothing
+                    ever re-evaluated it. This function is now called both
+                    at initial connect AND every time the live 'valid_devices'
+                    property-changed handler sees the string actually change,
+                    so a USB device that shows up late (or is plugged in
+                    after NEXUS is already running) still gets offered.
+
+                    Behaviour depends on the 'device_preference' setting
+                    (added 2026-07-29, live user request for an explicit
+                    override rather than only ever an automatic heuristic).
+
+                    PRECEDENCE CHANGE (2026-07-31, live user report — the
+                    startup connection-mode picker's remembered choice
+                    ('nrsp_ws' etc, see _apply_connection_mode()) forces
+                    device_preference to 'nrsp'/'usb', which used to make
+                    steps 0-1 below unreachable forever once the picker had
+                    ever been answered: "i just started nexus via idle, and
+                    it went straight to mainscreen with nrsp-st running in
+                    iqlite, even though i also have my rsp-dx connect to
+                    usb" — asked what they wanted, answer: "i would like to
+                    choose what to connect to if both devices are
+                    available". Fix: the ambiguity check (step 1) now runs
+                    BEFORE the forced pref branches, for every pref value —
+                    not just when pref=='auto'. A forced 'usb'/'nrsp'
+                    preference still fully applies whenever only one device
+                    type is actually present (no real choice to make), it
+                    just no longer silently overrides a genuine
+                    both-present ambiguity.
+
+                        0. If the user already picked a device this session
+                           (via the 'select_device' command — the device-choice
+                           modal or the top-bar device selector), re-apply that
+                           same choice rather than asking again or overriding it.
+                        1. If BOTH a directly-connected USB RSP (e.g. RSPdx)
+                           AND a networked nRSP-ST are visible in valid_devices
+                           at the same time, this is genuinely ambiguous —
+                           don't guess, regardless of device_preference.
+                           Broadcast 'device_choice_available' with both
+                           options and leave SDRConnect's current selection
+                           alone; the frontend shows a picker and the user's
+                           answer arrives via 'select_device' (remembered for
+                           the rest of this NEXUS process — see step 0 above).
+
+                      'usb' (only reached once step 1 has ruled out ambiguity)
+                        — only ever select a no-mode-suffix (USB) entry.
+                        Never falls back to a networked device even if none
+                        is found; if no USB device is present this session,
+                        leaves SDRConnect's current selection untouched
+                        rather than silently picking a networked one instead
+                        (that would defeat the point of "force USB").
+
+                      'nrsp' (same caveat) — actively selects a networked
+                        (mode-suffixed) device. Uses default_device as an
+                        exact pin if set, else the first networked entry
+                        found in valid_devices.
+
+                      'auto' (default, once step 1 has ruled out ambiguity):
+                        2. Exactly one of USB/nRSP-ST present — auto-select it,
+                           no need to ask when there's no real choice to make.
+                        3. Fall back to default_device from SSH config, if set
+                           (lets a user pin a specific nRSP-ST/mode when no USB
+                           RSP is present).
+                        4. Otherwise send nothing — leave SDRConnect's own
+                           current selection alone rather than forcing one.
                     """
                     import re as _re
                     mode_suffix_re = _re.compile(
@@ -8333,36 +8473,90 @@ async def sdr_bridge():
                     # detection/mode-selector visibility for remote-only setups.
                     _non_hw_devices = {'iq file', 'demo', 'none', 'no device', 'simulator'}
 
-                    valid = ''
-                    for _ in range(20):           # up to ~5s, 0.25s steps
-                        valid = state.get('valid_devices', '')
-                        if valid:
-                            break
-                        await asyncio.sleep(0.25)
-                    else:
-                        log.info("valid_devices did not arrive within 5s — "
-                                 "proceeding with whatever is available")
-
+                    valid = state.get('valid_devices', '')
                     entries = [e.strip().strip("'\"") for e in valid.split(',') if e.strip()]
                     usb_entry = next(
                         (e for e in entries
                          if not mode_suffix_re.search(e)
                          and e.strip().lower() not in _non_hw_devices),
                         None)
+                    nrsp_entry = next(
+                        (e for e in entries
+                         if mode_suffix_re.search(e)),
+                        None)
 
-                    if usb_entry:
-                        log.info(f"Auto-selecting USB-connected device: {usb_entry!r}")
-                        target = usb_entry
-                    else:
-                        _cfg_dd = (_ssh_live_cfg or _ssh_load_config()).get('default_device', '').strip()
-                        if _cfg_dd:
-                            log.info(f"No USB RSP present — auto-selecting "
-                                     f"configured default device: {_cfg_dd!r}")
-                            target = _cfg_dd
+                    _cfg = _ssh_live_cfg or _ssh_load_config()
+                    pref = _cfg.get('device_preference', 'auto').strip().lower() or 'auto'
+                    _cfg_dd = _cfg.get('default_device', '').strip()
+
+                    # (2026-07-31 reorder — see docstring's "PRECEDENCE
+                    # CHANGE" note above.) Session memory and genuine
+                    # ambiguity are checked FIRST, ahead of any forced
+                    # device_preference — a remembered connection_mode
+                    # picker choice ('nrsp'/'usb') must not silently hide a
+                    # real choice from the user when both device types are
+                    # actually present right now.
+                    if _user_selected_device and _user_selected_device in entries:
+                        log.debug(f"[{trigger}] User already chose {_user_selected_device!r} "
+                                  f"this session — nothing to re-evaluate")
+                        return
+                    elif usb_entry and nrsp_entry:
+                        pair = (usb_entry, nrsp_entry)
+                        if _device_choice_last_pair[0] == pair:
+                            log.debug(f"[{trigger}] Same USB/nRSP-ST pair already offered — "
+                                      f"not re-broadcasting")
+                            return
+                        _device_choice_last_pair[0] = pair
+                        log.info(f"[{trigger}] Both a USB device ({usb_entry!r}) and a networked "
+                                 f"device ({nrsp_entry!r}) are present — asking the user instead "
+                                 f"of guessing (device_preference={pref!r} does not override this — "
+                                 f"see 2026-07-31 precedence change)")
+                        # BUGFIX (2026-07-31, startup UX audit): mark the ambiguity
+                        # as pending so _deferred_iq_enable() (the handler that
+                        # auto-confirms/streams whatever device SDRConnect reports
+                        # active, ~1s after connect) holds off instead of racing
+                        # this popup — previously the popup could appear while
+                        # audio was already flowing from the device the user
+                        # didn't pick, which read as broken even though the
+                        # eventual switch worked. Cleared in the select_device
+                        # handler once the user actually answers.
+                        globals()['_device_choice_pending'] = True
+                        await _broadcast_startup_status(
+                            f"Both {usb_entry} and {nrsp_entry} found — choose one", kind='warn')
+                        await broadcast_json({
+                            "type": "device_choice_available",
+                            "devices": [
+                                {"name": usb_entry,  "kind": "usb"},
+                                {"name": nrsp_entry, "kind": "network"},
+                            ],
+                        })
+                        target = None
+                    elif pref == 'usb':
+                        if usb_entry:
+                            log.info(f"[{trigger}] device_preference=usb — selecting: {usb_entry!r}")
+                            target = usb_entry
                         else:
-                            log.info("No USB RSP and no default_device configured — "
+                            log.info(f"[{trigger}] device_preference=usb but no USB RSP present — "
                                       "leaving SDRConnect's current device selection unchanged")
                             target = None
+                    elif pref == 'nrsp':
+                        target = _cfg_dd or nrsp_entry
+                        if target:
+                            log.info(f"[{trigger}] device_preference=nrsp — selecting: {target!r}")
+                        else:
+                            log.info(f"[{trigger}] device_preference=nrsp but no networked device found — "
+                                      "leaving SDRConnect's current device selection unchanged")
+                    elif usb_entry:
+                        log.info(f"[{trigger}] Auto-selecting USB-connected device: {usb_entry!r}")
+                        target = usb_entry
+                    elif _cfg_dd:
+                        log.info(f"[{trigger}] No USB RSP present — auto-selecting "
+                                 f"configured default device: {_cfg_dd!r}")
+                        target = _cfg_dd
+                    else:
+                        log.info(f"[{trigger}] No USB RSP and no default_device configured — "
+                                  "leaving SDRConnect's current device selection unchanged")
+                        target = None
 
                     if target:
                         try:
@@ -8373,7 +8567,27 @@ async def sdr_bridge():
                                 "device":     "primary",
                             }))
                         except Exception as _auto_sel_err:
-                            log.debug(f"Auto-select device send error: {_auto_sel_err}")
+                            log.debug(f"[{trigger}] Auto-select device send error: {_auto_sel_err}")
+
+                async def _auto_select_device():
+                    """Wait for valid_devices to arrive at least once after
+                    connecting, then run the initial selection/ambiguity
+                    check. Polls state rather than relying on a fixed delay,
+                    since the get_property_response can take longer than a
+                    flat sleep to come back. If it never shows up within the
+                    timeout, still runs the check once (against whatever
+                    partial/empty state exists) — later updates are picked
+                    up by the live 'valid_devices' property-changed handler
+                    calling _evaluate_device_selection() directly, so this
+                    initial wait no longer has to be the only chance."""
+                    for _ in range(20):           # up to ~5s, 0.25s steps
+                        if state.get('valid_devices', ''):
+                            break
+                        await asyncio.sleep(0.25)
+                    else:
+                        log.info("valid_devices did not arrive within 5s — "
+                                 "proceeding with whatever is available")
+                    await _evaluate_device_selection('initial connect')
                 asyncio.create_task(_auto_select_device())
 
                 async def _recentre_lo_on_vfo():
@@ -8397,7 +8611,7 @@ async def sdr_bridge():
                     global last_ui_update
                     _frame_counts = {}
                     _broadcast_logged = False
-                    # BUGFIX (2026-07-24, w034 DAB live-test): was `_iq_bounce_done = [False]`,
+                    # BUGFIX (2026-07-24, w035 DAB live-test): was `_iq_bounce_done = [False]`,
                     # a one-shot guard that only ever ran the enable handshake once per WS
                     # connection. SDRConnect's IQ Lite/Compact/Full IQ modes are separate
                     # selectable device entries (see 'SDRConnect available devices' log line
@@ -9034,7 +9248,7 @@ async def sdr_bridge():
                                                     # file input with -ga FORMAT CF32) to compare against.
                                                     _rec_write_iq((_fiq_i + 1j * _fiq_q).astype(np.complex64), sr=_fiq_sr)
                                                 if state.get('dab_active') and _dab_proc is not None:
-                                                    # DAB-Radio (w034 engine) needs genuinely wideband IQ
+                                                    # DAB-Radio (w035 engine) needs genuinely wideband IQ
                                                     # centred on the DAB channel -- same reasoning as the
                                                     # REC IQ tap just above, taken from the same RAW,
                                                     # undecimated point, before _fiq_c's anti-alias/
@@ -9042,6 +9256,29 @@ async def sdr_bridge():
                                                     # ~48kHz CW/RTTY/AIS decoders need. See _dab_feed_iq()
                                                     # for the resample-to-2.048MSPS + stdin write.
                                                     _dab_feed_iq(_fiq_i, _fiq_q, _fiq_sr)
+                                                if state.get('drm_active') and _drm_proc is not None:
+                                                    # Dream (w035 DRM/DRM+ engine) needs the same
+                                                    # wideband, undecimated IQ tap DAB uses -- taken
+                                                    # from the same RAW point, before _fiq_c's anti
+                                                    # -alias/decimation filter narrows the bandwidth.
+                                                    # See _drm_feed_iq() for the resample-to-48kHz +
+                                                    # stdin write. Independent flag from dab_active
+                                                    # (same pattern as every other Full-IQ consumer
+                                                    # here, e.g. the REC IQ tap above) -- nothing stops
+                                                    # a user from having both flags set, but the UI
+                                                    # only exposes one DAB/DRM decoder slot at a time
+                                                    # in practice, so this isn't arbitrated further.
+                                                    _drm_feed_iq(_fiq_i, _fiq_q, _fiq_sr)
+                                                if state.get('hd_active') and _hd_proc is not None:
+                                                    # HD Radio (nrsc5_nexus, w035 engine) needs the same
+                                                    # wideband, undecimated IQ tap DAB/DRM use -- taken
+                                                    # from the same RAW point. Unlike DAB/DRM, the target
+                                                    # native rate depends on FM vs AM mode (see
+                                                    # _hd_feed_iq()'s own comment) -- state['hd_is_am'] is
+                                                    # set by the hd_set_frequency WS handler above, tracking
+                                                    # the VFO's actual demod mode at the time HD Radio was
+                                                    # last (re)tuned.
+                                                    _hd_feed_iq(_fiq_i, _fiq_q, _fiq_sr, state.get('hd_is_am', False))
                                                 # (Re)build the decimation filter if the hw sample rate
                                                 # changed (e.g. device reconnect at a different rate) or
                                                 # this is the first packet. Decimation factor is chosen so
@@ -9661,10 +9898,32 @@ async def sdr_bridge():
                                                   'iq_sampling_rate','iq_rate','rf_rate',
                                                   'hardware_sample_rate'):
                                         if val is not None:
+                                            hw_sr = int(float(val))
                                             # Guard: ignore SDRConnect responses for 3 s after
-                                            # the user changed the rate to prevent snap-back
-                                            if time.time() - _sr_set_time > 3.0:
-                                                hw_sr = int(float(val))
+                                            # the user changed the rate to prevent snap-back to
+                                            # a stale echo of the OLD rate -- but ALWAYS accept
+                                            # a response that matches the rate we just asked
+                                            # for (_sr_set_target). That's genuine confirmation
+                                            # the change took effect, not an echo, and blanket-
+                                            # ignoring it left state['hw_sample_rate'] frozen at
+                                            # the pre-change value indefinitely whenever nothing
+                                            # else re-queries it afterward.
+                                            #
+                                            # BUGFIX (2026-07-31, live report: "scan dab, and
+                                            # nexus is not picking up any ensembles"): dabStart()
+                                            # chains setSampleRate(2000000) straight into
+                                            # dab_start with no delay, so DAB began reading
+                                            # state['hw_sample_rate'] well inside this 3s window.
+                                            # SDRConnect's real confirmation of the new 2 MSPS
+                                            # rate arrived during the guard and was silently
+                                            # dropped -- state['hw_sample_rate'] stayed at the
+                                            # stale pre-DAB value (5,000,000) for the entire
+                                            # scan, so _dab_feed_iq() kept computing its resample
+                                            # ratio (256/625) against 5 MSPS while the real IQ
+                                            # bytes were actually arriving at 2 MSPS, corrupting
+                                            # every packet fed to dab_radio_nexus (clean subprocess
+                                            # launches, zero real decodes -- exactly the symptom).
+                                            if time.time() - _sr_set_time > 3.0 or hw_sr == _sr_set_target:
                                                 # IQ Lite: device sends 192 kHz channel IQ
                                                 # regardless of hardware sample rate — report
                                                 # 192 kHz to the frontend so the freq axis,
@@ -9778,6 +10037,8 @@ async def sdr_bridge():
                                                 state['sample_rate'] = state['hw_sample_rate']
                                             log.info(f"Device: {val!r} — type: {state['device_type']} "
                                                      f"mode: {cur_mode!r} iq_lite: {state['iq_lite_capable']}")
+                                            await _broadcast_startup_status(
+                                                f"Connected: {state['device_type']} ({cur_mode})", kind='ok')
                                             await broadcast_json({
                                                 "type":        "device_caps",
                                                 "device_name": str(val),
@@ -9896,6 +10157,22 @@ async def sdr_bridge():
                                                     # Reduced to 1.0s so the sequence completes by
                                                     # ~2.1s (well inside the 6.0s warning threshold).
                                                     await asyncio.sleep(1.0)
+                                                    # BUGFIX (2026-07-31, startup UX audit): this is
+                                                    # the exact handler that races the device-choice
+                                                    # popup -- SDRConnect reports its own last-active
+                                                    # device via active_device shortly after connect,
+                                                    # and this sequence would confirm/enable streaming
+                                                    # on it regardless of whether a device_choice_
+                                                    # available ambiguity is still waiting on the user.
+                                                    # Hold off while _device_choice_pending is set (see
+                                                    # _evaluate_device_selection()'s broadcast site and
+                                                    # the select_device handler that clears it), with a
+                                                    # bounded timeout so a stuck flag can't wedge this
+                                                    # forever.
+                                                    _wait_start = time.monotonic()
+                                                    while globals().get('_device_choice_pending') and \
+                                                            time.monotonic() - _wait_start < 15.0:
+                                                        await asyncio.sleep(0.3)
                                                     try:
                                                         await ws.send(json.dumps({
                                                             "event_type": "set_primary_device_enable",
@@ -10043,8 +10320,20 @@ async def sdr_bridge():
                                                               "nrsp_st": _is_nrsp_st})
                                     elif prop in ('valid_devices',):
                                         if val is not None:
+                                            _prev_valid_devices = state.get('valid_devices', '')
                                             state['valid_devices'] = str(val)
                                             log.info(f"SDRConnect available devices: {val!r}")
+                                            # Re-run the USB/nRSP-ST ambiguity check whenever the
+                                            # list actually changes, not just once at connect time
+                                            # -- added 2026-07-29 after a live report where a
+                                            # physically-connected RSPdx (confirmed visible in both
+                                            # macOS System Information and SDRConnect's own device
+                                            # dropdown) still never got offered as a choice, because
+                                            # SDRConnect took longer than the initial 5s poll to
+                                            # finish enumerating it and nothing re-checked afterward.
+                                            if str(val) != _prev_valid_devices:
+                                                asyncio.create_task(
+                                                    _evaluate_device_selection('valid_devices updated'))
                                     elif prop in ('valid_antennas',):
                                         if val is not None:
                                             state['valid_antennas'] = str(val)
@@ -10072,8 +10361,10 @@ async def sdr_bridge():
                                         await broadcast_json({"type": "state", **state})
                                     elif prop in ('rds_pi', 'pi_code', 'rds_pi_code'):
                                         state['rds_pi'] = str(val or '').strip()
+                                        await broadcast_json({"type": "state", **state})
                                     elif prop in ('rds_pty', 'pty', 'programme_type'):
                                         state['rds_pty'] = str(val or '').strip()
+                                        await broadcast_json({"type": "state", **state})
                                     # ── Catch-all: log unknown properties so we can discover the API ──
                                     elif prop and val is not None and prop not in ('error','status','connected'):
                                         # PY-23: debug only — f-string not built at INFO level.
@@ -10130,6 +10421,17 @@ async def rtl_bridge():
     """
     global last_ui_update, _rtl_writer, _rtl_streaming, _rtl_write_lock, _rtl_sock
     AUDIO_SR   = 48_000      # Target audio rate for decoders
+
+    # Real startup gate (added 2026-07-29) — see _connection_mode_ready's
+    # module-level comment. Standing down entirely (not just the existing
+    # per-iteration engine!='RTLSDR' sleep-and-continue below) if RTL-SDR
+    # wasn't the chosen path, so it doesn't even start polling until a
+    # choice is known.
+    await _connection_mode_ready.wait()
+    if _connection_mode != 'rtlsdr':
+        log.info("rtl_bridge: connection_mode != 'rtlsdr' — RTL-SDR path not "
+                 "selected this session, standing down (sdr_bridge handles it)")
+        return
 
     while True:
         if state.get('engine', 'SDRCONNECT') != 'RTLSDR':
@@ -10766,7 +11068,7 @@ async def _auto_set_stream_mode(mode: str, state: dict):
 
 
 async def browser_handler(ws):
-    global sigint, _sr_set_time, bookmarks, logbook, _fldigi_xmlrpc, _fldigi_rx_offset, active_decoder_slug, _fldigi_carrier_hz
+    global sigint, _sr_set_time, _sr_set_target, bookmarks, logbook, _fldigi_xmlrpc, _fldigi_rx_offset, active_decoder_slug, _fldigi_carrier_hz
     # Sync rigctld default to current VFO so fldigi Hamlib doesn't start at 14 MHz
     if state.get('vfo_hz', 0) > 0:
         state['wsjtx_hz'] = state['vfo_hz']
@@ -10776,6 +11078,7 @@ async def browser_handler(ws):
                                "wsjtx_rigctl_port": config.get('wsjtx_rigctl_port', 4532),
                                "server_version": VERSION}))
     await ws.send(json.dumps({"type": "bookmarks", "bookmarks": bookmarks}))
+    await ws.send(json.dumps({"type": "drm_quicktune", "list": drm_quicktune}))
     await ws.send(json.dumps({"type": "logbook", "entries": logbook}))
     # Send fldigi connection state if already connected (browser may have joined late)
     if _fldigi_xmlrpc is not None:
@@ -10789,6 +11092,25 @@ async def browser_handler(ws):
     # to wait up to 90s for the next dx_spots_poller() cycle
     if _dx_spots_cache:
         await ws.send(json.dumps({"type": "dx_spots", "spots": _dx_spots_cache}))
+    # BUGFIX (2026-08-01): same cached-slideshow hydration as the
+    # dab_play_service handler below, for the reconnect/page-refresh case --
+    # without this, refreshing the browser while a station with an
+    # already-decoded logo is playing would blank it (a fresh page load has
+    # no way to receive the original one-shot 'dab_slideshow' broadcast that
+    # already happened before this connection existed).
+    _dab_reconnect_sid = state.get('dab_play_sid')
+    if _dab_reconnect_sid:
+        _svc = _dab_services.get(str(_dab_reconnect_sid).upper())
+        _sub_id = _svc.get('subchannel_id') if _svc else None
+        if _sub_id is not None and _sub_id in _dab_slideshow:
+            _entry = _dab_slideshow[_sub_id]
+            await ws.send(json.dumps({
+                'type': 'dab_slideshow',
+                'subchannel_id': _sub_id,
+                'sid': _dab_reconnect_sid,
+                'image_type': _entry['image_type'],
+                'image_b64': base64.b64encode(_entry['data']).decode('ascii'),
+            }))
     # Send SSH launcher status so wizard shows correct state on reconnect
     with _ssh_state_lock:
         _s = dict(_ssh_state)
@@ -10971,7 +11293,8 @@ async def browser_handler(ws):
                     await broadcast_json({"type": "state", **state})
                 else:
                     log.info(f"SDRConnect sample rate → {rate/1e6:.4f} MSPS  (set_property / device_sample_rate / '{rate}')")
-                    _sr_set_time = time.time()   # snap-back guard starts now
+                    _sr_set_time   = time.time()   # snap-back guard starts now
+                    _sr_set_target = rate           # let a confirmation of THIS rate through the guard immediately
                     await sdr_queue.put(json.dumps({
                         "event_type": "set_property",
                         "property":   "device_sample_rate",
@@ -11065,7 +11388,7 @@ async def browser_handler(ws):
                     await broadcast_json({"type": "stream_mode_changed",
                                           "stream_mode": new_mode,
                                           "iq_lite": new_mode == 'IQ Lite'})
-                    # BUGFIX (2026-07-24, w034 DAB live-test): this used to stop here,
+                    # BUGFIX (2026-07-24, w035 DAB live-test): this used to stop here,
                     # optimistically assuming the switch succeeded once selected_device_name
                     # was sent -- but the actual enable handshake (set_primary_device_enable/
                     # device_stream_enable/iq_stream_enable, needed once per mode transition --
@@ -11089,6 +11412,141 @@ async def browser_handler(ws):
                             "device":     "primary",
                         }))
                     asyncio.create_task(_confirm_device_switch())
+
+            elif cmd == 'select_device':
+                # User's explicit answer to the device-choice modal (or the
+                # top-bar device selector) — added 2026-07-29, live user
+                # report: "the nrsp-st always connects first and am unable to
+                # switch to the usb device". _auto_select_device() no longer
+                # silently guesses when both a USB device and a networked
+                # nRSP-ST are visible at once; it broadcasts the options and
+                # waits for this command instead.
+                #
+                # Reuses set_stream_mode's confirm-handshake above: send
+                # selected_device_name, then explicitly re-request
+                # active_device after a short settle delay so the IQ-enable
+                # handshake that only runs inside the active_device handler
+                # is guaranteed to fire for the newly-selected device, not
+                # just for same-device mode changes.
+                target = str(d.get('device', '')).strip()
+                if not target:
+                    log.warning("select_device: empty device name, ignoring")
+                else:
+                    global _user_selected_device
+                    _user_selected_device = target
+                    globals()['_device_choice_pending'] = False  # let _deferred_iq_enable() proceed
+                    log.info(f"select_device (user choice): {target!r}")
+                    await sdr_queue.put(json.dumps({
+                        "event_type": "selected_device_name",
+                        "property":   "",
+                        "value":      target,
+                        "device":     "primary",
+                    }))
+
+                    async def _confirm_device_choice():
+                        await asyncio.sleep(0.5)
+                        await sdr_queue.put(json.dumps({
+                            "event_type": "get_property",
+                            "property":   "active_device",
+                            "value":      "",
+                            "device":     "primary",
+                        }))
+                    asyncio.create_task(_confirm_device_choice())
+                    await broadcast_json({"type": "device_choice_resolved", "device": target})
+
+            elif cmd == 'set_connection_mode':
+                # Answer to the startup connection picker (added 2026-07-29,
+                # live user report after device_choice_available *still*
+                # didn't stop nRSP-ST connecting first: "i think we need to
+                # add another screen at startup which basically states how
+                # do you wish to connect?"). Unlike select_device above
+                # (which only resolves an ambiguity AFTER SDRConnect is
+                # already connected and streaming), this is a real gate —
+                # sdr_bridge()/rtl_bridge() both block on
+                # _connection_mode_ready before attempting ANY connection,
+                # so nothing has a chance to connect first any more.
+                mode = str(d.get('mode', '')).strip()
+                if mode not in ('nrsp_ws', 'usb_local_ws', 'usb_remote_ws', 'rtlsdr'):
+                    log.warning(f"set_connection_mode: unknown mode {mode!r}, ignoring")
+                else:
+                    _apply_connection_mode(mode)
+                    _cm_cfg = _ssh_load_config()
+                    _cm_cfg['connection_mode'] = mode
+                    _ssh_save_config({k: v for k, v in _cm_cfg.items() if k != 'ssh_password'})
+                    if _ssh_live_cfg:
+                        _ssh_live_cfg['connection_mode'] = mode
+                    already_running = _connection_mode_ready.is_set()
+                    _connection_mode_ready.set()
+                    if already_running:
+                        log.info(f"connection_mode changed to {mode!r} — bridges were "
+                                 f"already running under the previous choice, restart "
+                                 f"NEXUS to actually switch")
+                    else:
+                        log.info(f"connection_mode chosen: {mode!r} — bridges may now proceed")
+                    await broadcast_json({
+                        "type": "connection_mode_set",
+                        "mode": mode,
+                        "requires_restart": already_running,
+                    })
+
+            elif cmd == 'set_local_launch_mode':
+                # 'none' | 'headless' | 'gui' — whether NEXUS should launch
+                # SDRConnect itself, locally, at startup for the local
+                # connection modes (added 2026-07-31, user request: "at
+                # nexus startup, could we add an option whether to have
+                # headless or not?"). Deliberately NOT routed through
+                # _handle_ssh_cmd/'ssh_' prefix — see the removed Auto/
+                # Force USB/Force nRSP-ST row's comment above (~2026-07-29)
+                # for why a bare, unprefixed cmd name landing in that
+                # dispatcher is a real, previously-hit trap here. Mirrors
+                # set_connection_mode immediately above: persisted, only
+                # takes effect on next restart (sdr_bridge() reads it once,
+                # at the top of its task, before the connect loop starts).
+                lmode = str(d.get('mode', 'none')).strip().lower()
+                if lmode not in ('none', 'headless', 'gui'):
+                    log.warning(f"set_local_launch_mode: unknown mode {lmode!r}, ignoring")
+                else:
+                    _ll_cfg = _ssh_load_config()
+                    _ll_cfg['local_launch_mode'] = lmode
+                    if str(d.get('path', '')).strip():
+                        _ll_cfg['local_sdrconnect_path'] = str(d['path']).strip()
+                    _ssh_save_config({k: v for k, v in _ll_cfg.items() if k != 'ssh_password'})
+                    if _ssh_live_cfg:
+                        _ssh_live_cfg['local_launch_mode'] = lmode
+                        _ssh_live_cfg['local_sdrconnect_path'] = _ll_cfg['local_sdrconnect_path']
+                    log.info(f"local_launch_mode set to {lmode!r} "
+                             f"(path={_ll_cfg['local_sdrconnect_path']!r}, takes effect on next restart)")
+                    await broadcast_json({
+                        "type": "local_launch_mode",
+                        "mode": lmode,
+                        "path": _ll_cfg['local_sdrconnect_path'],
+                    })
+
+            elif cmd == 'set_remote_launch_mode':
+                # 'headless' | 'gui' — the SSH launcher pane's Headless/GUI
+                # toggle (added 2026-07-31), rewriting remote_command/
+                # local_client via _apply_remote_launch_mode() instead of
+                # requiring two separate hand-edited fields. Same dispatch-
+                # placement reasoning as set_local_launch_mode just above.
+                rmode = str(d.get('mode', 'headless')).strip().lower()
+                if rmode not in ('headless', 'gui'):
+                    log.warning(f"set_remote_launch_mode: unknown mode {rmode!r}, ignoring")
+                else:
+                    _rl_cfg = _apply_remote_launch_mode(rmode, _ssh_load_config())
+                    _ssh_save_config({k: v for k, v in _rl_cfg.items() if k != 'ssh_password'})
+                    if _ssh_live_cfg:
+                        _ssh_live_cfg['remote_launch_mode'] = _rl_cfg['remote_launch_mode']
+                        _ssh_live_cfg['remote_command']     = _rl_cfg['remote_command']
+                        _ssh_live_cfg['local_client']       = _rl_cfg['local_client']
+                    log.info(f"remote_launch_mode set to {rmode!r} -> "
+                             f"remote_command={_rl_cfg['remote_command']!r}, "
+                             f"local_client={_rl_cfg['local_client']!r}")
+                    await broadcast_json({
+                        "type": "remote_launch_mode",
+                        "mode": _rl_cfg['remote_launch_mode'],
+                        "remote_command": _rl_cfg['remote_command'],
+                        "local_client": _rl_cfg['local_client'],
+                    })
 
             elif cmd == 'set_bw':
                 bw = int(d.get('bw_hz', 3000))
@@ -12495,7 +12953,7 @@ async def browser_handler(ws):
                 _dsd_messages.clear()
                 await broadcast_json({'type': 'dsd_clear'})
 
-            # ── DAB / DAB+ (w034: DAB-Radio engine, piped IQ) ─────────
+            # ── DAB / DAB+ (w035: DAB-Radio engine, piped IQ) ─────────
             elif cmd == 'dab_start':
                 state['dab_active'] = True
                 # BUGFIX (2026-07-26, live user report: "Active decoders: 0"
@@ -12552,9 +13010,168 @@ async def browser_handler(ws):
                 # simultaneously (see dab_radio_nexus.cpp) -- switching which
                 # service plays is now a pure Python-side buffer selection,
                 # no subprocess relaunch needed.
-                state['dab_play_sid'] = d.get('sid')
+                sid = d.get('sid')
+                state['dab_play_sid'] = sid
+                # BUGFIX (2026-08-01, live user report: "DAB audio/DLS/EPG all
+                # work, station logos never appear"): _dab_stdout_thread_fn()
+                # already caches every completed MOT slideshow image in
+                # _dab_slideshow[subchannel_id] the moment it's fully
+                # reassembled (see _dab_store_slideshow()), but historically
+                # the ONLY delivery path was a one-shot 'dab_slideshow'
+                # broadcast fired at the instant the image first arrived --
+                # and dab_radio_nexus decodes every subchannel in the
+                # background from ensemble lock onward, regardless of what's
+                # selected in the UI. In practice the image almost always
+                # gets decoded and broadcast-and-discarded (frontend's
+                # dabUpdateSlideshow() only accepts it if that station is
+                # ALREADY _dabPlayingSid at that exact instant) long before
+                # the user gets around to clicking Play on that station --
+                # after which nothing ever re-sent it. Fix: on every
+                # dab_play_service, look up the target service's real
+                # subchannel_id (not whatever sid happened to be resolved at
+                # original-broadcast time -- that could even be None if FIC
+                # hadn't populated _dab_services yet when the image first
+                # arrived) and, if a cached image already exists for it,
+                # unicast it to just this client immediately in the exact
+                # same 'dab_slideshow' shape the live broadcast uses, so the
+                # existing frontend handler needs no changes at all.
+                svc = _dab_services.get(str(sid).upper()) if sid else None
+                sub_id = svc.get('subchannel_id') if svc else None
+                if sub_id is not None and sub_id in _dab_slideshow:
+                    entry = _dab_slideshow[sub_id]
+                    await ws.send(json.dumps({
+                        'type': 'dab_slideshow',
+                        'subchannel_id': sub_id,
+                        'sid': sid,
+                        'image_type': entry['image_type'],
+                        'image_b64': base64.b64encode(entry['data']).decode('ascii'),
+                    }))
             elif cmd == 'dab_stop_service':
                 state['dab_play_sid'] = None
+
+            # ── DRM / DRM+ (w035: Dream engine, piped IQ) ─────────────
+            # Mirrors the DAB command set immediately above -- see
+            # drm_engine()/_drm_launch()/_drm_terminate() for the subprocess
+            # lifecycle these just flip state flags for.
+            elif cmd == 'drm_start':
+                state['drm_active'] = True
+                await broadcast_json({'type': 'decoder_status', 'slug': 'drm', 'active': True})
+            elif cmd == 'drm_stop':
+                state['drm_active'] = False
+                _drm_terminate()
+                await broadcast_json({'type': 'drm_status', 'running': False})
+                await broadcast_json({'type': 'decoder_status', 'slug': 'drm', 'active': False})
+            elif cmd == 'drm_set_frequency':
+                # Like dab_set_channel, dream_nexus owns no hardware itself --
+                # the frontend already sends a plain 'tune' command for the
+                # actual RF retune before this; this handler just records the
+                # bookkeeping and force-relaunches dream_nexus against the
+                # new frequency's IQ, same division of responsibility as DAB.
+                #
+                # BUGFIX (2026-07-30, live "no drm decode" report): this used
+                # to force-relaunch unconditionally on every call, even a
+                # no-op call to the SAME frequency already active. Live log
+                # caught it happening for real -- dream_nexus was killed
+                # (SIGTERM, "code -15") and relaunched just 7s after a clean
+                # start, wiping out an in-progress DRM sync attempt (which
+                # routinely takes longer than 7s, especially with rxmode=0
+                # auto-detect scanning robustness modes) for zero reason,
+                # since the "new" frequency was identical to the one already
+                # locked in. Now a no-op if dream_nexus is already running
+                # against this exact frequency.
+                new_freq_hz = int(float(d.get('freq_mhz', 0)) * 1e6)
+                same_freq = (new_freq_hz == state.get('drm_freq_hz') and
+                             state.get('drm_active') and _drm_proc is not None and
+                             _drm_proc.poll() is None)
+                state['drm_freq_hz'] = new_freq_hz
+                if not same_freq:
+                    state['drm_freq_changed_at'] = time.monotonic()
+                    if state.get('drm_active'):
+                        _drm_terminate()
+            elif cmd == 'drm_qt_list':
+                await ws.send(json.dumps({"type": "drm_quicktune", "list": drm_quicktune}))
+
+            elif cmd == 'drm_qt_save':
+                import uuid as _uuid2
+                entry = d.get('entry', {})
+                if entry.get('freq_khz') is None or not str(entry.get('label', '')).strip():
+                    await ws.send(json.dumps({"type": "drm_qt_error", "msg": "freq_khz and label required"}))
+                else:
+                    entry['freq_khz'] = round(float(entry['freq_khz']), 3)
+                    entry['label']    = str(entry.get('label', '')).strip()
+                    entry['group']    = str(entry.get('group', '')).strip() or 'Custom'
+                    qt_id = entry.get('id', '')
+                    idx = next((i for i, e in enumerate(drm_quicktune) if e.get('id') == qt_id), -1)
+                    if idx >= 0:
+                        entry['id'] = qt_id
+                        drm_quicktune[idx] = entry
+                    else:
+                        entry['id'] = str(_uuid2.uuid4())[:8]
+                        drm_quicktune.append(entry)
+                    save_drm_quicktune(drm_quicktune)
+                    await broadcast_json({"type": "drm_quicktune", "list": drm_quicktune})
+
+            elif cmd == 'drm_qt_delete':
+                qt_id = d.get('id', '')
+                drm_quicktune[:] = [e for e in drm_quicktune if e.get('id') != qt_id]
+                save_drm_quicktune(drm_quicktune)
+                await broadcast_json({"type": "drm_quicktune", "list": drm_quicktune})
+
+            elif cmd == 'drm_set_rxmode':
+                # 0=auto-detect, 1-4=force DRM30 robustness mode A-D. Only
+                # takes effect on dream_nexus's NEXT launch (it's a CLI
+                # flag, not a live-adjustable setting) -- same "captured
+                # once at launch time" convention as DAB's channel arg, so
+                # force a relaunch if already running, same as a frequency
+                # change.
+                state['drm_rxmode'] = int(d.get('rxmode', 0))
+                if state.get('drm_active'):
+                    _drm_terminate()
+
+            # ── HD Radio / NRSC-5 (w035: nrsc5 engine, piped IQ) ──────
+            # Mirrors the DAB command set (per-program buffer selection,
+            # no relaunch on program switch), not DRM's (which has only
+            # one stream) -- HD Radio decodes every discovered program
+            # (HD1-HD8) simultaneously, same shape as a DAB ensemble's
+            # simultaneous subchannels. See hd_engine()/_hd_launch()/
+            # _hd_terminate() for the subprocess lifecycle these just flip
+            # state flags for.
+            elif cmd == 'hd_start':
+                state['hd_active'] = True
+                await broadcast_json({'type': 'decoder_status', 'slug': 'hdradio', 'active': True})
+            elif cmd == 'hd_stop':
+                state['hd_active'] = False
+                _hd_terminate()
+                await broadcast_json({'type': 'hd_status', 'running': False})
+                await broadcast_json({'type': 'decoder_status', 'slug': 'hdradio', 'active': False})
+            elif cmd == 'hd_set_frequency':
+                # Like DAB/DRM, nrsc5_nexus owns no hardware itself -- the
+                # frontend already sends a plain 'tune' command for the
+                # actual RF retune before this; this handler just records
+                # the bookkeeping and force-relaunches nrsc5_nexus against
+                # the new frequency's IQ. is_am tracks the VFO's actual
+                # demod mode (unlike DAB/DRM, HD Radio's native sample rate
+                # differs between FM (744187.5 Hz) and AM (46511.71875 Hz)
+                # -- see _hd_feed_iq()), so an FM<->AM mode change alone
+                # (no frequency change) also needs to force a relaunch.
+                state['hd_is_am'] = (str(d.get('mode', state.get('mode', 'FM'))).upper() == 'AM')
+                state['hd_freq_hz'] = int(float(d.get('freq_mhz', 0)) * 1e6)
+                state['hd_freq_changed_at'] = time.monotonic()
+                state['hd_play_program'] = None
+                # Always relaunch on a frequency/mode change, same
+                # unconditional-relaunch-on-retune convention as DAB/DRM
+                # (the whole IQ stream nrsc5 was decoding is now a
+                # different signal either way).
+                if state.get('hd_active'):
+                    _hd_terminate()
+            elif cmd == 'hd_play_program':
+                # nrsc5_nexus decodes every discovered HD1-HD8 program
+                # simultaneously -- switching which one plays is a pure
+                # Python-side buffer selection, no subprocess relaunch,
+                # same as dab_play_service.
+                state['hd_play_program'] = d.get('program')
+            elif cmd == 'hd_stop_program':
+                state['hd_play_program'] = None
 
             # ── Trunked P25/DMR/NXDN ─────────────────────────────────
             elif cmd == 'trunk_start':
@@ -12955,6 +13572,10 @@ class UIServer(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith('/dab_audio'):
             return self._serve_dab_audio()
+        if self.path.startswith('/drm_audio'):
+            return self._serve_drm_audio()
+        if self.path.startswith('/hd_audio'):
+            return self._serve_hd_audio()
         try:
             try:
                 data = DARKSKY_HTML.read_bytes()
@@ -13028,6 +13649,129 @@ class UIServer(BaseHTTPRequestHandler):
             pass  # client disconnected/stopped playback — normal
         except Exception as e:
             log.debug(f'DAB audio stream ended: {e}')
+
+    def _serve_drm_audio(self):
+        """Stream Dream's decoded PCM to the browser <audio> tag, same
+        dynamic-WAV-header pattern as _serve_dab_audio() -- but simpler,
+        since DRM has exactly one audio stream (no service-select, no
+        subchannel_id, no dab_play_sid equivalent) rather than DAB's
+        many-simultaneous-subchannels case. One connection at a time, live
+        tap only (no seek), same as DAB."""
+        gen = _drm_generation
+        if _drm_proc is None or _drm_proc.poll() is not None:
+            self.send_response(503)
+            self.end_headers()
+            self.wfile.write(b'DRM engine not running')
+            return
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            header_sent = False
+            header_rate = None
+            last_read = 0
+            while True:
+                if _drm_proc is None or _drm_proc.poll() is not None or gen != _drm_generation:
+                    break  # subprocess exited or was relaunched (frequency/rxmode change) -- stale stream
+                entry = _drm_audio
+                if entry is None:
+                    time.sleep(0.1)
+                    continue
+                with entry['lock']:
+                    # BUGFIX (2026-07-28): DRM's xHE-AAC/SBR codec can report a
+                    # different sample_rate on later frames than on the very
+                    # first one (the core decoder locks onto the OFDM frame
+                    # structure before SBR/bandwidth extension is confirmed --
+                    # unlike DAB, where each subchannel's rate is fixed for the
+                    # whole broadcast, so _serve_dab_audio()'s identical
+                    # "header once" pattern never hits this). Once header_sent
+                    # is true the WAV header's declared rate is baked into the
+                    # HTTP response and can't be changed -- if entry['sr'] (fed
+                    # fresh per-frame by _drm_store_audio()) has since diverged
+                    # from what we already sent, every further chunk plays back
+                    # at the wrong speed under the stale header (reported by the
+                    # user as "stuttered/buffering... slurred speech (slowed)").
+                    # Fix: end this response the moment that happens, so the
+                    # browser's <audio> element hits EOF/error and the frontend
+                    # (see drm-audio 'ended'/'error' listeners) reconnects with
+                    # a fresh /drm_audio request -- which will send a brand-new
+                    # header using the now-current (and by then usually stable)
+                    # rate.
+                    if header_sent and header_rate is not None and entry['sr'] != header_rate:
+                        break
+                    if not header_sent:
+                        bits = entry['bps'] * 8
+                        channels = 2 if entry['stereo'] else 1
+                        header_rate = entry['sr']
+                        self.wfile.write(_wav_header(sample_rate=header_rate, channels=channels, bits=bits))
+                        header_sent = True
+                    chunk = bytes(entry['buf'])
+                    entry['buf'].clear()
+                if chunk:
+                    self.wfile.write(chunk)
+                    last_read = time.time()
+                else:
+                    if time.time() - last_read > 10 and last_read:
+                        break  # stale stream (no new PCM for 10s) — stop
+                    time.sleep(0.05)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client disconnected/stopped playback — normal
+        except Exception as e:
+            log.debug(f'DRM audio stream ended: {e}')
+
+    def _serve_hd_audio(self):
+        """Stream the currently-selected HD Radio program's decoded PCM to
+        the browser <audio> tag, wrapped in a WAV header -- same
+        per-subchannel-buffer-selection pattern as _serve_dab_audio(), since
+        nrsc5 (like dab_radio_nexus) decodes every discovered program (HD1-
+        HD8) simultaneously and NEXUS just picks which buffer to drain.
+        state['hd_play_program'] is an int 0-7 (see hd_play_program WS
+        handler); switching it is a pure Python-side change, no subprocess
+        relaunch. Audio is always fixed 44100 Hz stereo per
+        NRSC5_SAMPLE_RATE_AUDIO (see nrsc5_nexus.c's own header comment) --
+        no per-frame rate to track, unlike DRM's xHE-AAC/SBR rate drift."""
+        program = state.get('hd_play_program')
+        if program is None or _hd_proc is None or _hd_proc.poll() is not None:
+            self.send_response(503)
+            self.end_headers()
+            self.wfile.write(b'HD Radio engine not running or no program selected')
+            return
+        gen = _hd_generation
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', 'audio/wav')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            header_sent = False
+            last_read = 0
+            while True:
+                if (_hd_proc is None or _hd_proc.poll() is not None
+                        or gen != _hd_generation or state.get('hd_play_program') != program):
+                    break
+                entry = _hd_audio.get(program)
+                if entry is None:
+                    time.sleep(0.1)
+                    continue
+                with entry['lock']:
+                    if not header_sent:
+                        self.wfile.write(_wav_header(sample_rate=entry['sr'],
+                                                       channels=2 if entry['stereo'] else 1,
+                                                       bits=entry['bps'] * 8))
+                        header_sent = True
+                    chunk = bytes(entry['buf'])
+                    entry['buf'].clear()
+                if chunk:
+                    self.wfile.write(chunk)
+                    last_read = time.time()
+                else:
+                    if time.time() - last_read > 10 and last_read:
+                        break  # stale program (no new PCM for 10s) — stop the stream
+                    time.sleep(0.05)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client disconnected/stopped playback — normal
+        except Exception as e:
+            log.debug(f'HD Radio audio stream ended: {e}')
 
     def log_message(self, *args):
         pass  # suppress HTTP access log noise
@@ -13203,8 +13947,13 @@ def _launch_dumphfdl() -> tuple[subprocess.Popen | None, str]:
     ] + freqs
     log.info(f'HFDL: launching {" ".join(args)}')
     try:
+        # BUGFIX (2026-07-28): same console-window flash as _dab_launch()'s
+        # own fix, same cause (console-subsystem child, --windowed/--noconsole
+        # parent, no console for the child to attach to on Windows) — see
+        # that function's comment for the full explanation.
         _hfdl_proc = subprocess.Popen(
-            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         return _hfdl_proc, ''
     except Exception as e:
         return None, str(e)
@@ -13226,8 +13975,11 @@ def _launch_dumpvdl2() -> tuple[subprocess.Popen | None, str]:
     ] + freqs
     log.info(f'VDL2: launching {" ".join(args)}')
     try:
+        # BUGFIX (2026-07-28): see _dab_launch()'s comment — same Windows
+        # console-window flash, same fix.
         _vdl2_proc = subprocess.Popen(
-            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         return _vdl2_proc, ''
     except Exception as e:
         return None, str(e)
@@ -13538,8 +14290,11 @@ def _launch_rtl433() -> tuple[subprocess.Popen | None, str]:
     ]
     log.info(f'rtl_433: launching {" ".join(args)}')
     try:
+        # BUGFIX (2026-07-28): see _dab_launch()'s comment — same Windows
+        # console-window flash, same fix.
         _rtl433_proc = subprocess.Popen(
-            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         return _rtl433_proc, ''
     except Exception as e:
         return None, str(e)
@@ -13785,12 +14540,19 @@ async def dsd_engine():
 
             log.info(f'DSD: starting {" ".join(args)}')
             try:
+                # BUGFIX (2026-07-28): see _dab_launch()'s comment — same
+                # Windows console-window flash, same fix. Only suppresses the
+                # OS-allocated console for a console-subsystem child; DSD+'s
+                # own GUI audio-config window (see the is_plus branch above)
+                # is unaffected since that's a real window the app creates
+                # itself, not a console.
                 _dsd_proc = subprocess.Popen(
                     args,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
                     bufsize=0,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                 )
                 _dsd_thread = threading.Thread(
                     target=_dsd_reader_thread,
@@ -13823,13 +14585,13 @@ async def dsd_engine():
         await asyncio.sleep(2)
 
 
-# ── DAB / DAB+ ENGINE (w034: DAB-Radio, piped-IQ headless tool) ────────
+# ── DAB / DAB+ ENGINE (w035: DAB-Radio, piped-IQ headless tool) ────────
 # w033 and earlier used dab-cmdline's "example-3" program, which opens the
 # SDRplay/RTL-SDR/Airspy API itself and does the entire DAB stack
 # in-process -- but that also means it can only ever see a directly
 # (USB) attached device on the SAME machine; it cannot read from
 # SDRConnect or a networked nRSP-ST at all (confirmed against
-# SDRplay's own API docs -- see NEXUS_decoder_build_macOS.md). w034
+# SDRplay's own API docs -- see NEXUS_decoder_build_macOS.md). w035
 # replaces it with `dab_radio_nexus`, a small headless tool built into a
 # clone of williamyang98/DAB-Radio (MIT) -- see
 # NEXUS_dab_radio_build_macOS.md for the clone+patch+build steps. It owns
@@ -13967,7 +14729,7 @@ def _dab_find_binary():
     entry found a prebuilt binary under build/bundled/ at package time (see
     DARKSKY_NEXUS_macOS.spec / DARKSKY_NEXUS_Windows.spec), PyInstaller
     copies it in next to every other bundled resource -- the same place
-    _find_html() already reads DARKSKY_NEXUS_w034.html from (sys._MEIPASS:
+    _find_html() already reads DARKSKY_NEXUS_w035.html from (sys._MEIPASS:
     Contents/MacOS/ inside the .app on macOS, the _internal/ folder next to
     the .exe on Windows). Checked FIRST so a bundled binary always wins over
     a same-named one the user happens to have on PATH from a source build --
@@ -14020,6 +14782,19 @@ def _dab_terminate():
     global _dab_proc, _dab_services, _dab_ensemble_label, _dab_audio
     global _dab_resamp_src_sr, _dab_resamp_carry, _dab_generation
     global _dab_dls, _dab_slideshow
+    # DIAGNOSTIC (2026-08-01): live report of dab_radio_nexus dying
+    # (returncode=-15, i.e. genuinely SIGTERM'd, not crashed) ~30s into a
+    # 12B run with no dab_stop/dab_set_channel visibly sent from the
+    # frontend. Only 3 call sites reach _dab_proc.terminate() (all of them
+    # go through this function -- dab_stop's WS handler, dab_set_channel's
+    # WS handler, and dab_engine()'s own graceful-stop branch), so logging
+    # exactly which one fired, every time, is the fastest way to catch the
+    # real trigger red-handed next time this reproduces.
+    if _dab_proc is not None and _dab_proc.poll() is None:
+        import traceback as _tb
+        log.warning("DAB: _dab_terminate() called on a still-running "
+                     "subprocess -- call stack:\n" +
+                     ''.join(_tb.format_stack(limit=6)))
     _dab_generation += 1
     if _dab_proc is not None:
         try:
@@ -14095,7 +14870,20 @@ def _dab_launch():
     try:
         _dab_proc = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, bufsize=0)
+            stderr=subprocess.PIPE, bufsize=0,
+            # BUGFIX (2026-07-28, live user report on the Windows build):
+            # dab_radio_nexus.exe is a console application, and this NEXUS
+            # backend itself is built --windowed/--noconsole -- with no
+            # parent console for the child to attach to, Windows pops open
+            # a brand new console window for it, which then vanishes the
+            # instant _dab_terminate() kills it. dabScanChannels() relaunches
+            # this subprocess once per Band III channel it tests, so the
+            # scan looked like a cmd box flashing open/closed at every
+            # channel. CREATE_NO_WINDOW tells Windows not to create that
+            # console at all. getattr(...) with a 0 fallback keeps this a
+            # no-op on macOS/Linux dev machines -- passing creationflags=0
+            # there matches subprocess's own default, so it's not an error.
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         _dab_generation += 1
         return _dab_proc, _dab_generation, ''
     except Exception as e:
@@ -14312,10 +15100,83 @@ def _dab_stderr_thread_fn(proc, gen, channel, loop, broadcast_fn):
             try:
                 msg = json.loads(line)
             except ValueError:
-                log.debug(f'DAB (non-JSON stderr): {line}')
+                # BUGFIX (2026-07-31): was log.debug -- invisible at the
+                # default INFO level, so any plain-text status/error line
+                # dab_radio_nexus prints (anything that isn't valid JSON)
+                # was silently swallowed. Live investigation of a "clean
+                # launch, strong confirmed signal, zero ensemble lock"
+                # report needed to actually see this text and couldn't --
+                # elevated to warning so it surfaces without needing DEBUG
+                # logging enabled.
+                log.warning(f'DAB (non-JSON stderr): {line}')
                 continue
             mtype = msg.get('type')
-            if mtype == 'dab_status':
+            if mtype == 'dab_debug':
+                # DIAGNOSTIC (2026-08-01): temporary instrumentation added to
+                # dab_radio_nexus.cpp while chasing the "station logos never
+                # appear" report -- see that file's emit_debug() call sites.
+                # 'data_packet_channel_discovered' firing at all is the
+                # direct, unambiguous confirmation that the local DAB-Radio
+                # patch (removing the fec_scheme != UNDEFINED gate in
+                # basic_radio.cpp) actually took effect in whatever binary
+                # is currently running. 'pad_slideshow_complete' /
+                # 'packet_slideshow_complete' confirm a full MOT object was
+                # genuinely reassembled on one of the two transports. If
+                # none of these ever appear for a station that should have
+                # a logo, the problem is upstream of everything NEXUS's own
+                # Python/JS code controls. Logged at warning so it's visible
+                # without enabling DEBUG.
+                log.warning(f"DAB debug: {msg.get('event')} "
+                            f"subchannel_id={msg.get('subchannel_id')} "
+                            f"bytes={msg.get('bytes')} "
+                            f"audio_subchannel_id={msg.get('audio_subchannel_id')}")
+            elif mtype == 'dab_slideshow_file':
+                # BUGFIX (2026-08-01, live user report reproduced twice:
+                # "10 secs of audio then silence" on every channel): MOT
+                # slideshow images used to stream straight through the SAME
+                # stdout pipe (and writer mutex) as every subchannel's
+                # real-time audio PCM. Once the packet-mode MOT fix above
+                # started producing frequent, large (up to 22KB) slideshow
+                # completions on a genuinely busy carousel, that shared pipe
+                # backed up and stalled audio output entirely -- confirmed
+                # by dozens of packet_slideshow_complete debug lines
+                # clustering exactly where the reported silence began.
+                # dab_radio_nexus.cpp now writes the image to a small temp
+                # file and only sends this pointer over stderr; read it here
+                # (off the hot audio path entirely), cache/broadcast exactly
+                # as the old inline "DAB2" stdout frame used to, then remove
+                # the temp file. sub_id/path missing or the read failing is
+                # treated as "nothing to show" rather than an error.
+                sub_id = msg.get('subchannel_id')
+                path = msg.get('path')
+                image_type = msg.get('image_type', 0)
+                payload = None
+                if sub_id is not None and path:
+                    try:
+                        with open(path, 'rb') as f:
+                            payload = f.read()
+                    except OSError as e:
+                        log.warning(f"DAB: couldn't read slideshow temp file {path!r}: {e}")
+                    finally:
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
+                if payload:
+                    _dab_store_slideshow(sub_id, image_type, payload)
+                    svc = next((s for s in _dab_services.values()
+                                if s.get('subchannel_id') == sub_id), None)
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast_fn({
+                            'type': 'dab_slideshow',
+                            'subchannel_id': sub_id,
+                            'sid': svc.get('sid') if svc else None,
+                            'image_type': image_type,
+                            'image_b64': base64.b64encode(payload).decode('ascii'),
+                        }),
+                        loop
+                    )
+            elif mtype == 'dab_status':
                 if not msg.get('running', True):
                     # BUGFIX (2026-07-24): this used to only reach connected browsers as
                     # a toast (easy to miss/lose) -- log it server-side too, since this is
@@ -14447,6 +15308,18 @@ async def dab_engine():
         proc_dead = (_dab_proc is None or _dab_proc.poll() is not None)
 
         if active and proc_dead:
+            # DIAGNOSTIC (2026-08-01): live report of "no ensemble detected"
+            # on 12B that turned out, on reading the full log, to actually be
+            # a silent subprocess relaunch ~30s after the first successful
+            # launch -- this loop only relaunches when proc.poll() is not
+            # None, i.e. dab_radio_nexus itself already exited, but nothing
+            # here ever logged WHY. Log the dead process's returncode (a
+            # negative value on POSIX means it was killed by that signal
+            # number, e.g. -11 = SIGSEGV) before it gets silently relaunched,
+            # so a crash can be told apart from some other cause.
+            if _dab_proc is not None:
+                log.warning(f"DAB: subprocess found dead before relaunch "
+                            f"(returncode={_dab_proc.poll()})")
             # BUGFIX (2026-07-26): captured once, right here, at the exact
             # moment this specific subprocess is launched -- NOT read again
             # later at broadcast time. See the dab_ensemble broadcast's own
@@ -14475,6 +15348,793 @@ async def dab_engine():
         elif not active and _dab_proc is not None:
             _dab_terminate()
             await broadcast_json({'type': 'dab_status', 'running': False})
+
+        await asyncio.sleep(0.25)
+
+
+# ── DRM / DRM+ ENGINE (w035: Dream, piped IQ) ──────────────────────────
+# Companion to the DAB engine directly above -- same overall shape (external
+# GPL DSP engine, raw IQ piped in on stdin, decoded audio + JSON status piped
+# back out), following NEXUS_DRM_Dream_integration_plan.md's recommendation
+# to subprocess Dream (GPL-2) exactly the way DAB-Radio, dumphfdl, dumpvdl2,
+# DSD, rtl_433, and OP25/trunk-recorder already are, rather than linking it
+# in-process. See NEXUS_dream_drm_build_macOS.md for the dream_nexus.cpp
+# build steps this integration depends on.
+#
+# Unlike DAB, Dream decodes exactly ONE audio service per tuned frequency
+# (DRM has no multiplex-of-many-stations concept the way a DAB ensemble
+# does) -- so there's no per-subchannel buffer dict, no dab_play_sid
+# equivalent, no service list. State is simpler: one audio buffer, one
+# status snapshot (locked/robustness_mode/station_label/text_message/
+# snr_db/mer_db).
+#
+# stdin:  interleaved 16-bit PCM I,Q,I,Q,... at _DRM_TARGET_SR (48000 Hz by
+#         default, matching Dream's own DEFAULT_SOUNDCRD_SAMPLE_RATE) --
+#         see _drm_feed_iq() below.
+# stdout: one frame type, "DRM1" -- see dream_nexus.cpp's header comment
+#         for the exact byte layout.
+# stderr: one JSON line per status update --
+#           {"type":"drm_status","running":true|false,"error":"..."}
+#           {"type":"drm_status","locked":true,"robustness_mode":"B",
+#            "station_label":"...","text_message":"...",
+#            "snr_db":14.2,"mer_db":18.7}
+
+_drm_proc            = None     # dream_nexus subprocess
+_drm_stdin_lock      = threading.Lock()
+_drm_stdout_thread   = None
+_drm_stderr_thread   = None
+_drm_status: dict    = {}       # {'locked':bool,'robustness_mode':str,'station_label':str,'text_message':str,'snr_db':float,'mer_db':float}
+_drm_audio: dict | None = None  # {'sr':int,'stereo':bool,'bps':int,'buf':bytearray(),'lock':threading.Lock()} -- None until the first "DRM1" frame arrives
+_DRM_AUDIO_MAX_BUF   = 2_000_000  # same cap convention as _DAB_AUDIO_MAX_BUF -- an unwatched/stalled stream can't grow the buffer unbounded
+
+# Same generation-counter convention as _dab_generation -- a channel/
+# frequency change kills the old dream_nexus subprocess and relaunches a
+# new one; without a generation tag, a straggler frame from the OLD
+# subprocess (still draining its stdout pipe for a moment after
+# _drm_terminate()) could land in _drm_audio right as a NEW frequency's
+# service starts decoding, briefly playing back audio from the wrong
+# station. See _dab_generation's own comment for the full story this
+# pattern was built to close off.
+_drm_generation      = 0
+
+# Same settle-window convention as _DAB_RETUNE_SETTLE_S -- IQ arriving
+# within this window after a frequency change may still be physically
+# centred on the PREVIOUS frequency (SDR LO PLL lock + SDRConnect's own
+# command round-trip aren't instant), so _drm_feed_iq() drops it rather
+# than feeding stale-RF-content IQ to the subprocess and having it get
+# correctly decoded but wrongly attributed to the new frequency.
+_DRM_RETUNE_SETTLE_S = 1.0
+
+# IQ resampler state (raw hardware-rate -> 48000 Hz for dream_nexus's stdin)
+_DRM_TARGET_SR       = 48_000   # matches Dream's own DEFAULT_SOUNDCRD_SAMPLE_RATE -- see the
+                                 # integration plan §6 for why this was chosen over a smaller
+                                 # 12/24 kHz target (avoids touching Dream's own sampleratesig)
+_DRM_RESAMP_HIST     = 64        # smaller FIR transient window than DAB's -- much lower decimation ratio
+_drm_resamp_src_sr   = None
+_drm_resamp_up       = 1
+_drm_resamp_down     = 1
+_drm_resamp_carry    = np.zeros(0, dtype=np.complex64)
+
+def _drm_find_binary():
+    """Find the dream_nexus headless tool. Mirrors _dab_find_binary()'s
+    bundled-build-first, then-PATH-search convention exactly -- see that
+    function's own comment for why the bundled check comes first."""
+    if getattr(sys, 'frozen', False):
+        exe_name = 'dream_nexus.exe' if sys.platform == 'win32' else 'dream_nexus'
+        bundled = Path(sys._MEIPASS) / exe_name
+        if bundled.is_file():
+            return str(bundled)
+
+    candidates = [
+        'dream_nexus',
+        '/usr/local/bin/dream_nexus',
+        '/opt/homebrew/bin/dream_nexus',
+    ]
+    if sys.platform == 'win32':
+        candidates += [
+            'dream_nexus.exe',
+            r'C:\dream_nexus\dream_nexus.exe',
+            str(Path(os.environ.get('LOCALAPPDATA', '')) / 'dream_nexus' / 'dream_nexus.exe'),
+        ]
+    for path in candidates:
+        try:
+            if shutil.which(path) or Path(path).is_file():
+                return path
+        except Exception:
+            continue
+    return None
+
+def _drm_terminate():
+    """Kill the dream_nexus subprocess (if running) and reset per-run
+    state. Mirrors _dab_terminate()'s non-blocking-kill + generation-bump
+    convention exactly -- see that function's own comment for why this
+    must never block the asyncio event loop thread."""
+    global _drm_proc, _drm_status, _drm_audio, _drm_generation
+    global _drm_resamp_src_sr, _drm_resamp_carry
+    _drm_generation += 1
+    if _drm_proc is not None:
+        try:
+            if _drm_proc.stdin:
+                _drm_proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            _drm_proc.terminate()
+        except Exception:
+            try: _drm_proc.kill()
+            except Exception: pass
+    _drm_status = {}
+    _drm_audio = None
+    _drm_resamp_src_sr = None
+    _drm_resamp_carry = np.zeros(0, dtype=np.complex64)
+
+def _drm_launch():
+    """Launch dream_nexus. Like dab_radio_nexus, this tool owns no hardware
+    itself -- NEXUS/SDRConnect must already be tuned to the DRM/DRM+
+    frequency (see the drm_set_frequency WS handler); dream_nexus just
+    demodulates whatever IQ NEXUS feeds it on stdin.
+
+    Bumps _drm_generation and returns it alongside the process, same
+    convention as _dab_launch()."""
+    global _drm_proc, _drm_generation
+    binary = _drm_find_binary()
+    if not binary:
+        return None, None, ("dream_nexus not found on PATH -- build it from a "
+                       "clone of github.com/rafael2k/dream (see "
+                       "NEXUS_dream_drm_build_macOS.md for the exact "
+                       "clone+patch+build steps)")
+    rxmode = int(state.get('drm_rxmode', 0))
+    args = [binary, '--sample-rate', str(_DRM_TARGET_SR), '--rxmode', str(rxmode)]
+    log.info(f'DRM: launching {" ".join(args)}')
+    try:
+        _drm_proc = subprocess.Popen(
+            args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, bufsize=0,
+            # Same Windows console-window-flash fix as _dab_launch() -- see
+            # that function's own comment for the full explanation.
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        _drm_generation += 1
+        return _drm_proc, _drm_generation, ''
+    except Exception as e:
+        return None, None, str(e)
+
+def _drm_feed_iq(i_arr: np.ndarray, q_arr: np.ndarray, src_sr: float):
+    """Resample raw (undecimated) hardware-rate IQ down to Dream's
+    configured signal sample rate and write it to dream_nexus's stdin as
+    interleaved int16 I,Q,I,Q,... -- CPipeSoundIn reads this directly (see
+    dream_nexus.cpp). Same carry-buffer convention as _dab_feed_iq() to
+    smooth the polyphase FIR's transient at packet boundaries."""
+    import math
+    global _drm_resamp_carry, _drm_resamp_src_sr, _drm_resamp_up, _drm_resamp_down
+    proc = _drm_proc
+    if proc is None or proc.stdin is None or proc.poll() is not None:
+        return
+    if not _HAVE_SCIPY or len(i_arr) == 0:
+        return
+    # See _DRM_RETUNE_SETTLE_S's own comment above -- same reasoning as
+    # DAB's identical gate.
+    since_retune = time.monotonic() - state.get('drm_freq_changed_at', 0.0)
+    if since_retune < _DRM_RETUNE_SETTLE_S:
+        return
+    try:
+        src_sr_int = int(round(src_sr))
+        if src_sr_int != _drm_resamp_src_sr:
+            g = math.gcd(_DRM_TARGET_SR, src_sr_int) or 1
+            _drm_resamp_up   = _DRM_TARGET_SR // g
+            _drm_resamp_down = src_sr_int // g
+            _drm_resamp_src_sr = src_sr_int
+            _drm_resamp_carry = np.zeros(0, dtype=np.complex64)
+            log.info(f"DRM: resampling {src_sr_int} Hz -> {_DRM_TARGET_SR} Hz "
+                     f"(ratio {_drm_resamp_up}/{_drm_resamp_down})")
+
+        iq_c = (i_arr + 1j * q_arr).astype(np.complex64)
+        hist_n = len(_drm_resamp_carry)
+        if hist_n:
+            iq_c = np.concatenate((_drm_resamp_carry, iq_c))
+        _drm_resamp_carry = iq_c[-_DRM_RESAMP_HIST:] if len(iq_c) >= _DRM_RESAMP_HIST else iq_c
+
+        out = iq_c if (_drm_resamp_up == 1 and _drm_resamp_down == 1) \
+            else _scipy_signal.resample_poly(iq_c, _drm_resamp_up, _drm_resamp_down)
+        if hist_n:
+            drop_n = int(round(hist_n * _drm_resamp_up / _drm_resamp_down))
+            out = out[drop_n:]
+        if len(out) == 0:
+            return
+
+        # interleaved int16 I,Q,I,Q,... -- matches CPipeSoundIn's read
+        # format exactly (dream_nexus.cpp). Clip before scaling so an
+        # over-range sample can't wrap instead of saturating.
+        clip_i = np.clip(out.real, -1.0, 1.0)
+        clip_q = np.clip(out.imag, -1.0, 1.0)
+        interleaved = np.empty(len(out) * 2, dtype=np.int16)
+        interleaved[0::2] = (clip_i * 32767).astype(np.int16)
+        interleaved[1::2] = (clip_q * 32767).astype(np.int16)
+        with _drm_stdin_lock:
+            proc.stdin.write(interleaved.tobytes())
+            proc.stdin.flush()
+    except (BrokenPipeError, OSError):
+        pass  # process exited -- next drm_engine() tick will notice and relaunch
+    except Exception as e:
+        # See _dab_feed_iq()'s own BUGFIX comment for why this is a
+        # warning, not a debug call -- a swallowed exception here looks
+        # identical to "no signal" from the outside, with zero trace.
+        log.warning(f'DRM IQ feed error: {type(e).__name__}: {e}')
+
+def _drm_store_audio(sample_rate: int, is_stereo: bool, bps: int, payload: bytes):
+    """Append one PCM frame to the (single, DRM-has-only-one-stream)
+    audio buffer. Mirrors _dab_store_audio()'s shape minus the
+    per-subchannel dict, since there's only ever one stream here."""
+    global _drm_audio
+    if _drm_audio is None:
+        _drm_audio = {'sr': sample_rate, 'stereo': is_stereo, 'bps': bps,
+                       'buf': bytearray(), 'lock': threading.Lock()}
+    entry = _drm_audio
+    with entry['lock']:
+        entry['sr'], entry['stereo'], entry['bps'] = sample_rate, is_stereo, bps
+        entry['buf'] += payload
+        if len(entry['buf']) > _DRM_AUDIO_MAX_BUF:
+            del entry['buf'][:len(entry['buf']) - _DRM_AUDIO_MAX_BUF]
+
+def _drm_stdout_thread_fn(proc, gen, loop, broadcast_fn):
+    """Background thread: demux dream_nexus's framed stdout ("DRM1" PCM
+    frames only -- see dream_nexus.cpp's header comment). Mirrors
+    _dab_stdout_thread_fn()'s generation-check-before-touching-shared-state
+    convention exactly -- see that function's own BUGFIX comment for why."""
+    buf = b''
+    try:
+        while True:
+            if gen != _drm_generation:
+                break
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                break
+            if gen != _drm_generation:
+                break
+            buf += chunk
+            while True:
+                if len(buf) < 4:
+                    break
+                magic = buf[0:4]
+                if magic != b'DRM1':
+                    idx = buf.find(b'DRM1', 1)
+                    if idx == -1:
+                        buf = buf[-3:]  # keep a short tail in case the magic straddles this read
+                        break
+                    buf = buf[idx:]
+                    continue
+                if len(buf) < 14:
+                    break
+                sample_rate, is_stereo, bps, payload_len = struct.unpack_from('<IBBI', buf, 4)
+                total_len = 14 + payload_len
+                if len(buf) < total_len:
+                    break  # wait for more data
+                payload = bytes(buf[14:total_len])
+                buf = buf[total_len:]
+                if gen == _drm_generation and payload:
+                    _drm_store_audio(sample_rate, bool(is_stereo), bps, payload)
+    except Exception as e:
+        log.debug(f'DRM stdout thread ended: {e}')
+
+def _drm_stderr_thread_fn(proc, gen, loop, broadcast_fn):
+    """Background thread: parse dream_nexus's JSON status lines and
+    schedule broadcasts to connected browsers. Mirrors
+    _dab_stderr_thread_fn()'s generation-guard convention.
+
+    BUGFIX (2026-07-30, live "no drm decode" report): both the non-JSON
+    branch and lock-status transitions were only ever visible in the
+    browser UI or at log.debug (invisible at the default INFO log level).
+    A user hit a real dream_nexus crash-and-relaunch during a live test
+    against a genuine, scheduled DRM broadcast (Radio Romania
+    International, 9570 kHz, German, 1800-1900 UTC) and the log file had
+    nothing in it either way -- no crash text, no confirmation it ever
+    locked. Promoted both to log.info/log.warning so the log file alone
+    can answer "did it ever lock" and "why did it die" next time, without
+    needing the user to reproduce it with a terminal open.
+    """
+    global _drm_status
+    was_locked = False
+    try:
+        for raw in proc.stderr:
+            if gen != _drm_generation:
+                break
+            line = raw.decode('utf-8', errors='replace').strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                # Was log.debug (invisible by default) -- this is exactly
+                # where a dream_nexus crash/usage/assert message would
+                # land, so it needs to actually reach the log file.
+                log.warning(f'DRM (non-JSON stderr): {line}')
+                continue
+            if msg.get('type') != 'drm_status':
+                continue
+            if 'running' in msg and not msg.get('running', True):
+                if msg.get('error'):
+                    log.warning(f"DRM: {msg['error']}")
+                asyncio.run_coroutine_threadsafe(broadcast_fn(msg), loop)
+                continue
+            if gen == _drm_generation:
+                _drm_status = {k: v for k, v in msg.items() if k != 'type'}
+            # Log lock acquired/lost transitions -- previously only ever
+            # broadcast to the browser, never written to the log file, so
+            # there was no way to confirm decode success/failure after
+            # the fact.
+            is_locked = bool(msg.get('locked', False))
+            if is_locked and not was_locked:
+                log.info(f"DRM: locked -- mode={msg.get('robustness_mode', '?')} "
+                         f"station={msg.get('station_label', '?')!r} "
+                         f"snr={msg.get('snr_db', '?')}dB mer={msg.get('mer_db', '?')}dB")
+            elif was_locked and not is_locked:
+                log.info("DRM: lock lost")
+            was_locked = is_locked
+            asyncio.run_coroutine_threadsafe(broadcast_fn(msg), loop)
+    except Exception as e:
+        log.debug(f'DRM stderr thread ended: {e}')
+
+async def drm_engine():
+    """Long-running task: manage the dream_nexus subprocess lifecycle.
+    Mirrors dab_engine()'s shape exactly -- start/stop and a frequency
+    change (which force-terminates via _drm_terminate(), see the
+    drm_set_frequency WS handler) touch the subprocess; a rxmode change
+    alone does not (dream_nexus re-reads state['drm_rxmode'] only at its
+    own launch time, same "captured once, not read live" convention
+    _dab_launch() uses for its channel argument)."""
+    global _drm_proc, _drm_stdout_thread, _drm_stderr_thread
+    loop = asyncio.get_running_loop()
+
+    while True:
+        active    = state.get('drm_active', False)
+        # BUGFIX (2026-07-30, live "no drm decode" report): distinguish a
+        # fresh start (_drm_proc is None) from dream_nexus having actually
+        # crashed after a successful launch (_drm_proc exists but .poll()
+        # now shows it exited) -- the latter silently relaunched with zero
+        # trace before, which is exactly what happened live: two launches
+        # ~4.3s apart with nothing in between explaining why. Gated on
+        # `active` -- _drm_terminate() deliberately never clears _drm_proc
+        # itself (this loop's job, same convention as _dab_terminate()),
+        # so after a user-initiated stop this would otherwise misfire as
+        # a false "crashed" warning on every idle 0.25s tick.
+        proc_dead = (_drm_proc is None or _drm_proc.poll() is not None)
+
+        if active and _drm_proc is not None and proc_dead:
+            log.warning(f"DRM: dream_nexus exited unexpectedly "
+                        f"(code {_drm_proc.poll()}) -- relaunching")
+
+        if active and proc_dead:
+            proc, gen, err = _drm_launch()
+            if not proc:
+                await broadcast_json({'type': 'drm_status', 'running': False, 'error': err})
+                state['drm_active'] = False
+                await asyncio.sleep(5)
+                continue
+
+            _drm_stdout_thread = threading.Thread(
+                target=_drm_stdout_thread_fn, args=(proc, gen, loop, broadcast_json), daemon=True, name='drm-stdout')
+            _drm_stderr_thread = threading.Thread(
+                target=_drm_stderr_thread_fn, args=(proc, gen, loop, broadcast_json), daemon=True, name='drm-stderr')
+            _drm_stdout_thread.start()
+            _drm_stderr_thread.start()
+            await broadcast_json({'type': 'drm_status', 'running': True})
+            log.info("DRM: dream_nexus running, feeding from the Full-IQ tap")
+
+        elif not active and _drm_proc is not None:
+            _drm_terminate()
+            await broadcast_json({'type': 'drm_status', 'running': False})
+
+        await asyncio.sleep(0.25)
+
+
+# ── HD RADIO / NRSC-5 ENGINE (nrsc5_nexus, piped IQ) ───────────────────
+# Like DAB (and unlike DRM), nrsc5 decodes every discovered program
+# (HD1-HD8) simultaneously -- so this uses DAB's per-subchannel buffer-dict
+# shape (_hd_audio keyed by int program 0-7, hd_play_program selects which
+# one plays), not DRM's single-stream shape. See nrsc5_nexus.c's own header
+# comment for the exact wire format this talks.
+#
+# stdin:  interleaved 16-bit PCM I,Q,I,Q,... at nrsc5's own fixed native
+#         rate, which (unlike DAB/DRM) depends on FM vs AM mode:
+#         NRSC5_SAMPLE_RATE_CS16_FM = 744187.5 Hz,
+#         NRSC5_SAMPLE_RATE_CS16_AM = 46511.71875 Hz (confirmed against the
+#         real upstream nrsc5.h, not guessed) -- see _hd_feed_iq() for how
+#         a fractional target rate is handled.
+# stdout: one frame type, "HDR1" -- 4-byte magic + 1-byte program(0-7) +
+#         1-byte is_stereo + 4-byte payload_len (uint32 LE) + PCM payload.
+#         See nrsc5_nexus.c's emit_pcm().
+# stderr: one JSON line per status/metadata update --
+#           {"type":"hd_status","running":true|false,"error":"..."}
+#           {"type":"hd_id3","program":0,"title":"...","artist":"...",
+#            "album":"...","genre":"..."}
+#           {"type":"hd_station_name","name":"..."}
+#           {"type":"hd_station_slogan","slogan":"..."}
+#           {"type":"hd_station_message","message":"..."}
+#           {"type":"hd_station_id","country_code":"US","fcc_facility_id":N}
+#           {"type":"hd_station_location","lat":F,"lon":F,"altitude":N}
+#           {"type":"hd_audio_service","program":0,"access":"public",
+#            "program_type":"..."}
+#           {"type":"hd_sync","locked":true|false,"freq_offset_hz":F,
+#            "mer_db":F,"ber":F}
+#           {"type":"hd_emergency_alert","message":"...","category1":"..."}
+#           {"type":"hd_lot","kind":"logo"|"album_art","mime":"...","b64":"..."}
+# Audio sample rate is always the fixed NRSC5_SAMPLE_RATE_AUDIO constant
+# (44100 Hz) -- unlike DAB/DRM there is no per-frame rate to read from the
+# stream, so _hd_store_audio() hardcodes it rather than trusting a value
+# nrsc5 never actually reports per-event.
+_HD_AUDIO_SR         = 44100
+
+_hd_proc             = None     # nrsc5_nexus subprocess
+_hd_stdin_lock       = threading.Lock()
+_hd_stdout_thread    = None
+_hd_stderr_thread    = None
+_hd_status: dict     = {}       # {'locked':bool,'freq_offset_hz':float,'mer_db':float,'ber':float,
+                                 #  'station_name':str,'station_slogan':str,'station_message':str,
+                                 #  'programs':{program:int -> {'program_type':str,'access':str}},
+                                 #  'id3':{program:int -> {'title','artist','album','genre'}},
+                                 #  'logo_b64':str|None,'album_art_b64':str|None}
+_hd_audio: dict      = {}       # program(int 0-7) -> {'sr':int,'stereo':bool,'bps':int,'buf':bytearray,'lock':threading.Lock()}
+_HD_AUDIO_MAX_BUF    = 2_000_000  # same cap convention as _DAB_AUDIO_MAX_BUF/_DRM_AUDIO_MAX_BUF
+
+# Same generation-counter convention as _dab_generation/_drm_generation --
+# see _dab_generation's own comment for the full "straggler frame from the
+# old subprocess lands in the new one's buffer" story this closes off.
+_hd_generation       = 0
+
+# Same settle-window convention as _DAB_RETUNE_SETTLE_S/_DRM_RETUNE_SETTLE_S.
+_HD_RETUNE_SETTLE_S  = 1.0
+
+# IQ resampler state (raw hardware-rate -> nrsc5's fixed native rate).
+# Unlike DAB (2.048MSPS) and DRM (48000 Hz), both plain integers,
+# NRSC5_SAMPLE_RATE_CS16_FM (744187.5) and NRSC5_SAMPLE_RATE_CS16_AM
+# (46511.71875) are fractional -- math.gcd() needs integer operands.
+# Confirmed against the real header: FM's rate is exactly 16x AM's rate
+# (744187.5 / 46511.71875 == 16.0 exactly, both being derived from the same
+# nrsc5 master clock divided differently for the two mode families), which
+# means FM*2 and AM*32 both land on the same integer, 1488375 (also
+# NRSC5_SAMPLE_RATE_CU8, confirmed in the header -- not a coincidence, same
+# underlying clock). So both modes reduce to one canonical integer target
+# with a mode-dependent scale factor, rather than needing two separate
+# fractional-rate code paths.
+_HD_TARGET_SCALED    = 1_488_375   # == NRSC5_SAMPLE_RATE_CS16_FM * 2 == NRSC5_SAMPLE_RATE_CS16_AM * 32
+_HD_SCALE_FM         = 2
+_HD_SCALE_AM         = 32
+_HD_RESAMP_HIST      = 64          # same small-window convention as DRM's (low decimation ratio, not DAB's 2.048MSPS case)
+_hd_resamp_src_sr    = None
+_hd_resamp_is_am     = None
+_hd_resamp_up        = 1
+_hd_resamp_down      = 1
+_hd_resamp_carry     = np.zeros(0, dtype=np.complex64)
+
+def _hd_find_binary():
+    """Find the nrsc5_nexus headless tool. Mirrors _dab_find_binary()'s/
+    _drm_find_binary()'s bundled-build-first, then-PATH-search convention."""
+    if getattr(sys, 'frozen', False):
+        exe_name = 'nrsc5_nexus.exe' if sys.platform == 'win32' else 'nrsc5_nexus'
+        bundled = Path(sys._MEIPASS) / exe_name
+        if bundled.is_file():
+            return str(bundled)
+
+    candidates = [
+        'nrsc5_nexus',
+        '/usr/local/bin/nrsc5_nexus',
+        '/opt/homebrew/bin/nrsc5_nexus',
+    ]
+    if sys.platform == 'win32':
+        candidates += [
+            'nrsc5_nexus.exe',
+            r'C:\nrsc5_nexus\nrsc5_nexus.exe',
+            str(Path(os.environ.get('LOCALAPPDATA', '')) / 'nrsc5_nexus' / 'nrsc5_nexus.exe'),
+        ]
+    for path in candidates:
+        try:
+            if shutil.which(path) or Path(path).is_file():
+                return path
+        except Exception:
+            continue
+    return None
+
+def _hd_terminate():
+    """Kill the nrsc5_nexus subprocess (if running) and reset per-run
+    state. Mirrors _dab_terminate()/_drm_terminate()'s non-blocking-kill +
+    generation-bump convention exactly."""
+    global _hd_proc, _hd_status, _hd_audio, _hd_generation
+    global _hd_resamp_src_sr, _hd_resamp_is_am, _hd_resamp_carry
+    _hd_generation += 1
+    if _hd_proc is not None:
+        try:
+            if _hd_proc.stdin:
+                _hd_proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            _hd_proc.terminate()
+        except Exception:
+            try: _hd_proc.kill()
+            except Exception: pass
+    _hd_status = {}
+    _hd_audio = {}
+    _hd_resamp_src_sr = None
+    _hd_resamp_is_am = None
+    _hd_resamp_carry = np.zeros(0, dtype=np.complex64)
+
+def _hd_launch():
+    """Launch nrsc5_nexus. Like dab_radio_nexus/dream_nexus, this tool owns
+    no hardware itself -- NEXUS/SDRConnect must already be tuned to the HD
+    Radio frequency (see the hd_set_frequency WS handler); nrsc5_nexus just
+    demodulates whatever IQ NEXUS feeds it on stdin. --am selects AM mode
+    (see nrsc5_nexus.c's main()); FM is the default.
+
+    Bumps _hd_generation and returns it alongside the process, same
+    convention as _dab_launch()/_drm_launch()."""
+    global _hd_proc, _hd_generation
+    binary = _hd_find_binary()
+    if not binary:
+        return None, None, ("nrsc5_nexus not found on PATH -- build it from "
+                       "nrsc5_nexus.c against theori-io/nrsc5's nrsc5_static "
+                       "(see NEXUS_nrsc5_build_macOS.md for the exact "
+                       "clone+build steps)")
+    args = [binary]
+    if state.get('hd_is_am', False):
+        args.append('--am')
+    log.info(f'HD Radio: launching {" ".join(args)}')
+    try:
+        _hd_proc = subprocess.Popen(
+            args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, bufsize=0,
+            # Same Windows console-window-flash fix as _dab_launch()/
+            # _drm_launch() -- see those functions' own comment.
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        _hd_generation += 1
+        return _hd_proc, _hd_generation, ''
+    except Exception as e:
+        return None, None, str(e)
+
+def _hd_feed_iq(i_arr: np.ndarray, q_arr: np.ndarray, src_sr: float, is_am: bool):
+    """Resample raw (undecimated) hardware-rate IQ down to nrsc5's fixed
+    native rate for the current mode and write it to nrsc5_nexus's stdin as
+    interleaved int16 I,Q,I,Q,... Same carry-buffer convention as
+    _dab_feed_iq()/_drm_feed_iq() to smooth the polyphase FIR's transient at
+    packet boundaries -- but the ratio math differs (see _HD_TARGET_SCALED's
+    own comment above) since the target rate is fractional, not a plain
+    integer like DAB/DRM's."""
+    import math
+    global _hd_resamp_carry, _hd_resamp_src_sr, _hd_resamp_is_am, _hd_resamp_up, _hd_resamp_down
+    proc = _hd_proc
+    if proc is None or proc.stdin is None or proc.poll() is not None:
+        return
+    if not _HAVE_SCIPY or len(i_arr) == 0:
+        return
+    # See _HD_RETUNE_SETTLE_S's own comment (mirrors DAB/DRM's identical gate).
+    since_retune = time.monotonic() - state.get('hd_freq_changed_at', 0.0)
+    if since_retune < _HD_RETUNE_SETTLE_S:
+        return
+    try:
+        src_sr_int = int(round(src_sr))
+        if src_sr_int != _hd_resamp_src_sr or is_am != _hd_resamp_is_am:
+            scale = _HD_SCALE_AM if is_am else _HD_SCALE_FM
+            g = math.gcd(_HD_TARGET_SCALED, src_sr_int * scale) or 1
+            _hd_resamp_up   = _HD_TARGET_SCALED // g
+            _hd_resamp_down = (src_sr_int * scale) // g
+            _hd_resamp_src_sr = src_sr_int
+            _hd_resamp_is_am = is_am
+            _hd_resamp_carry = np.zeros(0, dtype=np.complex64)
+            target_hz = _HD_TARGET_SCALED / scale
+            log.info(f"HD Radio: resampling {src_sr_int} Hz -> {target_hz} Hz "
+                     f"({'AM' if is_am else 'FM'}, ratio {_hd_resamp_up}/{_hd_resamp_down})")
+
+        iq_c = (i_arr + 1j * q_arr).astype(np.complex64)
+        hist_n = len(_hd_resamp_carry)
+        if hist_n:
+            iq_c = np.concatenate((_hd_resamp_carry, iq_c))
+        _hd_resamp_carry = iq_c[-_HD_RESAMP_HIST:] if len(iq_c) >= _HD_RESAMP_HIST else iq_c
+
+        out = iq_c if (_hd_resamp_up == 1 and _hd_resamp_down == 1) \
+            else _scipy_signal.resample_poly(iq_c, _hd_resamp_up, _hd_resamp_down)
+        if hist_n:
+            drop_n = int(round(hist_n * _hd_resamp_up / _hd_resamp_down))
+            out = out[drop_n:]
+        if len(out) == 0:
+            return
+
+        # interleaved int16 I,Q,I,Q,... -- matches nrsc5_pipe_samples_cs16()'s
+        # expected input format exactly (nrsc5_nexus.c). Clip before scaling
+        # so an over-range sample can't wrap instead of saturating.
+        clip_i = np.clip(out.real, -1.0, 1.0)
+        clip_q = np.clip(out.imag, -1.0, 1.0)
+        interleaved = np.empty(len(out) * 2, dtype=np.int16)
+        interleaved[0::2] = (clip_i * 32767).astype(np.int16)
+        interleaved[1::2] = (clip_q * 32767).astype(np.int16)
+        with _hd_stdin_lock:
+            proc.stdin.write(interleaved.tobytes())
+            proc.stdin.flush()
+    except (BrokenPipeError, OSError):
+        pass  # process exited -- next hd_engine() tick will notice and relaunch
+    except Exception as e:
+        # See _dab_feed_iq()'s own BUGFIX comment for why this is a
+        # warning, not a debug call -- a swallowed exception here looks
+        # identical to "no signal" from the outside, with zero trace.
+        log.warning(f'HD Radio IQ feed error: {type(e).__name__}: {e}')
+
+def _hd_store_audio(program: int, payload: bytes, is_stereo: bool):
+    """Append one PCM frame to the given program's buffer. Mirrors
+    _dab_store_audio()'s per-subchannel-dict shape exactly. Sample rate is
+    always _HD_AUDIO_SR (44100, the fixed NRSC5_SAMPLE_RATE_AUDIO) and bit
+    depth is always 16 -- nrsc5's audio output has no variability here,
+    unlike DAB (per-subchannel BasicAudioParams) or DRM (xHE-AAC/SBR rate
+    drift), so there's nothing to read out of the frame beyond the PCM
+    itself and the stereo flag."""
+    entry = _hd_audio.get(program)
+    if entry is None:
+        entry = {'sr': _HD_AUDIO_SR, 'stereo': is_stereo, 'bps': 2,
+                  'buf': bytearray(), 'lock': threading.Lock()}
+        _hd_audio[program] = entry
+    with entry['lock']:
+        entry['stereo'] = is_stereo
+        entry['buf'] += payload
+        if len(entry['buf']) > _HD_AUDIO_MAX_BUF:
+            del entry['buf'][:len(entry['buf']) - _HD_AUDIO_MAX_BUF]
+
+def _hd_stdout_thread_fn(proc, gen, loop, broadcast_fn):
+    """Background thread: demux nrsc5_nexus's framed stdout ("HDR1" PCM
+    frames only -- see nrsc5_nexus.c's emit_pcm()). Mirrors
+    _dab_stdout_thread_fn()'s/_drm_stdout_thread_fn()'s
+    generation-check-before-touching-shared-state convention exactly."""
+    buf = b''
+    try:
+        while True:
+            if gen != _hd_generation:
+                break
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                break
+            if gen != _hd_generation:
+                break
+            buf += chunk
+            while True:
+                if len(buf) < 4:
+                    break
+                magic = buf[0:4]
+                if magic != b'HDR1':
+                    idx = buf.find(b'HDR1', 1)
+                    if idx == -1:
+                        buf = buf[-3:]  # keep a short tail in case the magic straddles this read
+                        break
+                    buf = buf[idx:]
+                    continue
+                if len(buf) < 10:
+                    break
+                program, is_stereo, payload_len = struct.unpack_from('<BBI', buf, 4)
+                total_len = 10 + payload_len
+                if len(buf) < total_len:
+                    break  # wait for more data
+                payload = bytes(buf[10:total_len])
+                buf = buf[total_len:]
+                if gen == _hd_generation and payload:
+                    _hd_store_audio(program, payload, bool(is_stereo))
+    except Exception as e:
+        log.debug(f'HD Radio stdout thread ended: {e}')
+
+def _hd_stderr_thread_fn(proc, gen, loop, broadcast_fn):
+    """Background thread: parse nrsc5_nexus's JSON status/metadata lines
+    and schedule broadcasts to connected browsers. Mirrors
+    _dab_stderr_thread_fn()'s/_drm_stderr_thread_fn()'s generation-guard
+    convention. Unlike DAB/DRM's single status shape, nrsc5_nexus emits
+    several distinct message types (see this file's own header comment) --
+    each is merged into the relevant slot of _hd_status rather than
+    replacing the whole dict, so e.g. a fresh hd_sync line doesn't wipe out
+    the station name a hd_station_name line reported a moment earlier."""
+    global _hd_status
+    try:
+        for raw in proc.stderr:
+            if gen != _hd_generation:
+                break
+            line = raw.decode('utf-8', errors='replace').strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                # BUGFIX (2026-07-30): was log.debug (invisible by default) --
+                # promoted to warning, mirroring the identical DRM fix. This
+                # is exactly the line that would have shown the real
+                # "dyld: Library not loaded: @rpath/libnrsc5.dylib" text the
+                # first time nrsc5_nexus was deployed somewhere other than
+                # its build directory (see hd_engine()'s own comment above)
+                # -- a crash-on-launch with zero visible cause otherwise.
+                log.warning(f'HD Radio (non-JSON stderr): {line}')
+                continue
+            mtype = msg.get('type')
+            if mtype == 'hd_status':
+                if not msg.get('running', True):
+                    if msg.get('error'):
+                        log.warning(f"HD Radio: {msg['error']}")
+                    asyncio.run_coroutine_threadsafe(broadcast_fn(msg), loop)
+                    continue
+            elif gen == _hd_generation:
+                if mtype == 'hd_id3':
+                    _hd_status.setdefault('id3', {})[msg.get('program', 0)] = \
+                        {k: v for k, v in msg.items() if k not in ('type', 'program')}
+                elif mtype == 'hd_audio_service':
+                    _hd_status.setdefault('programs', {})[msg.get('program', 0)] = \
+                        {k: v for k, v in msg.items() if k not in ('type', 'program')}
+                elif mtype == 'hd_station_name':
+                    _hd_status['station_name'] = msg.get('name', '')
+                elif mtype == 'hd_station_slogan':
+                    _hd_status['station_slogan'] = msg.get('slogan', '')
+                elif mtype == 'hd_station_message':
+                    _hd_status['station_message'] = msg.get('message', '')
+                elif mtype == 'hd_station_id':
+                    _hd_status['country_code'] = msg.get('country_code', '')
+                    _hd_status['fcc_facility_id'] = msg.get('fcc_facility_id')
+                elif mtype == 'hd_station_location':
+                    _hd_status['lat'] = msg.get('lat')
+                    _hd_status['lon'] = msg.get('lon')
+                elif mtype == 'hd_sync':
+                    _hd_status['locked'] = msg.get('locked', False)
+                    if 'freq_offset_hz' in msg:
+                        _hd_status['freq_offset_hz'] = msg['freq_offset_hz']
+                    if 'mer_db' in msg:
+                        _hd_status['mer_db'] = msg['mer_db']
+                    if 'ber' in msg:
+                        _hd_status['ber'] = msg['ber']
+                elif mtype == 'hd_lot':
+                    kind = msg.get('kind')
+                    if kind == 'logo':
+                        _hd_status['logo_b64'] = msg.get('b64')
+                    elif kind == 'album_art':
+                        _hd_status['album_art_b64'] = msg.get('b64')
+                elif mtype == 'hd_emergency_alert':
+                    _hd_status['emergency_alert'] = {k: v for k, v in msg.items() if k != 'type'}
+            asyncio.run_coroutine_threadsafe(broadcast_fn(msg), loop)
+    except Exception as e:
+        log.debug(f'HD Radio stderr thread ended: {e}')
+
+async def hd_engine():
+    """Long-running task: manage the nrsc5_nexus subprocess lifecycle.
+    Mirrors dab_engine()'s/drm_engine()'s shape exactly -- start/stop and a
+    frequency/mode change (which force-terminates via _hd_terminate(), see
+    the hd_set_frequency WS handler) touch the subprocess."""
+    global _hd_proc, _hd_stdout_thread, _hd_stderr_thread
+    loop = asyncio.get_running_loop()
+
+    while True:
+        active    = state.get('hd_active', False)
+        proc_dead = (_hd_proc is None or _hd_proc.poll() is not None)
+
+        # BUGFIX (2026-07-30): mirrors drm_engine()'s identical watchdog log --
+        # found live when nrsc5_nexus was copied to /opt/homebrew/bin/ without
+        # also copying libnrsc5.dylib alongside it (dyld can't resolve
+        # @rpath/libnrsc5.dylib from the new location -- see
+        # NEXUS_nrsc5_build_macOS.md Step 5). Without this line the symptom
+        # was a silent, indefinite relaunch loop every ~0.25s with _hd_status
+        # staying permanently empty -- no log line anywhere said the process
+        # was even dying, let alone why. The real dyld error was already
+        # being read by _hd_stderr_thread_fn below, just logged at
+        # log.debug (invisible by default) since it isn't valid JSON.
+        if active and _hd_proc is not None and proc_dead:
+            log.warning(f"HD Radio: nrsc5_nexus exited unexpectedly "
+                        f"(code {_hd_proc.poll()}) -- relaunching")
+
+        if active and proc_dead:
+            proc, gen, err = _hd_launch()
+            if not proc:
+                await broadcast_json({'type': 'hd_status', 'running': False, 'error': err})
+                state['hd_active'] = False
+                await asyncio.sleep(5)
+                continue
+
+            _hd_stdout_thread = threading.Thread(
+                target=_hd_stdout_thread_fn, args=(proc, gen, loop, broadcast_json), daemon=True, name='hd-stdout')
+            _hd_stderr_thread = threading.Thread(
+                target=_hd_stderr_thread_fn, args=(proc, gen, loop, broadcast_json), daemon=True, name='hd-stderr')
+            _hd_stdout_thread.start()
+            _hd_stderr_thread.start()
+            await broadcast_json({'type': 'hd_status', 'running': True})
+            log.info("HD Radio: nrsc5_nexus running, feeding from the Full-IQ tap")
+
+        elif not active and _hd_proc is not None:
+            _hd_terminate()
+            await broadcast_json({'type': 'hd_status', 'running': False})
 
         await asyncio.sleep(0.25)
 
@@ -14608,9 +16268,12 @@ async def trunk_engine():
 
             log.info(f'Trunk: starting ({kind}) {" ".join(args)}')
             try:
+                # BUGFIX (2026-07-28): see _dab_launch()'s comment — same
+                # Windows console-window flash, same fix.
                 _trunk_proc = subprocess.Popen(
                     args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL, bufsize=0,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                 )
                 _trunk_thread = threading.Thread(
                     target=_trunk_reader_thread,
@@ -14888,22 +16551,273 @@ SSH_DEFAULT_CONFIG = {
     "ssh_auth":            "key",
     "ssh_key_path":        str(Path.home() / ".ssh" / "id_ed25519"),
     "ssh_password":        "",
-    "remote_command":      "cd /opt/sdrconnect && ./SDRconnect --server",
+    # BUGFIX (2026-07-29): default used to be the old "./SDRconnect --server"
+    # (raw hardware-bridge-only, port 50000) which REQUIRED a local_client
+    # (the full GUI, launched on this Mac) to actually become the WebSocket-
+    # API-speaking "brain" NEXUS talks to -- that whole two-hop dance
+    # predates SDRconnect Headless (added 1.0.7, Feb 2026). Headless can open
+    # the RSP AND serve the WebSocket API entirely on the remote box by
+    # itself, so the modern default is just: run headless remotely, leave
+    # local_client blank, and let NEXUS connect to <ssh_host>:5454 directly
+    # (see _sdr_set_target() and the no-local-client branch in
+    # _ssh_do_launch()). The old --server+local-client path still works if
+    # someone sets local_client explicitly -- see _ssh_launch_local_client().
+    "remote_command":      "cd /opt/sdrconnect && ./SDRconnect_headless --websocket_port=5454",
     "local_client":        "",
     "startup_delay":       30,  # max seconds to TCP-poll remote server port 50000
     "client_ready_delay":  30,  # max seconds to TCP-poll local SDRConnect WS API :5454
     "device_release_wait": 3,
     "default_device":      "",
     "preferred_stream_mode": "Full IQ",  # auto-select on nRSP-ST detect (w0.2.3: changed default, see version history)
+    # Added 2026-07-29 (live user request: an explicit way to choose USB RSP
+    # vs nRSP-ST at startup, rather than only the automatic "USB always wins
+    # if present" heuristic in _auto_select_device()). 'auto' = existing
+    # behaviour unchanged; 'usb' = only ever select a directly-connected USB
+    # device, never fall back to nRSP-ST even if no USB unit is found;
+    # 'nrsp' = actively select a networked (mode-suffixed) device even when
+    # a USB device is also plugged in.
+    #
+    # Superseded in practice by 'connection_mode' below (still read by
+    # _evaluate_device_selection() internally -- _apply_connection_mode()
+    # sets this automatically from the chosen connection_mode, so there's
+    # no separate UI for it any more).
+    "device_preference":   "auto",
+    # Added 2026-07-29 (live user report, after the device_choice_available
+    # broadcast still didn't stop nRSP-ST connecting first: "i think we need
+    # to add another screen at startup which basically states how do you
+    # wish to connect?"). One of:
+    #   'nrsp_ws'       — nRSP-ST over SDRConnect's WebSocket API
+    #   'usb_local_ws'  — USB-attached SDRplay device, SDRConnect running
+    #                     locally on this machine
+    #   'usb_remote_ws' — USB-attached SDRplay device, SDRConnect running on
+    #                     a remote host (the existing SSH launcher pane)
+    #   'rtlsdr'        — RTL-SDR dongle via rtl_tcp, no SDRConnect at all
+    # Empty string = not yet chosen (first run) -- see _connection_mode_ready.
+    "connection_mode":     "",
+    # Added 2026-07-31 (user request: "at nexus startup, could we add an
+    # option whether to have headless or not?"). Two independent axes --
+    # LOCAL (this machine, modes 'nrsp_ws'/'usb_local_ws') and REMOTE (the
+    # SSH launcher, mode 'usb_remote_ws'). Both default to the pre-existing
+    # behaviour so upgrading never changes anything for someone who doesn't
+    # touch these:
+    #   local_launch_mode  'none' (default) — NEXUS launches nothing locally,
+    #                       exactly like every prior version; the user is
+    #                       still expected to already have SDRConnect running.
+    #                      'headless' — NEXUS launches SDRconnect_headless
+    #                       itself at startup (no GUI window at all).
+    #                      'gui'      — NEXUS launches the full SDRconnect.app
+    #                       GUI itself at startup.
+    #   local_sdrconnect_path — the .app bundle (macOS) used for both of the
+    #                       local_launch_mode branches above; the headless
+    #                       binary lives inside it at
+    #                       Contents/MacOS/SDRconnect_headless.
+    #   remote_launch_mode 'headless' (default, matches the existing
+    #                       remote_command below) — SSH launcher pane's
+    #                       Headless/GUI toggle; picking this (re)writes
+    #                       remote_command/local_client to the headless
+    #                       two-field combo. 'gui' rewrites them to the
+    #                       legacy --server + local GUI client combo
+    #                       (see _apply_remote_launch_mode()). Purely a
+    #                       convenience toggle -- remote_command/local_client
+    #                       remain hand-editable as before.
+    "local_launch_mode":     "none",
+    "local_sdrconnect_path": "/Applications/SDRconnect.app" if sys.platform == "darwin"
+                              else (r"C:\Program Files\SDRconnect\SDRconnect.exe" if sys.platform == "win32"
+                                    else "/opt/sdrconnect/SDRconnect"),
+    "remote_launch_mode":    "headless",
 }
 
-_ssh_state       = {"status": "idle", "log": [], "error": ""}
+_ssh_state       = {"status": "idle", "log": [], "error": "", "remote_ws_direct": False}
+
+# Set by the 'select_device' WS command when the user picks a device from
+# the device-choice modal or the top-bar device selector (added 2026-07-29,
+# live user report: nRSP-ST always auto-connects first with no way to pick
+# USB instead). Remembered for the lifetime of this NEXUS process so a
+# reconnect doesn't re-prompt for a choice the user already made — see
+# _auto_select_device()'s 'auto' branch.
+_user_selected_device = None
+# True from the moment device_choice_available is broadcast until the user
+# answers via select_device (or a safety timeout elapses) — see
+# _deferred_iq_enable()'s own comment for why this exists (added 2026-07-31
+# startup UX audit).
+_device_choice_pending = False
+
+# Real startup gate (added 2026-07-29). Live user report, after the
+# device_choice_available broadcast still didn't stop nRSP-ST connecting
+# first: "i think we need to add another screen at startup which basically
+# states how do you wish to connect?" — the root problem the reactive
+# broadcast never actually fixed is that sdr_bridge() and rtl_bridge() are
+# both asyncio.create_task()'d unconditionally in main(), fully decoupled
+# from any frontend state, so SDRConnect was always already connecting (and
+# often already streaming whatever it last had active) before the browser
+# had rendered anything at all. This Event is a real block: sdr_bridge()
+# and rtl_bridge() both `await` it before attempting ANY connection, so
+# nothing happens until connection_mode is actually known — either loaded
+# from a previous session's persisted choice (see main()), or answered
+# fresh via the 'set_connection_mode' WS command on first run.
+# Created inside main() (needs a running loop), not at import time.
+_connection_mode_ready = None   # asyncio.Event, set in main()
+_connection_mode       = None   # 'nrsp_ws' | 'usb_local_ws' | 'usb_remote_ws' | 'rtlsdr'
+
+
+def _apply_connection_mode(mode: str):
+    """Translate a chosen connection_mode into the pre-existing
+    device_preference / engine knobs the rest of the codebase already
+    understands, so _evaluate_device_selection() and rtl_bridge()'s
+    per-iteration engine check don't need their own separate mode-aware
+    branches. Called both from main() (persisted choice, previous session)
+    and from the 'set_connection_mode' WS command (first-run choice, or a
+    later change that takes effect on the next restart)."""
+    global _connection_mode
+    _connection_mode = mode
+    state['connection_mode'] = mode
+    if mode == 'rtlsdr':
+        state['engine'] = 'RTLSDR'
+        state['iq_streaming'] = True   # RTL-SDR always streams IQ
+    else:
+        state['engine'] = 'SDRCONNECT'
+        pref = 'nrsp' if mode == 'nrsp_ws' else 'usb'   # usb_local_ws / usb_remote_ws
+        cfg = _ssh_load_config()
+        cfg['device_preference'] = pref
+        _ssh_save_config({k: v for k, v in cfg.items() if k != 'ssh_password'})
+        if _ssh_live_cfg:   # mutate in place -- no rebind, no 'global' needed
+            _ssh_live_cfg['device_preference'] = pref
+        log.info(f"connection_mode={mode!r} -> device_preference={pref!r}")
+
 _ssh_client_proc    = None
 _ssh_paramiko       = None
 _ssh_channel        = None
 _ssh_forward_server = None   # socketserver.TCPServer forwarding port 50000→remote:50000
 _ssh_state_lock  = threading.Lock()
 _ssh_live_cfg    = {}        # in-memory copy of launch config (includes password, never saved to disk)
+
+# NEXUS's own locally-launched SDRConnect process, if any (added 2026-07-31
+# -- see local_launch_mode in SSH_DEFAULT_CONFIG and _local_launch_sdrconnect()
+# below). None if local_launch_mode='none' (default) or launch hasn't
+# happened/failed. Deliberately separate from _ssh_client_proc, which is
+# only ever a *remote-mode* local client (launched from _ssh_do_launch()).
+_local_sdrconnect_proc = None
+
+
+def _remote_dir_from_command(remote_command: str) -> str:
+    """Best-effort extraction of the 'cd <dir> &&' prefix from a
+    remote_command string, so _apply_remote_launch_mode() preserves a
+    custom remote install directory instead of always resetting to the
+    /opt/sdrconnect default when the Headless/GUI toggle is flipped."""
+    try:
+        first = remote_command.split('&&', 1)[0].strip()
+        if first.startswith('cd '):
+            d = first[3:].strip()
+            if d:
+                return d
+    except Exception:
+        pass
+    return '/opt/sdrconnect'
+
+
+def _apply_remote_launch_mode(mode: str, cfg: dict) -> dict:
+    """Rewrite remote_command/local_client for the SSH launcher's
+    Headless/GUI toggle (added 2026-07-31, user request: "at nexus
+    startup, could we add an option whether to have headless or not?").
+    Purely a convenience over hand-editing those two fields — the same
+    remote_command/local_client knobs from the 2026-07-29 headless-default
+    change (see SSH_DEFAULT_CONFIG's remote_command comment) still do all
+    the actual work; this just fills them in consistently from one
+    Headless/GUI choice instead of requiring two separate manual edits.
+    Returns a NEW cfg dict (caller is responsible for saving it)."""
+    cfg = dict(cfg)
+    remote_dir = _remote_dir_from_command(cfg.get('remote_command', ''))
+    if mode == 'gui':
+        # Legacy two-hop path this whole file predates SDRconnect Headless
+        # with: raw hardware bridge only on the remote box (--server, port
+        # 50000, no WebSocket API), plus a full local GUI client on this
+        # Mac to actually expose ws://127.0.0.1:5454 for NEXUS to talk to.
+        cfg['remote_command'] = f"cd {remote_dir} && ./SDRconnect --server"
+        if not cfg.get('local_client', '').strip():
+            cfg['local_client'] = cfg.get('local_sdrconnect_path',
+                                           SSH_DEFAULT_CONFIG['local_sdrconnect_path'])
+        mode = 'gui'
+    else:
+        mode = 'headless'
+        cfg['remote_command'] = f"cd {remote_dir} && ./SDRconnect_headless --websocket_port=5454"
+        cfg['local_client'] = ''
+    cfg['remote_launch_mode'] = mode
+    return cfg
+
+
+def _local_launch_sdrconnect(cfg: dict):
+    """Launch SDRConnect locally (this machine) at NEXUS startup, per
+    cfg['local_launch_mode'] ('headless' or 'gui') and
+    cfg['local_sdrconnect_path']. Called once from sdr_bridge() before its
+    connect loop starts, only for the local connection modes ('nrsp_ws' /
+    'usb_local_ws').
+
+    Added 2026-07-31 — user request: "at nexus startup, could we add an
+    option whether to have headless or not?" Before this, NEXUS's local
+    modes never launched SDRConnect themselves at all; the user always had
+    to already have it running (headless or GUI, their choice, made
+    outside NEXUS entirely) — see the startup connection picker's own
+    "SDRConnect is already running" copy. That default behaviour is
+    unchanged: local_launch_mode='none' (the default) skips this function
+    entirely.
+
+    Deliberately best-effort: any failure here just falls back to the
+    pre-existing behaviour (sdr_bridge()'s 5s-retry connect loop waiting
+    for the user to start SDRConnect manually) rather than crashing
+    startup — same failure mode as every prior version, not a new one.
+    """
+    global _local_sdrconnect_proc
+    mode = cfg.get('local_launch_mode', 'none')
+    if mode not in ('headless', 'gui'):
+        return None
+    app_path = os.path.expanduser(str(cfg.get('local_sdrconnect_path', '')).strip())
+    if not app_path or not os.path.exists(app_path):
+        log.warning(f"local_launch_mode={mode!r} but local_sdrconnect_path "
+                    f"{app_path!r} does not exist — skipping local launch, "
+                    f"falling back to the 'already running' assumption")
+        return None
+    # BUGFIX (2026-07-31, live user report + screenshot: SDRconnect
+    # "Open Failed / Result 108" -- SDRplay API's device-already-claimed
+    # error): this used to launch a brand new SDRConnect instance without
+    # checking whether one was already running and already holding the
+    # RSPdx -- which, per the "audio persists" issue elsewhere in this
+    # file, it very often is, since nothing auto-quits a background
+    # SDRconnect_headless. Two SDRConnect processes both trying to open
+    # the same physical USB device is exactly what error 108 means. Kill
+    # any existing instance (headless or GUI) and give the RSPdx a moment
+    # to release before opening a fresh one -- mirrors
+    # _ssh_stop_local_client()'s device_release_wait requirement for the
+    # exact same underlying reason (a too-fast reopen holds a stale
+    # handle and can crash SDRConnect outright, not just fail to open).
+    # Blocking wait is intentional and bounded (once, at startup, before
+    # sdr_bridge()'s connect loop has anything to do yet) -- see
+    # _kill_existing_sdrconnect()'s own docstring for why this is now a
+    # poll-for-real-exit rather than a fixed sleep.
+    _kill_existing_sdrconnect()
+    try:
+        if mode == 'headless':
+            if app_path.endswith('.app') or os.path.isdir(app_path):
+                binary = os.path.join(app_path.rstrip('/'), 'Contents', 'MacOS',
+                                       'SDRconnect_headless')
+            else:
+                base, ext = os.path.splitext(app_path)
+                binary = os.path.join(os.path.dirname(app_path), 'SDRconnect_headless' + ext)
+            if not os.path.exists(binary):
+                log.warning(f"local_launch_mode='headless' but {binary!r} was not "
+                            f"found next to {app_path!r} — skipping local launch")
+                return None
+            client_cmd = f'"{binary}" --websocket_port=5454'
+        else:  # 'gui' — reuse the existing .app/exe launch logic as-is
+            client_cmd = app_path
+        proc = _ssh_launch_local_client(client_cmd)
+        _local_sdrconnect_proc = proc
+        log.info(f"Local SDRConnect ({mode}) launched at NEXUS startup "
+                 f"(PID {proc.pid if proc else '?'})")
+        return proc
+    except Exception as e:
+        log.warning(f"Local SDRConnect launch ({mode}) failed: {e} — "
+                    f"sdr_bridge() will keep retrying the connection as usual")
+        return None
 
 def _ssh_load_config() -> dict:
     SSH_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -14968,8 +16882,21 @@ def _ssh_tcp_poll(host: str, port: int, timeout: int = 60, label: str = "") -> b
 
 
 def _ssh_launch_local_client(client_path: str) -> subprocess.Popen:
-    if client_path.endswith(".app") or os.path.isdir(client_path):
-        app_path = client_path.rstrip("/")
+    """client_path may be a bare path (an .app bundle or a plain executable,
+    the original supported forms) OR a full command line with arguments --
+    e.g. '/Applications/SDRconnect.app/Contents/MacOS/SDRconnect_headless
+    --websocket_port=5454', for anyone who wants a local headless client
+    instead of a remote one. shlex-split so both forms work unchanged;
+    only the first token is treated as the executable/bundle path, the
+    rest are passed through as arguments."""
+    import shlex
+    parts = shlex.split(client_path)
+    if not parts:
+        raise ValueError("Empty client path")
+    exe, extra_args = parts[0], parts[1:]
+
+    if exe.endswith(".app") or os.path.isdir(exe):
+        app_path = exe.rstrip("/")
         if not os.path.exists(app_path):
             raise FileNotFoundError(f"App bundle not found: {app_path}")
         # Direct binary launch — 'open -a' returns instantly without rehydrating
@@ -14977,16 +16904,17 @@ def _ssh_launch_local_client(client_path: str) -> subprocess.Popen:
         binary = os.path.join(app_path, "Contents", "MacOS",
                               os.path.splitext(os.path.basename(app_path))[0])
         if os.path.exists(binary):
-            proc = subprocess.Popen([binary])
+            proc = subprocess.Popen([binary, *extra_args])
             _ssh_log(f"Launched {os.path.basename(binary)} directly (PID {proc.pid})", "success")
         else:
-            proc = subprocess.Popen(["open", "-a", app_path])
+            open_args = ["open", "-a", app_path] + (["--args", *extra_args] if extra_args else [])
+            proc = subprocess.Popen(open_args)
             _ssh_log(f"Launched via open -a {os.path.basename(app_path)} (PID {proc.pid})", "success")
     else:
-        if not os.path.exists(client_path):
-            raise FileNotFoundError(f"Executable not found: {client_path}")
-        proc = subprocess.Popen([client_path])
-        _ssh_log(f"Launched {os.path.basename(client_path)} (PID {proc.pid})", "success")
+        if not os.path.exists(exe):
+            raise FileNotFoundError(f"Executable not found: {exe}")
+        proc = subprocess.Popen([exe, *extra_args])
+        _ssh_log(f"Launched {os.path.basename(exe)} (PID {proc.pid})", "success")
     return proc
 
 def _ssh_stop_local_client(proc, client_path: str, device_release_wait: int = 3):
@@ -15130,6 +17058,7 @@ def _ssh_do_launch(cfg: dict):
 
     client_path = os.path.expanduser(cfg.get("local_client", "")).strip()
     proc = None
+    remote_ws_direct = False
     if client_path:
         _ssh_log(f"Launching local SDRConnect: {client_path}")
         try:
@@ -15138,25 +17067,33 @@ def _ssh_do_launch(cfg: dict):
             _ssh_log(f"Client launch failed: {e}", "error")
             # Non-fatal — server is running, NEXUS can still connect if WS is available
     else:
-        _ssh_log("No local client configured — connecting to remote WebSocket directly")
+        # No local client configured -- the remote_command is expected to be
+        # SDRconnect_headless itself (opens the RSP AND serves the WebSocket
+        # API on the remote box), so point NEXUS's bridge straight at it
+        # instead of a local 127.0.0.1:5454 that nothing is listening on.
+        _ssh_log(f"No local client configured — connecting NEXUS to {remote_host}:5454 directly")
+        _sdr_set_target(remote_host, 5454)
+        remote_ws_direct = True
 
     with _ssh_state_lock:
         _ssh_paramiko    = ssh
         _ssh_channel     = ch
         _ssh_client_proc = proc
         _ssh_state["status"] = "running"
+        _ssh_state["remote_ws_direct"] = remote_ws_direct
 
-    if proc:
-        ws_timeout = int(cfg.get("client_ready_delay", 30))
-        _ssh_log(f"Local client launched — polling WebSocket API on port 5454…")
-        asyncio.run_coroutine_threadsafe(
-            broadcast_json({"type": "ssh_status", "status": "running",
-                            "waiting": True, "wait_secs": ws_timeout}), loop)
-        ws_ready = _ssh_tcp_poll("127.0.0.1", 5454,
-                                 timeout=ws_timeout,
-                                 label="local SDRConnect WS API :5454")
-        if not ws_ready:
-            _ssh_log("SDRConnect WS API did not open in time — NEXUS will retry", "error")
+    # Poll whichever host is actually going to be serving the WebSocket API --
+    # 127.0.0.1 if a local client was launched, the remote box itself if not.
+    ws_timeout  = int(cfg.get("client_ready_delay", 30))
+    poll_host   = "127.0.0.1" if proc else remote_host
+    poll_label  = "local SDRConnect WS API :5454" if proc else f"remote SDRConnect WS API {remote_host}:5454"
+    _ssh_log(f"Polling {poll_label}…")
+    asyncio.run_coroutine_threadsafe(
+        broadcast_json({"type": "ssh_status", "status": "running",
+                        "waiting": True, "wait_secs": ws_timeout}), loop)
+    ws_ready = _ssh_tcp_poll(poll_host, 5454, timeout=ws_timeout, label=poll_label)
+    if not ws_ready:
+        _ssh_log(f"{poll_label} did not open in time — NEXUS will retry", "error")
 
     _ssh_log("Ready — server and client running", "success")
     asyncio.run_coroutine_threadsafe(
@@ -15167,27 +17104,46 @@ def _ssh_do_stop(cfg: dict):
     global _ssh_paramiko, _ssh_channel, _ssh_client_proc, _ssh_forward_server
     with _ssh_state_lock:
         _ssh_state["status"] = "stopping"
-        proc        = _ssh_client_proc
-        client_path = os.path.expanduser(cfg.get("local_client", ""))
+        proc              = _ssh_client_proc
+        client_path       = os.path.expanduser(cfg.get("local_client", ""))
+        was_remote_direct = _ssh_state.get("remote_ws_direct", False)
     asyncio.run_coroutine_threadsafe(
         broadcast_json({"type": "ssh_status", "status": "stopping"}), loop)
 
     # CRITICAL ORDER: close client → device release wait → kill remote
+    # (no-op when client_path is empty -- remote-direct mode never launched one)
     _ssh_stop_local_client(proc, client_path,
                             int(cfg.get("device_release_wait", 3)))
 
-    _ssh_log("Sending stop signal to remote server…")
+    # BUGFIX (2026-07-29): this used to hardcode the pkill pattern to the old
+    # "SDRconnect --server" binary name, which never matches when
+    # remote_command runs SDRconnect_headless instead (the new default) --
+    # the remote process would be left running after "stop". Derive the
+    # actual binary name from the configured remote_command so this matches
+    # whichever mode was actually launched.
+    binary_match = "SDRconnect"
+    for _tok in cfg.get("remote_command", "").split():
+        _name = os.path.basename(_tok)
+        if _name.startswith("SDRconnect"):
+            binary_match = _name
+            break
+    _ssh_log(f"Sending stop signal to remote server ({binary_match})…")
     try:
         ssh_kill = _ssh_open_connection(cfg)
         _, out, _ = ssh_kill.exec_command(
-            "pkill -TERM -f 'SDRconnect --server'; sleep 1; "
-            "pkill -KILL -f 'SDRconnect --server' 2>/dev/null; echo done",
+            f"pkill -TERM -f '{binary_match}'; sleep 1; "
+            f"pkill -KILL -f '{binary_match}' 2>/dev/null; echo done",
             timeout=8)
         result = out.read().decode().strip()
         ssh_kill.close()
         _ssh_log(f"Remote kill sent ({result or 'no output'})", "success")
     except Exception as e:
         _ssh_log(f"Remote kill error: {e}", "error")
+
+    if was_remote_direct:
+        _sdr_set_target("127.0.0.1", 5454)
+        with _ssh_state_lock:
+            _ssh_state["remote_ws_direct"] = False
 
     with _ssh_state_lock:
         ch  = _ssh_channel
@@ -15264,6 +17220,22 @@ def _handle_ssh_cmd(cmd: str, d: dict):
         safe["ssh_password_set"] = bool(cfg.get("ssh_password"))
         asyncio.run_coroutine_threadsafe(
             broadcast_json({"type": "ssh_config", **safe}), loop)
+    elif cmd == "set_device_pref":
+        # 'auto' | 'usb' | 'nrsp' — read by _auto_select_device() on every
+        # SDRConnect (re)connect. Persisted in the same ssh_config.json store
+        # as the rest of the connection wizard's settings (reuses existing
+        # load/save helpers rather than a new settings file).
+        pref = str(d.get("pref", "auto")).strip().lower()
+        if pref not in ("auto", "usb", "nrsp"):
+            pref = "auto"
+        cfg = _ssh_load_config()
+        cfg["device_preference"] = pref
+        _ssh_save_config({k: v for k, v in cfg.items() if k != "ssh_password"})
+        if _ssh_live_cfg:  # mutate in place -- no rebind, no 'global' needed
+            _ssh_live_cfg["device_preference"] = pref
+        log.info(f"device_preference set to {pref!r}")
+        asyncio.run_coroutine_threadsafe(
+            broadcast_json({"type": "device_pref", "pref": pref}), loop)
     elif cmd == "ssh_get_status":
         with _ssh_state_lock:
             s = dict(_ssh_state)
@@ -15302,19 +17274,164 @@ def _request_shutdown(reason: str = ""):
         os._exit(0)
 
 
+def _kill_sdrconnect_headless():
+    """Kill the standalone SDRconnect_headless process, if one is running.
+
+    BUGFIX (2026-07-30, live user report + Activity Monitor screenshot):
+    unlike _dab_proc/_hd_proc/_drm_proc/etc below, SDRconnect_headless is
+    never one of NEXUS's own subprocess.Popen children -- the common case
+    is the user starts it themselves (or it's already running) and NEXUS
+    only ever *talks to* it, over its own WebSocket API on port 5454/50000.
+    So terminating NEXUS's own process tree never touched it, and closing
+    the browser tab left it (and its local audio monitor) running
+    indefinitely, confirmed live via Activity Monitor showing it still at
+    13.5% CPU after Chrome was closed. Explicit fix: reach out and kill it
+    by name on the same "browser closed" trigger that already tears down
+    every other decoder engine here. Best-effort and silent — a no-match
+    pkill/taskkill just means it wasn't running (e.g. RTL-SDR-only
+    sessions), which is the common case and not an error.
+    """
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/IM", "SDRconnect_headless.exe", "/F"],
+                            capture_output=True, timeout=4)
+        else:
+            subprocess.run(["pkill", "-TERM", "-x", "SDRconnect_headless"],
+                            capture_output=True, timeout=4)
+    except Exception:
+        pass
+
+
+def _kill_existing_sdrconnect():
+    """Kill any already-running SDRConnect process, headless AND full GUI,
+    both by name, and BLOCK until it has actually exited (plus a short
+    device-release buffer) before returning. Added 2026-07-31 (BUGFIX,
+    live user report + screenshot: SDRconnect "Open Failed / Result 108"
+    right after enabling local_launch_mode='gui') -- see the call site in
+    _local_launch_sdrconnect() for the full explanation. Unlike
+    _kill_sdrconnect_headless() (called unconditionally on NEXUS shutdown,
+    regardless of who started that process), this is only ever called
+    right BEFORE local_launch_mode itself is about to start a new
+    instance -- so killing a GUI session here is safe: if
+    local_launch_mode is set, NEXUS itself owns starting SDRConnect for
+    this session, not the user via a separately-opened window.
+
+    BUGFIX (2026-07-31, same day, live re-report): the original version
+    fired SIGTERM and returned immediately, with the caller doing one
+    blind time.sleep(2) -- confirmed working once, but Result 108
+    recurred when the existing instance had been running and actively
+    streaming/tuned for a while before NEXUS tried to take over. An
+    actively-connected SDRplay session measurably takes longer to release
+    its USB/API handle on SIGTERM than a freshly-launched idle one, so a
+    single fixed delay can't cover both cases. Now polls for the process
+    to genuinely exit (escalating to SIGKILL if it's still alive after a
+    few seconds) before adding the release buffer, instead of guessing one
+    fixed number for every case. Best-effort throughout, same as before."""
+    def _sdrconnect_alive() -> bool:
+        try:
+            if sys.platform == "win32":
+                out = subprocess.run(["tasklist"], capture_output=True,
+                                      text=True, timeout=4).stdout
+                return "SDRconnect_headless.exe" in out or "SDRconnect.exe" in out
+            r1 = subprocess.run(["pgrep", "-x", "SDRconnect_headless"],
+                                 capture_output=True, timeout=4)
+            r2 = subprocess.run(["pgrep", "-x", "SDRconnect"],
+                                 capture_output=True, timeout=4)
+            return r1.returncode == 0 or r2.returncode == 0
+        except Exception:
+            return False
+
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/IM", "SDRconnect_headless.exe", "/F"],
+                            capture_output=True, timeout=4)
+            subprocess.run(["taskkill", "/IM", "SDRconnect.exe", "/F"],
+                            capture_output=True, timeout=4)
+        else:
+            subprocess.run(["pkill", "-TERM", "-x", "SDRconnect_headless"],
+                            capture_output=True, timeout=4)
+            subprocess.run(["pkill", "-TERM", "-x", "SDRconnect"],
+                            capture_output=True, timeout=4)
+    except Exception:
+        pass
+
+    # Poll for real exit (up to ~5s) rather than guessing a fixed delay --
+    # escalate to SIGKILL on POSIX if it's still alive 2s before the
+    # deadline (Windows already used /F above, so nothing further to
+    # escalate to there).
+    deadline = time.time() + 5.0
+    escalated = False
+    while time.time() < deadline:
+        if not _sdrconnect_alive():
+            break
+        if not escalated and sys.platform != "win32" and time.time() > deadline - 2.0:
+            escalated = True
+            try:
+                subprocess.run(["pkill", "-KILL", "-x", "SDRconnect_headless"],
+                                capture_output=True, timeout=4)
+                subprocess.run(["pkill", "-KILL", "-x", "SDRconnect"],
+                                capture_output=True, timeout=4)
+            except Exception:
+                pass
+        time.sleep(0.3)
+
+    # Extra buffer for the SDRplay API/driver layer to actually release
+    # the USB device underneath the now-dead process -- process exit and
+    # device release aren't guaranteed to be the same instant.
+    time.sleep(1.5)
+
+
 async def _graceful_shutdown():
     """Stop child processes/servers, then stop the event loop. Best-effort —
     any single failure here must not block the rest of teardown."""
+    # Kill the standalone SDRconnect_headless process first (not one of our
+    # own subprocess.Popen children — see _kill_sdrconnect_headless()).
+    _kill_sdrconnect_headless()
+
+    # NEXUS's own locally-launched SDRConnect, if local_launch_mode='gui'
+    # started one (added 2026-07-31 — see _local_launch_sdrconnect()).
+    # Terminated directly via the Popen handle we hold, NOT via pkill-by-
+    # name like the headless case above: a GUI instance might be one the
+    # user already had open for other reasons before NEXUS ever started,
+    # and only NEXUS-launched ones should be auto-closed on exit. The
+    # 'headless' local-launch case needs no separate handling here — it's
+    # already covered unconditionally by _kill_sdrconnect_headless() above.
+    _local_proc = globals().get('_local_sdrconnect_proc')
+    if _local_proc is not None:
+        try:
+            _local_proc.terminate()
+            _local_proc.wait(timeout=3)
+        except Exception:
+            try:
+                _local_proc.kill()
+            except Exception:
+                pass
+
     # Stop tracked external decoder/bridge subprocesses. Read via globals()
     # rather than `global` + direct name, since some of these (_rtl_proc,
     # _hfdl_proc, _vdl2_proc, _dsd_proc) are only assigned conditionally,
     # deep inside other functions, and we're only reading here, never
     # rebinding them.
+    # BUGFIX (2026-07-29, live user report: "when i quit and shutdown nexus
+    # .... audio persists"): _dab_proc, _drm_proc, and _trunk_proc were
+    # missing from this list entirely. All three are native decoder engines
+    # (dab_radio_nexus, dream_nexus, the DSD trunking tool) that open the
+    # SDR/network audio source *themselves* and just pipe raw PCM to Python
+    # over stdout -- nothing else reads or owns that audio stream. Because
+    # subprocess.Popen children aren't killed automatically when the parent
+    # dies (no PR_SET_PDEATHSIG on Unix, no Job Object on Windows here),
+    # quitting NEXUS without an explicit terminate() left them running as
+    # orphans, still decoding and still holding the audio pipe open.
     for proc in (_chrome_proc,
                  globals().get('_rtl_proc'),
                  globals().get('_hfdl_proc'),
                  globals().get('_vdl2_proc'),
-                 globals().get('_dsd_proc')):
+                 globals().get('_dsd_proc'),
+                 globals().get('_dab_proc'),
+                 globals().get('_drm_proc'),
+                 globals().get('_hd_proc'),
+                 globals().get('_trunk_proc'),
+                 globals().get('_rtl433_proc')):
         if proc is None:
             continue
         try:
@@ -15477,10 +17594,30 @@ async def main():
         raise
     log.info(f"WebSocket bridge on ws://127.0.0.1:{WS_PORT}")
 
-    # Start SDRConnect bridge (non-blocking)
+    # Resolve connection_mode before either bridge is allowed to move
+    # (added 2026-07-29 — see _connection_mode_ready's module-level
+    # comment). If a previous session already made a choice, apply it and
+    # open the gate immediately, no picker shown. Otherwise leave the gate
+    # closed — the frontend's startup connection picker sends
+    # 'set_connection_mode' once the user answers, and *that* opens it.
+    global _connection_mode_ready
+    _connection_mode_ready = asyncio.Event()
+    _cm_cfg  = _ssh_load_config()
+    _cm_saved = _cm_cfg.get('connection_mode', '').strip()
+    if _cm_saved in ('nrsp_ws', 'usb_local_ws', 'usb_remote_ws', 'rtlsdr'):
+        _apply_connection_mode(_cm_saved)
+        _connection_mode_ready.set()
+        log.info(f"connection_mode: using remembered choice {_cm_saved!r} "
+                 f"(change it any time from the top-bar Connection control)")
+    else:
+        log.info("connection_mode: no remembered choice yet — sdr_bridge/"
+                 "rtl_bridge will wait for the startup connection picker")
+
+    # Start SDRConnect bridge (non-blocking — gated on connection_mode above)
     asyncio.create_task(sdr_bridge())
 
-    # Start RTL-TCP bridge (non-blocking — only active when engine=RTLSDR)
+    # Start RTL-TCP bridge (non-blocking — gated on connection_mode above,
+    # then only active once engine=RTLSDR)
     asyncio.create_task(rtl_bridge())
 
     # Start AIS decoder (UDP listener — active when ais_active=True)
@@ -15493,6 +17630,8 @@ async def main():
     asyncio.create_task(rtl433_udp_server())   # w033 fork, 2026-07-19
     asyncio.create_task(dsd_engine())
     asyncio.create_task(dab_engine())
+    asyncio.create_task(drm_engine())
+    asyncio.create_task(hd_engine())
     asyncio.create_task(trunk_engine())
 
     # Start fldigi poller (active when fldigi_active=True)

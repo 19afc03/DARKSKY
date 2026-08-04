@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DARKSKY NEXUS w034 — SDRConnect/RTLSDR Companion</title>
+<title>DARKSKY NEXUS w035 — SDRConnect/RTLSDR Companion</title>
 <link href="https://fonts.googleapis.com/css2?family=Radio+Canada:wght@300;400;500;600&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -1292,18 +1292,24 @@ input[type=range].wf-sl{width:70px;height:3px;accent-color:var(--accent);cursor:
 .dab-svc-card.playing::before{content:'';position:absolute;top:8px;right:8px;width:6px;height:6px;border-radius:50%;background:#ff8c00;box-shadow:0 0 0 0 #ff8c0060;animation:dabPulse 1.6s ease-out infinite}
 @keyframes dabPulse{0%{box-shadow:0 0 0 0 #ff8c0060}100%{box-shadow:0 0 0 6px #ff8c0000}}
 
-/* DAB info card -- a friendly one-line pitch by default, with the
-   engineering bullet list tucked behind an optional "How this works"
-   expander instead of shown up front to every user. */
-.dab-info-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px}
-.dab-info-icon{color:#ff8c00;margin-bottom:6px}
-.dab-info-lead{font-family:var(--mono);font-size:11px;color:var(--text);font-weight:600;line-height:1.4;margin-bottom:5px}
-.dab-info-sub{font-family:var(--mono);font-size:9px;color:var(--muted);line-height:1.6;margin-bottom:8px}
-.dab-details-toggle{font-family:var(--mono);font-size:8px;color:#ff8c00;cursor:pointer;user-select:none;display:flex;align-items:center;gap:4px}
-#dab-details-caret{display:inline-block;transition:transform .15s}
-.dab-details-toggle.open #dab-details-caret{transform:rotate(180deg)}
-.dab-details-panel{display:none;margin-top:9px;padding-top:9px;border-top:1px solid var(--border);font-family:var(--mono);font-size:9px;color:var(--muted);line-height:1.8}
-.dab-details-panel.open{display:block}
+/* DRM quick-tune cards (added w035, 2026-07-28 UI pass) -- same grid/card
+   convention as .dab-svc-grid/.dab-svc-card above, but its own class since
+   these are frequency shortcuts (no play/pause/unavailable states) with a
+   delete affordance instead. Group headers are grid items too (grid-column:
+   1/-1 spans every column), so "AIR India MW"/"Shortwave"/"DRM+ Trials"/
+   "Custom" section labels sit inline with the card flow instead of needing
+   a separate non-grid wrapper per group. */
+.drm-qt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:6px;align-content:start}
+.drm-qt-card{position:relative;display:flex;flex-direction:column;gap:2px;padding:7px 8px;background:var(--panel);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .12s,background .12s,transform .08s;text-align:left}
+.drm-qt-card:hover{border-color:#ff8c0060;background:#ff8c0007}
+.drm-qt-card:active{transform:scale(0.98)}
+.drm-qt-card-freq{font-family:var(--mono);font-weight:600;font-size:11px;color:var(--orange)}
+.drm-qt-card-label{font-family:var(--mono);font-size:8px;color:var(--muted);line-height:1.3;word-break:break-word;padding-right:10px}
+.drm-qt-card-del{position:absolute;top:3px;right:3px;font-family:var(--mono);font-size:8px;line-height:1;padding:2px 4px;border-radius:3px;color:var(--muted);background:none;border:none;cursor:pointer;opacity:0;transition:opacity .12s}
+.drm-qt-card:hover .drm-qt-card-del{opacity:1}
+.drm-qt-card-del:hover{color:var(--red)}
+.drm-qt-group-hdr{grid-column:1/-1;font-family:var(--mono);font-size:7px;color:var(--accent);letter-spacing:.05em;margin-top:4px}
+.drm-qt-group-hdr:first-child{margin-top:0}
 
 /* Empty / scanning states in the station grid */
 .dab-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:34px 16px;color:var(--muted);text-align:center}
@@ -1515,7 +1521,6 @@ input[type=range].wf-sl{width:70px;height:3px;accent-color:var(--accent);cursor:
 .band-bar-fill { height:100%; border-radius:2px; transition:width .5s; }
 .band-status { font-family:var(--mono); font-size:6px; }
 
-/* Five-column SI panel */
 #hf-si-grid {
   display:grid; grid-template-columns:repeat(5,1fr);
   flex:1; min-height:0; overflow:hidden; gap:0;
@@ -2082,8 +2087,18 @@ body.cinematic-mode #cin-overlay{pointer-events:all}
 /* POLAR — freq readout sits inside the ring */
 #cin-overlay[data-scene=polar] #cin-info{bottom:58%!important;transform:translate(-50%,50%)!important}
 #cin-overlay[data-scene=polar] #cin-freq-display{font-size:clamp(26px,3.6vw,44px)!important}
-/* RETRO — readout rides above the tuning dial band (dial occupies ~H*0.34–0.62) */
-#cin-overlay[data-scene=retro] #cin-info{bottom:66%!important}
+/* RETRO — the plain neon numeral is replaced by an SVG nixie-tube readout
+   (2026-07-28); keep #cin-info (meta line + exit hint) but hide just the
+   big #cin-freq-display line, and keep it clear of the dial band.
+   bottom% dropped 66%→58% in step with the dial's cy moving from 0.66H to
+   0.82H (user request: dial/signal moved down near the scene buttons) —
+   #cin-info still needs to sit just above the dial's new, lower position. */
+#cin-overlay[data-scene=retro] #cin-info{bottom:58%!important}
+#cin-overlay[data-scene=retro] #cin-freq-display{display:none}
+#cin-nixie{display:none}
+#cin-overlay[data-scene=retro] #cin-nixie{display:block}
+@keyframes cinNixieFlicker{0%,100%{opacity:1}45%{opacity:.93}50%{opacity:1}78%{opacity:.96}}
+.cin-nixie-flicker{animation:cinNixieFlicker 3.4s ease-in-out infinite}
 /* PHOSPHOR — readout rides above the oscilloscope trace (trace occupies ~H*0.22–0.82) */
 #cin-overlay[data-scene=phosphor] #cin-info{bottom:66%!important}
 /* CRT scanlines + curvature glow (PHOSPHOR) */
@@ -5605,10 +5620,131 @@ exports.encodeFT8 = encode$1;
      CONNECTION WIZARD — shown on startup, dismissed once mode is chosen.
      Blocks main UI until user picks SDRConnect Server (SSH) or nRSP-ST mode.
      ══════════════════════════════════════════════════════════════════════════ -->
+<!-- Startup connection picker (added 2026-07-29). Live user reports, in
+     order: "when starting nexus, the nrsp-st always connects first and am
+     unable to switch to the usb device" -> shipped a reactive
+     device_choice_available broadcast -> "w035 still starts first before i
+     make a selection" -> confirmed via live inspection the reactive
+     broadcast fired too late (SDRConnect/nRSP-ST was already live behind
+     it, since sdr_bridge() connects unconditionally at process start) ->
+     "i think we need to add another screen at startup which basically
+     states how do you wish to connect?" This is that screen: a real block
+     shown BEFORE either backend bridge (sdr_bridge/rtl_bridge) is allowed
+     to attempt any connection at all (see _connection_mode_ready in
+     w035_NEXUS.py). Shown only when state.connection_mode arrives empty
+     (no remembered choice); otherwise NEXUS just connects straight away
+     using the remembered choice, and this stays hidden -- reopen it any
+     time from the top-bar Connection control (see #topbar-connection). -->
+<div id="connection-picker-modal" style="display:none;position:fixed;inset:0;z-index:10000;
+     background:rgba(0,5,10,0.97);align-items:center;justify-content:center;font-family:var(--mono)">
+  <div style="background:var(--panel);border:1px solid rgba(0,200,255,0.25);border-radius:8px;
+       padding:26px 30px;width:560px;max-width:96vw;box-shadow:0 16px 48px rgba(0,0,0,0.8)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <span style="font-size:18px;letter-spacing:.12em;color:var(--accent)">DARK<span style="color:var(--text)">SKY</span> NEXUS</span>
+      <span style="font-family:var(--mono);font-size:8px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px">w035</span>
+    </div>
+    <!-- STEP 1: which device/connection. Added 2026-07-31 (startup UX
+         audit): for the two local modes below, picking one no longer
+         finishes here -- it advances to #cpk-step-launch instead, so
+         "how to connect" and "should NEXUS start SDRConnect for you" are
+         answered together in one flow instead of two separate settings
+         in two different wizard panes that could silently disagree (the
+         exact combination that caused this session's Result-108 bugs). -->
+    <div id="cpk-step-mode">
+      <div style="font-size:12px;color:var(--text);margin-bottom:4px">How do you wish to connect?</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:18px">
+        Pick where NEXUS should get its signal from. This is remembered for next time —
+        change it any time from the Connection control in the top bar.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        <button class="conn-pick-btn" onclick="_pickConnectionMode('nrsp_ws')"
+          style="text-align:left;font-family:var(--mono);padding:12px 14px;border-radius:5px;cursor:pointer;
+                 border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <div style="font-size:11px;color:var(--accent);margin-bottom:2px">🌐 nRSP-ST (WS)</div>
+          <div style="font-size:9px;color:var(--muted)">SDRConnect is already running and connected to a networked nRSP-ST</div>
+        </button>
+        <button class="conn-pick-btn" onclick="_pickConnectionMode('usb_local_ws')"
+          style="text-align:left;font-family:var(--mono);padding:12px 14px;border-radius:5px;cursor:pointer;
+                 border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <div style="font-size:11px;color:var(--accent);margin-bottom:2px">💻 SDRplay Device (USB)</div>
+          <div style="font-size:9px;color:var(--muted)">A USB-attached SDRplay device (e.g. RSPdx), SDRConnect running on this Mac</div>
+        </button>
+        <button class="conn-pick-btn" onclick="_pickConnectionMode('usb_remote_ws')"
+          style="text-align:left;font-family:var(--mono);padding:12px 14px;border-radius:5px;cursor:pointer;
+                 border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <div style="font-size:11px;color:var(--accent);margin-bottom:2px">🌐 SDRplay Device (WS)</div>
+          <div style="font-size:9px;color:var(--muted)">A USB-attached SDRplay device on a different machine — opens the SSH/remote setup pane next</div>
+        </button>
+        <button class="conn-pick-btn" onclick="_pickConnectionMode('rtlsdr')"
+          style="text-align:left;font-family:var(--mono);padding:12px 14px;border-radius:5px;cursor:pointer;
+                 border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <div style="font-size:11px;color:var(--accent);margin-bottom:2px">📻 RTL-SDR</div>
+          <div style="font-size:9px;color:var(--muted)">A plain RTL-SDR USB dongle via rtl_tcp — no SDRConnect involved</div>
+        </button>
+      </div>
+      <div style="text-align:center">
+        <a href="#" onclick="_hideConnectionPicker(); _wzShow(); return false;"
+           style="font-size:9px;color:var(--muted);text-decoration:underline;cursor:pointer">
+          Advanced connection settings (SSH / default device / timing)
+        </a>
+      </div>
+    </div>
+
+    <!-- STEP 2 (local modes only): should NEXUS launch SDRConnect itself?
+         Reuses the same local_launch_mode/local_sdrconnect_path config as
+         the nRSP-ST/Local advanced-wizard pane (kept in sync via the
+         shared #wz-local-path field's value) -- this is just a faster,
+         combined path to the same setting, not a second source of truth. -->
+    <div id="cpk-step-launch" style="display:none">
+      <div style="font-size:12px;color:var(--text);margin-bottom:4px">Should NEXUS start SDRConnect for you?</div>
+      <div id="cpk-launch-subtext" style="font-size:10px;color:var(--muted);margin-bottom:18px"></div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+        <button class="conn-pick-btn" onclick="_cpkFinish('none')"
+          style="text-align:left;font-family:var(--mono);padding:12px 14px;border-radius:5px;cursor:pointer;
+                 border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <div style="font-size:11px;color:var(--accent);margin-bottom:2px">✋ No — I'll start it myself</div>
+          <div style="font-size:9px;color:var(--muted)">NEXUS just waits for SDRConnect to already be running, same as before</div>
+        </button>
+        <button class="conn-pick-btn" onclick="_cpkFinish('headless')"
+          style="text-align:left;font-family:var(--mono);padding:12px 14px;border-radius:5px;cursor:pointer;
+                 border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <div style="font-size:11px;color:var(--accent);margin-bottom:2px">⬡ Yes — Headless</div>
+          <div style="font-size:9px;color:var(--muted)">No SDRConnect window, lowest overhead — but you can't adjust its BASE/REF sliders</div>
+        </button>
+        <button class="conn-pick-btn" onclick="_cpkFinish('gui')"
+          style="text-align:left;font-family:var(--mono);padding:12px 14px;border-radius:5px;cursor:pointer;
+                 border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <div style="font-size:11px;color:var(--accent);margin-bottom:2px">🖥 Yes — Full GUI</div>
+          <div style="font-size:9px;color:var(--muted)">Opens SDRConnect's own window too, so BASE/REF/gain sliders stay reachable</div>
+        </button>
+      </div>
+      <div style="display:grid;grid-template-columns:80px 1fr;gap:7px;align-items:center;margin-bottom:14px">
+        <label style="font-size:8px;color:var(--muted);text-align:right">APP PATH</label>
+        <input id="cpk-local-path" type="text" placeholder="leave blank to use the default install location"
+          style="background:var(--surface);border:1px solid var(--border);color:var(--text);
+                 font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:3px;width:100%;box-sizing:border-box">
+      </div>
+      <div style="text-align:center">
+        <a href="#" onclick="_cpkBack(); return false;"
+           style="font-size:9px;color:var(--muted);text-decoration:underline;cursor:pointer">
+          ← Back
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Changed 2026-07-29: no longer shown unconditionally on every launch.
+     The new #connection-picker-modal below is now the first thing shown
+     on a fresh launch (no remembered connection_mode); this wizard is
+     reached on demand instead -- automatically when the picker's remote
+     USB option is chosen (needs SSH host details), or manually via the
+     top-bar Connection control's "Advanced connection settings" link.
+     See _wzShow()/_wzDismiss() and _pickConnectionMode(). -->
 <div id="conn-wizard" style="
   position:fixed;inset:0;z-index:9999;
   background:rgba(0,5,10,0.96);
-  display:flex;align-items:center;justify-content:center;
+  display:none;align-items:center;justify-content:center;
   font-family:var(--mono)">
   <div style="
     background:var(--panel);border:1px solid rgba(0,200,255,0.2);
@@ -5618,7 +5754,7 @@ exports.encodeFT8 = encode$1;
     <!-- Header -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
       <span style="font-size:18px;letter-spacing:.12em;color:var(--accent)">DARK<span style="color:var(--text)">SKY</span> NEXUS</span>
-      <span style="font-family:var(--mono);font-size:8px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px">w034</span>
+      <span style="font-family:var(--mono);font-size:8px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px">w035</span>
       <span style="flex:1"></span>
       <span style="font-size:9px;color:var(--muted)">Connection Setup</span>
     </div>
@@ -5679,6 +5815,28 @@ exports.encodeFT8 = encode$1;
           style="display:none;background:var(--surface);border:1px solid var(--border);color:var(--text);
                  font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:3px;width:100%;box-sizing:border-box">
 
+        <!-- Headless/GUI toggle (added 2026-07-31 -- "at nexus startup,
+             could we add an option whether to have headless or not?").
+             Rewrites REMOTE CMD / LOCAL CLIENT below via
+             _apply_remote_launch_mode() in the backend -- both fields stay
+             manually editable too, this is just a shortcut for the common
+             case. -->
+        <label style="font-size:8px;color:var(--muted);text-align:right">LAUNCH MODE</label>
+        <div style="display:flex;gap:6px">
+          <button id="wz-remote-headless" onclick="_wzSetRemoteLaunchMode('headless')"
+            style="flex:1;font-family:var(--mono);font-size:9px;padding:5px;border-radius:3px;cursor:pointer;
+                   border:1px solid rgba(0,200,255,0.4);background:rgba(0,200,255,0.10);color:var(--accent)"
+            title="SDRconnect Headless on the remote box serves the WebSocket API directly -- no local client needed (recommended)">
+            Headless
+          </button>
+          <button id="wz-remote-gui" onclick="_wzSetRemoteLaunchMode('gui')"
+            style="flex:1;font-family:var(--mono);font-size:9px;padding:5px;border-radius:3px;cursor:pointer;
+                   border:1px solid var(--border);background:none;color:var(--muted)"
+            title="Legacy path: remote box runs the raw --server hardware bridge, plus a full local SDRConnect GUI on this Mac to expose the WebSocket API">
+            Full GUI
+          </button>
+        </div>
+
         <label style="font-size:8px;color:var(--muted);text-align:right">REMOTE CMD</label>
         <input id="wz-ssh-cmd" type="text" placeholder="cd /opt/sdrconnect && ./SDRconnect_headless --websocket_port=5454"
           style="background:var(--surface);border:1px solid var(--border);color:var(--text);
@@ -5686,7 +5844,7 @@ exports.encodeFT8 = encode$1;
 
         <label style="font-size:8px;color:var(--muted);text-align:right">DEFAULT DEVICE</label>
         <input id="wz-default-device" type="text" placeholder="RSPdx (Compact)"
-          title="Fallback only — used when no USB-connected RSP is detected. A directly-connected USB RSP (e.g. RSPdx) is always auto-selected automatically and takes priority over this setting. Exact SDRConnect display name, e.g. RSPdx (Compact), RSPdx (Full IQ), nRSP-ST (IQ Lite)"
+          title="Fallback only — used when SDRConnect's own device list doesn't include a USB RSP (either none is plugged in, or SDRConnect hasn't detected it yet). When SDRConnect does list a directly-connected USB RSP (e.g. RSPdx), it's auto-selected and takes priority over this setting. Exact SDRConnect display name, e.g. RSPdx (Compact), RSPdx (Full IQ), nRSP-ST (IQ Lite)"
           style="background:var(--surface);border:1px solid var(--border);color:var(--text);
                  font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:3px;width:100%;box-sizing:border-box">
 
@@ -5753,12 +5911,77 @@ exports.encodeFT8 = encode$1;
         <span style="color:var(--accent)">ws://127.0.0.1:5454</span>
         (or use <span style="color:var(--accent)">--sdr HOST</span> for remote SDRConnect)<br><br>
         <span style="color:var(--muted)">NEXUS only ever talks to SDRConnect itself over this WebSocket —
-        it never accesses RSP hardware directly. On connect, NEXUS checks
-        SDRConnect's device list and automatically prefers any
-        directly-connected USB RSP (e.g. RSPdx) over a networked nRSP-ST.
-        No Default Device setting is needed for USB use — that field is
-        only used as a fallback when no USB RSP is present.</span>
+        it never accesses RSP hardware directly, and it can only choose
+        between devices that <b style="color:var(--text)">SDRConnect's own device list</b>
+        already reports. If a USB RSP is plugged in but doesn't show up
+        here, that's SDRConnect not detecting it (check its own device
+        dropdown, or that nothing else has claimed it) — NEXUS has nothing
+        to offer a choice on until SDRConnect lists it. Once SDRConnect
+        does see it, NEXUS auto-prefers a directly-connected USB RSP over
+        a networked nRSP-ST — or pick explicitly below if you want the
+        same choice every time regardless of what's plugged in.</span>
       </div>
+
+      <!-- Local auto-launch of SDRConnect (added 2026-07-31 -- user
+           request: "at nexus startup, could we add an option whether to
+           have headless or not?"). Default 'None' leaves behaviour exactly
+           as before (NEXUS just connects to whatever's already running) --
+           see _local_launch_sdrconnect() in w035_NEXUS.py. -->
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:14px">
+        <div style="font-size:9px;color:var(--text);margin-bottom:6px">
+          Launch SDRConnect automatically at NEXUS startup
+        </div>
+        <div style="font-size:8px;color:var(--muted);margin-bottom:10px">
+          Default is <b style="color:var(--text)">None</b> — NEXUS just connects to whatever's
+          already running, exactly like before. Pick Headless or Full GUI to have
+          NEXUS launch SDRConnect itself instead of you starting it manually.
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <button id="wz-local-none" onclick="_wzSetLocalLaunchMode('none')"
+            style="flex:1;font-family:var(--mono);font-size:9px;padding:5px;border-radius:3px;cursor:pointer;
+                   border:1px solid rgba(0,200,255,0.4);background:rgba(0,200,255,0.10);color:var(--accent)"
+            title="Unchanged default -- you start SDRConnect yourself, NEXUS just connects to it">
+            None
+          </button>
+          <button id="wz-local-headless" onclick="_wzSetLocalLaunchMode('headless')"
+            style="flex:1;font-family:var(--mono);font-size:9px;padding:5px;border-radius:3px;cursor:pointer;
+                   border:1px solid var(--border);background:none;color:var(--muted)"
+            title="NEXUS launches SDRconnect_headless itself at startup -- no GUI window">
+            Headless
+          </button>
+          <button id="wz-local-gui" onclick="_wzSetLocalLaunchMode('gui')"
+            style="flex:1;font-family:var(--mono);font-size:9px;padding:5px;border-radius:3px;cursor:pointer;
+                   border:1px solid var(--border);background:none;color:var(--muted)"
+            title="NEXUS launches the full SDRConnect GUI app itself at startup">
+            Full GUI
+          </button>
+        </div>
+        <label style="font-size:8px;color:var(--muted)">SDRCONNECT.APP PATH</label>
+        <input id="wz-local-path" type="text" placeholder="/Applications/SDRconnect.app"
+          onchange="_wzSetLocalLaunchMode(window._localLaunchMode || 'none')"
+          style="background:var(--surface);border:1px solid var(--border);color:var(--text);
+                 font-family:var(--mono);font-size:10px;padding:4px 6px;border-radius:3px;
+                 width:100%;box-sizing:border-box;margin-top:4px">
+      </div>
+
+      <!-- Removed 2026-07-29: this Auto/Force USB/Force nRSP-ST button row
+           is superseded by the startup connection picker (see
+           #connection-picker-modal and the top-bar Connection control) —
+           choosing a connection mode there already sets device_preference
+           under the hood via _apply_connection_mode() in the backend, so a
+           separate control here would just be a second, easily-desynced
+           way to set the same thing. Turned out this row was also dead
+           code anyway: its 'set_device_pref' command didn't start with
+           'ssh_', so it never reached the dispatcher that handled it
+           (_handle_ssh_cmd() is only called for cmd.startswith('ssh_')) —
+           these buttons visually toggled but never actually persisted
+           anything server-side. -->
+      <div style="font-size:9px;color:var(--muted);margin-bottom:14px">
+        Device preference (USB vs nRSP-ST) is now set via the connection
+        picker shown at startup — reopen it any time from the
+        <b style="color:var(--text)">Choose connection</b> control in the top bar.
+      </div>
+
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button onclick="_wzSkip()"
           style="font-family:var(--mono);font-size:9px;padding:6px 12px;
@@ -5782,6 +6005,22 @@ exports.encodeFT8 = encode$1;
 
 <!-- Fixed panels -->
 <div id="toast-container"></div>
+<!-- Live startup status strip (added 2026-07-31, startup UX audit — user:
+     "examine the start up sequence for the user, as even for me it's a
+     bit disjointed"). Unlike toast() above (one-shot, self-removing,
+     stacks multiple at once), this is a single persistent line that
+     UPDATES in place as _broadcast_startup_status() narrates each real
+     startup step server-side (launching SDRConnect, connecting, device
+     ambiguity, final device confirmation) — every one of those used to
+     only ever show up in the Python console log, never in the UI itself.
+     See _showStartupStatus() / the 'startup_status' WS case. -->
+<div id="startup-status-strip" style="display:none;position:fixed;top:8px;left:50%;
+     transform:translateX(-50%);z-index:9500;font-family:var(--mono);font-size:10px;
+     padding:6px 14px;border-radius:5px;background:var(--panel);border:1px solid var(--border);
+     color:var(--text);box-shadow:0 4px 16px rgba(0,0,0,0.5);transition:opacity .3s;white-space:nowrap">
+  <span id="startup-status-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;
+        background:var(--muted);margin-right:7px;vertical-align:middle"></span><span id="startup-status-text"></span>
+</div>
 <div id="palette-panel"></div>
 <!-- Independent palette picker for the CW mini-waterfall (June 2026, user
      request: "can the cw mini waterfall colour palette be made independent
@@ -5844,6 +6083,25 @@ exports.encodeFT8 = encode$1;
   </div>
 </div>
 
+<!-- Device-choice modal — shown when SDRConnect reports more than one real
+     SDR device (a USB unit and a networked nRSP-ST at once) and NEXUS can't
+     tell which one the user wants. Added 2026-07-29, live user report: the
+     nRSP-ST always connected first with no way to switch to the USB device.
+     Backend broadcasts 'device_choice_available' (see _auto_select_device()
+     in w035_NEXUS.py); picking a card here sends 'select_device'. Dismissing
+     without picking just leaves SDRConnect's current selection alone — same
+     device switcher stays available afterwards via the top-bar dropdown. -->
+<div id="device-choice-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9200;align-items:center;justify-content:center">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px;max-width:420px;width:90%">
+    <h4 style="margin:0 0 4px;font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.1em;text-transform:uppercase">📡 Choose SDR Device</h4>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">SDRConnect can see more than one SDRplay device. Pick which one NEXUS should connect to — you can switch again any time from the device dropdown in the top bar.</div>
+    <div id="device-choice-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+    <div style="display:flex;justify-content:flex-end">
+      <button onclick="_hideDeviceChoiceModal()" style="font-family:var(--mono);font-size:10px;padding:6px 12px;background:none;border:1px solid var(--border);color:var(--muted);border-radius:3px;cursor:pointer">Decide later</button>
+    </div>
+  </div>
+</div>
+
 <!-- Quick bookmark popup — bookmarks whatever is currently tuned, prefilled
      from the best available lookup match (SigID / Freq Lists / cached EIBI /
      Nearby Airports), editable before saving. -->
@@ -5899,6 +6157,48 @@ exports.encodeFT8 = encode$1;
     <div id="cin-rds-rt" style="font-family:var(--mono);font-size:10px;color:rgba(200,216,232,.5);letter-spacing:.1em;margin-top:6px;max-width:80vw;overflow:hidden;white-space:nowrap;text-overflow:ellipsis"></div>
   </div>
 
+  <!-- RETRO scene only — nixie-tube frequency readout. Real SVG (not
+       canvas) so the glow uses an actual Gaussian blur filter rather than
+       canvas shadowBlur. Glass tube is a capsule (rx=ry=width/2 rounded
+       rect), digit is filled+stroked with a warm feColorMatrix-tinted
+       blur behind it, straight cathode-grid wires cross the tube — this
+       mirrors a real IN-14/IN-17 style nixie more closely than the
+       previous dome-path + diagonal-mesh version.
+       Hidden by default; shown only when data-scene=retro (see CSS). -->
+  <svg id="cin-nixie" viewBox="0 0 900 260" style="position:absolute;top:6%;left:50%;transform:translateX(-50%);width:min(620px,44vw);pointer-events:none">
+    <defs>
+      <filter id="nixieGlow" x="-100%" y="-100%" width="300%" height="300%">
+        <feGaussianBlur stdDeviation="4" result="blur"/>
+        <feColorMatrix in="blur" type="matrix" values="
+          1 0 0 0 0
+          0 0.55 0 0 0
+          0 0 0.15 0 0
+          0 0 0 1 0"/>
+      </filter>
+      <radialGradient id="nixieGlassGlow" cx="50%" cy="18%" r="75%">
+        <stop offset="0%"   stop-color="#ff9f4a" stop-opacity=".4"/>
+        <stop offset="40%"  stop-color="#ff7b00" stop-opacity=".15"/>
+        <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+      </radialGradient>
+      <linearGradient id="nixieGlassBody" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"   stop-color="#3a3a3a" stop-opacity=".5"/>
+        <stop offset="40%"  stop-color="#151515" stop-opacity=".45"/>
+        <stop offset="100%" stop-color="#050505" stop-opacity=".5"/>
+      </linearGradient>
+      <linearGradient id="nixieBrass" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%"   stop-color="#7a5626"/>
+        <stop offset="50%"  stop-color="#e0b562"/>
+        <stop offset="100%" stop-color="#5b3d18"/>
+      </linearGradient>
+      <linearGradient id="nixieWood" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"   stop-color="#6b4423"/>
+        <stop offset="50%"  stop-color="#4a2e17"/>
+        <stop offset="100%" stop-color="#2c1a0d"/>
+      </linearGradient>
+    </defs>
+    <g id="cin-nixie-tubes"></g>
+  </svg>
+
   <!-- Main frequency display — centre -->
   <div id="cin-info" style="position:absolute;bottom:38%;left:50%;transform:translateX(-50%);text-align:center;pointer-events:all;white-space:nowrap">
     <div id="cin-freq-display">—.—</div>
@@ -5947,7 +6247,7 @@ exports.encodeFT8 = encode$1;
       <div id="brand-name"><span class="bd">DARK</span><span style="color:var(--accent)">SKY</span> NEXUS</div>
       <div id="brand-sub">SDRConnect/RTLSDR Companion</div>
     </div>
-    <span id="brand-version" style="font-family:var(--mono);font-size:9px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px">w034</span>
+    <span id="brand-version" style="font-family:var(--mono);font-size:9px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px">w035</span>
     <div class="brand-sep"></div>
     <div id="conn-status">
       <div id="conn-dot"></div>
@@ -5980,6 +6280,38 @@ exports.encodeFT8 = encode$1;
       <div class="brand-sep"></div>
       <span id="rspdx-badge" style="font-family:var(--mono);font-size:8px;color:var(--green);border:1px solid rgba(0,255,136,0.3);padding:1px 5px;border-radius:3px;white-space:nowrap" title="This SDRplay device has no Compact/IQ-Lite mode selector — SDRConnect always streams full hardware-rate IQ for it. That's independent of whether NEXUS is reaching SDRConnect locally or over a network/SSH (mode switching only exists for networked nRSP-ST units).">Full IQ (only mode)</span>
     </div>
+    <!-- Connection control (added 2026-07-29) — always visible, unlike the
+         device-select strip below which only appears once SDRConnect's own
+         list has more than one entry. Shows the current connection_mode
+         and reopens the startup connection picker to change it (saves +
+         "restart to apply" rather than switching live — see
+         _pickConnectionMode() / the set_connection_mode WS handler). -->
+    <div id="topbar-connection-strip" style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+      <div class="brand-sep"></div>
+      <button id="topbar-connection-label" onclick="_showConnectionPicker()"
+        style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--surface);
+               border:1px solid var(--border);color:var(--text);border-radius:3px;cursor:pointer;
+               white-space:nowrap"
+        title="Change how NEXUS connects (nRSP-ST / USB / RTL-SDR) — takes effect after restarting NEXUS">
+        Choose connection ▾
+      </button>
+    </div>
+    <!-- General device selector — shown whenever SDRConnect's device list has
+         more than one real SDRplay unit (e.g. a USB RSPdx AND a networked
+         nRSP-ST) so the user can switch at any time, independent of the SSH
+         launcher's own device-select (below), which only exists while an SSH
+         session is active. Added 2026-07-29, live user report: nRSP-ST
+         always auto-connected first with no way to switch to USB. -->
+    <div id="device-select-strip" style="display:none;align-items:center;gap:4px;flex-shrink:0">
+      <div class="brand-sep"></div>
+      <select id="device-select" onchange="_pickDevice(this.value)"
+        style="font-family:var(--mono);font-size:8px;padding:1px 4px;background:var(--surface);
+               border:1px solid var(--border);color:var(--text);border-radius:3px;cursor:pointer;
+               max-width:175px"
+        title="Switch which SDRplay device NEXUS uses">
+        <option value="">— device —</option>
+      </select>
+    </div>
     <!-- SSH session indicator — shown when SSH launcher is active -->
     <div id="ssh-strip" style="display:none;align-items:center;gap:4px;flex-shrink:0">
       <div class="brand-sep"></div>
@@ -6003,8 +6335,8 @@ exports.encodeFT8 = encode$1;
       <span style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;flex-shrink:0">RDS</span>
       <span id="rds-ps"  style="font-family:var(--mono);font-size:10px;color:#ff9800;font-weight:600;letter-spacing:.06em;flex-shrink:0"></span>
       <span id="rds-pty" style="font-family:var(--mono);font-size:7px;color:var(--muted);flex-shrink:0"></span>
+      <span id="rds-pi"  style="font-family:var(--mono);font-size:7px;color:var(--muted);opacity:.6;flex-shrink:0"></span>
       <span id="rds-rt"  style="font-family:var(--mono);font-size:8px;color:rgba(200,216,232,.6);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0"></span>
-      <span id="rds-pi"  style="display:none"></span>
     </div>
     <div class="brand-sep"></div>
     <span id="active-decoder-badge" style="font-family:var(--mono);font-size:9px;padding:2px 8px;border-radius:3px;border:1px solid var(--border);color:var(--muted);white-space:nowrap;flex-shrink:0">No decoder active</span>
@@ -8389,7 +8721,7 @@ exports.encodeFT8 = encode$1;
          next one started since the canvas was replaced in place with no
          history). Added: Clear button (wefax_clear was already a working
          backend command, just never wired to anything in the UI — see
-         w034_NEXUS.py line ~11476); a status bar with live line count +
+         w035_NEXUS.py line ~11476); a status bar with live line count +
          elapsed time + Download PNG; a real empty-state message; and a
          small history strip so the last few completed faxes are still
          reachable as thumbnails instead of vanishing when a new one starts. -->
@@ -9842,18 +10174,6 @@ exports.encodeFT8 = encode$1;
           <div class="dab-diag-item"><span class="dab-diag-lbl">BUFFER FILL</span><span class="dab-diag-val" id="dab-diag-buffer">—</span></div>
           <div class="dab-diag-item"><span class="dab-diag-lbl">DEVICE</span><span class="dab-diag-val" id="dab-diag-device">—</span></div>
           <div class="dab-diag-item"><span class="dab-diag-lbl">IQ RATE (RESAMPLED)</span><span class="dab-diag-val">2.048 MSPS</span></div>
-          <div class="dab-info-card" style="grid-column:1/-1;margin-top:2px">
-            <div class="dab-details-toggle" id="dab-details-toggle" onclick="dabToggleDetails()">How this works <span id="dab-details-caret">&#9662;</span></div>
-            <div class="dab-details-panel" id="dab-details-panel">
-              <span style="color:var(--amber)">&#9679; Ensemble decode via dab_radio_nexus</span><br>
-              <span style="color:var(--muted);font-size:8px">Headless tool built on<br>williamyang98/DAB-Radio</span><br>
-              <span style="color:var(--accent);font-size:8px">NEXUS pipes its own Full-IQ<br>tap (resampled to 2.048 MSPS)<br>to the tool's stdin</span><br>
-              <span style="color:var(--muted);font-size:8px">Every service decodes at once —<br>FIC+MSC+audio, DAB &amp; DAB+ both</span><br>
-              <span style="color:var(--green);font-size:8px">&#10003; Auto-launched by NEXUS if found</span><br>
-              <span style="color:var(--muted);font-size:8px">Needs Full IQ — ensembles span<br>~1.5 MHz, compact streaming<br>won't capture a full multiplex</span><br>
-              <span style="color:var(--muted);font-size:8px">Switching service is instant — no<br>relaunch (channel change still<br>restarts the decoder)</span>
-            </div>
-          </div>
         </div>
 
         <!-- ── 2. Favourites row ── -->
@@ -9932,6 +10252,160 @@ exports.encodeFT8 = encode$1;
           </div>
         </div>
 
+      </div>
+    </div>
+
+    <div id="tab-drm" class="tab-panel">
+      <div class="panel-hdr" style="flex-shrink:0">
+        DRM / DRM+
+        <span style="font-family:var(--mono);font-size:8px;color:var(--orange);border:1px solid rgba(255,140,0,0.25);padding:1px 5px;border-radius:3px;margin-left:4px">&#9635; FULL IQ</span>
+        <span class="decoder-status-badge inactive" id="dec-badge-drm" style="margin-left:8px">&#9675; Idle</span>
+        <button id="dec-start-drm" onclick="drmStart()" title="Start Dream DRM/DRM+ decode on the currently tuned frequency"
+          style="margin-left:auto;font-family:var(--mono);font-size:8px;padding:2px 8px;border-radius:8px;border:1px solid rgba(0,255,136,0.31);background:rgba(0,255,136,0.07);color:var(--green);cursor:pointer">&#9654; Start</button>
+        <button id="dec-stop-drm" onclick="drmStop()" title="Stop dream_nexus"
+          style="display:none;margin-left:auto;font-family:var(--mono);font-size:8px;padding:2px 8px;border-radius:8px;border:1px solid rgba(255,64,64,0.31);background:rgba(255,64,64,0.07);color:var(--red);cursor:pointer">&#9632; Stop</button>
+        <button onclick="drmClear()" title="Clear status and stop playback"
+          style="font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:8px;border:1px solid var(--border);color:var(--muted);background:none;cursor:pointer;margin-left:4px">&#9003; Clear</button>
+      </div>
+
+      <div style="display:flex;gap:8px;flex:1;min-height:0;overflow:hidden;margin-top:6px">
+        <!-- ── Left: frequency / robustness mode (narrow, controls only) ── -->
+        <div style="width:170px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;overflow-y:auto">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px">
+            <div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;margin-bottom:5px">FREQUENCY</div>
+            <input id="drm-freq-input" type="text" placeholder="e.g. 15760 kHz" style="width:100%;font-family:var(--mono);font-size:10px;background:var(--panel);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:4px 6px;margin-bottom:5px">
+            <button onclick="drmSetFrequency()" style="width:100%;font-family:var(--mono);font-size:8px;padding:4px;border-radius:3px;border:1px solid var(--border);color:var(--muted);background:none;cursor:pointer">Tune</button>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px">
+            <div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;margin-bottom:5px">ROBUSTNESS MODE</div>
+            <select id="drm-rxmode-select" onchange="drmSetRxmode()" style="width:100%;font-family:var(--mono);font-size:9px;background:var(--panel);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:4px 6px">
+              <option value="0">Auto-detect</option>
+              <option value="1">A — Local/regional (ground-wave)</option>
+              <option value="2">B — Ground/sky-wave (most common)</option>
+              <option value="3">C — Sky-wave, high Doppler</option>
+              <option value="4">D — Severe multipath/fading</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ── Middle: quick-tune card grid (the main real estate --
+             UI pass, 2026-07-28: was a cramped 220px-wide scrollable row
+             list crammed into the same sidebar as the frequency/mode
+             controls; live user feedback asked for individual card
+             buttons, which need real width to read well at a glance, so
+             this got its own flexible column instead. ── -->
+        <div style="flex:1.3;min-width:0;display:flex;flex-direction:column;gap:6px;overflow:hidden">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px;flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-shrink:0">
+              <div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em">QUICK TUNE</div>
+              <button onclick="drmQtAddCurrent()" title="Save the tuned/entered frequency as a quick-tune entry"
+                style="font-family:var(--mono);font-size:9px;line-height:1;padding:2px 6px;border-radius:3px;border:1px solid var(--border);color:var(--muted);background:none;cursor:pointer">+</button>
+            </div>
+            <div id="drm-qt-list" class="drm-qt-grid" style="overflow-y:auto"></div>
+          </div>
+        </div>
+
+        <!-- ── Right: station status / now playing ── -->
+        <div style="width:280px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;overflow-y:auto">
+          <div class="dab-ensemble-status" id="drm-lock-status" style="align-self:flex-start">
+            <span class="dab-lock-dot" id="drm-lock-dot"></span>
+            <span class="dab-ensemble-name" id="drm-lock-label">No signal</span>
+            <span class="dab-ensemble-freq" id="drm-mode-label"></span>
+          </div>
+
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:10px;flex-shrink:0">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div id="drm-hero-avatar" class="dab-np-hero-avatar" style="background:var(--panel);color:var(--muted)">—</div>
+              <div style="flex:1;min-width:0">
+                <div id="drm-station-name" class="dab-np-hero-name">No station decoded yet</div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:3px">
+                  <span class="dab-signal-bars" id="drm-signal-bars" title="SNR-derived signal quality"><i></i><i></i><i></i><i></i></span>
+                  <span id="drm-snr-val" style="font-family:var(--mono);font-size:9px;color:var(--muted)">SNR —</span>
+                  <span id="drm-mer-val" style="font-family:var(--mono);font-size:9px;color:var(--muted)">MER —</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="dab-np-dls-wrap static" id="drm-text-wrap" style="margin-top:8px">
+              <span class="dab-np-dls-track" id="drm-text-track">—</span>
+            </div>
+
+            <audio id="drm-audio" crossorigin="anonymous" style="display:none"></audio>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-hdradio" class="tab-panel">
+      <div class="panel-hdr" style="flex-shrink:0">
+        HD Radio (NRSC-5)
+        <span style="font-family:var(--mono);font-size:8px;color:var(--orange);border:1px solid rgba(255,140,0,0.25);padding:1px 5px;border-radius:3px;margin-left:4px">&#9635; FULL IQ</span>
+        <span class="decoder-status-badge inactive" id="dec-badge-hdradio" style="margin-left:8px">&#9675; Idle</span>
+        <button id="dec-start-hdradio" onclick="hdStart()" title="Start nrsc5 HD Radio decode on the currently tuned frequency"
+          style="margin-left:auto;font-family:var(--mono);font-size:8px;padding:2px 8px;border-radius:8px;border:1px solid rgba(0,255,136,0.31);background:rgba(0,255,136,0.07);color:var(--green);cursor:pointer">&#9654; Start</button>
+        <button id="dec-stop-hdradio" onclick="hdStop()" title="Stop nrsc5_nexus"
+          style="display:none;margin-left:auto;font-family:var(--mono);font-size:8px;padding:2px 8px;border-radius:8px;border:1px solid rgba(255,64,64,0.31);background:rgba(255,64,64,0.07);color:var(--red);cursor:pointer">&#9632; Stop</button>
+        <button onclick="hdClear()" title="Clear status and stop playback"
+          style="font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:8px;border:1px solid var(--border);color:var(--muted);background:none;cursor:pointer;margin-left:4px">&#9003; Clear</button>
+      </div>
+
+      <div id="hdradio-body" style="display:flex;gap:8px;flex:1;min-height:0;overflow:hidden;margin-top:6px">
+        <!-- ── Left: frequency + mode (mode follows the VFO's own AM/FM demod, not user-selectable) ── -->
+        <div style="width:170px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;overflow-y:auto">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px">
+            <div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;margin-bottom:5px">FREQUENCY</div>
+            <input id="hd-freq-input" type="text" placeholder="e.g. 101.1 MHz" style="width:100%;font-family:var(--mono);font-size:10px;background:var(--panel);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:4px 6px;margin-bottom:5px">
+            <button onclick="hdSetFrequency()" style="width:100%;font-family:var(--mono);font-size:8px;padding:4px;border-radius:3px;border:1px solid var(--border);color:var(--muted);background:none;cursor:pointer">Tune</button>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px">
+            <div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;margin-bottom:5px">MODE</div>
+            <div id="hd-mode-readout" style="font-family:var(--mono);font-size:10px;color:var(--text)">FM</div>
+            <div style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:4px;line-height:1.5">Follows the VFO's own AM/FM demod — HD Radio uses a different native sample rate for each, so this isn't user-selectable here.</div>
+          </div>
+        </div>
+
+        <!-- ── Middle: program grid (HD1-HD8) -- nrsc5_nexus decodes every
+             discovered program simultaneously, same shape as DAB's
+             simultaneous-subchannel card grid, reusing its .drm-qt-grid/
+             .drm-qt-card CSS (visually identical card-grid pattern). ── -->
+        <div style="flex:1.3;min-width:0;display:flex;flex-direction:column;gap:6px;overflow:hidden">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px;flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+            <div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;margin-bottom:6px;flex-shrink:0">PROGRAMS</div>
+            <div id="hd-program-list" class="drm-qt-grid" style="overflow-y:auto">
+              <div style="grid-column:1/-1;font-family:var(--mono);font-size:8px;color:var(--muted);padding:2px 0">Start the decoder — programs appear here as nrsc5 discovers them.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Right: station status / now playing ── -->
+        <div style="width:280px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;overflow-y:auto">
+          <div class="dab-ensemble-status" id="hd-lock-status" style="align-self:flex-start">
+            <span class="dab-lock-dot" id="hd-lock-dot"></span>
+            <span class="dab-ensemble-name" id="hd-lock-label">No signal</span>
+            <span class="dab-ensemble-freq" id="hd-program-label"></span>
+          </div>
+
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:10px;flex-shrink:0">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div id="hd-hero-avatar" class="dab-np-hero-avatar" style="background:var(--panel);color:var(--muted)">—</div>
+              <div style="flex:1;min-width:0">
+                <div id="hd-station-name" class="dab-np-hero-name">No station decoded yet</div>
+                <div id="hd-id3-line" style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:3px">
+                  <span class="dab-signal-bars" id="hd-signal-bars" title="MER-derived signal quality"><i></i><i></i><i></i><i></i></span>
+                  <span id="hd-mer-val" style="font-family:var(--mono);font-size:9px;color:var(--muted)">MER —</span>
+                  <span id="hd-ber-val" style="font-family:var(--mono);font-size:9px;color:var(--muted)">BER —</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="dab-np-dls-wrap static" id="hd-text-wrap" style="margin-top:8px">
+              <span class="dab-np-dls-track" id="hd-text-track">—</span>
+            </div>
+
+            <audio id="hd-audio" crossorigin="anonymous" style="display:none"></audio>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -10064,8 +10538,8 @@ const freqCursor= document.getElementById('freq-cursor');
 /* canvas consts declared below at "Waterfall canvas" section */
 
 /* ═══════════════════════════════════════════════════════════
-   DARKSKY NEXUS w034 — JavaScript Core
-   Live WebSocket connection to w034_NEXUS.py bridge
+   DARKSKY NEXUS w035 — JavaScript Core
+   Live WebSocket connection to w035_NEXUS.py bridge
    Binary protocol: byte[0]=0x01 → 512 uint8 FFT bins
                     byte[0]=0x02 → mono PCM16LE audio (internal FT8 decode)
    JSON protocol:   {type:'state'|'cw_frame'|'ft8_results'|...}
@@ -10110,7 +10584,7 @@ const DS = {
 };
 
 /* ═══════════════════════════════════════════════════════════
-   WEBSOCKET BRIDGE — connects to w034_NEXUS.py on :8889
+   WEBSOCKET BRIDGE — connects to w035_NEXUS.py on :8889
    The .py bridges SDRConnect on :5454 or RTL-SDR via rtl_tcp.
    Open via http://localhost:8888 (the .py serves the HTML).
 ════════════════════════════════════════════════════════════ */
@@ -10228,15 +10702,34 @@ function _applySDRProperty(prop, val) { /* handled by applyState via handleJSONF
 function _handleSDRConnectBinary(buf) { handleBinaryFrame(buf); }
 function _handleSDRConnectJSON(msg)   { handleJSONFrame(msg); }
 
+// BUGFIX (2026-07-28, found live-testing the DRM quick-tune list): several
+// places in this file (ACARS/VDL2, WSPR, Trunk, and now DRM quick-tune)
+// call a `_escHtml(...)` helper that was never actually defined as a real
+// global function anywhere -- the only `escapeHtml` in the file is a local
+// const scoped inside one unrelated renderer, invisible everywhere else.
+// Every one of those call sites has been silently throwing a
+// ReferenceError and failing to render whenever that code path runs,
+// masked by handleJSONFrame's own catch-and-ignore around JSON message
+// handling below. Defining the real thing here fixes this call site and
+// every pre-existing one at once, since they all reference this same name.
+function _escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function handleJSONFrame(msg) {
   switch (msg.type) {
 
     case 'state':
       {
         // Version mismatch warning — old cached HTML connected to new bridge
-        if (msg.server_version && msg.server_version !== 'w034') {
+        if (msg.server_version && msg.server_version !== 'w035') {
           toast('Version mismatch: bridge is ' + msg.server_version +
-                ' but HTML is w034 — Cmd+Shift+R to reload', 'warn');
+                ' but HTML is w035 — Cmd+Shift+R to reload', 'warn');
         }
         applyState(msg);
       }
@@ -10737,6 +11230,40 @@ function handleJSONFrame(msg) {
       { const r = document.getElementById('dab-svc-rows'); if (r && typeof DAB_EMPTY_HTML !== 'undefined') r.innerHTML = DAB_EMPTY_HTML; }
       break;
 
+    /* ── DRM / DRM+ (dream_nexus) ────────────────────────────────── */
+    case 'drm_status':
+      drmUpdateStatus(msg);
+      break;
+
+    /* ── HD Radio / NRSC-5 (nrsc5_nexus) ─────────────────────────── */
+    /* nrsc5_nexus emits several distinct message types on stderr (see
+       hd_engine()'s own header comment in w035_NEXUS.py) rather than one
+       combined status shape like DRM -- each is routed to the piece of
+       hdUpdate*() that owns that slot of the UI. */
+    case 'hd_status':
+      hdUpdateStatus(msg);
+      break;
+    case 'hd_sync':
+      hdUpdateSync(msg);
+      break;
+    case 'hd_id3':
+      hdUpdateId3(msg);
+      break;
+    case 'hd_station_name':
+    case 'hd_station_slogan':
+    case 'hd_station_message':
+      hdUpdateStationText(msg);
+      break;
+    case 'hd_audio_service':
+      hdUpdateProgram(msg);
+      break;
+    case 'hd_lot':
+      hdUpdateLot(msg);
+      break;
+    case 'hd_emergency_alert':
+      toast('HD Radio Emergency Alert: ' + (msg.message || '').slice(0, 200), 'warn');
+      break;
+
     /* ── Trunked P25/DMR/NXDN — OP25 / trunk-recorder ───────────────── */
     case 'trunk_status':
       {
@@ -10839,6 +11366,46 @@ function handleJSONFrame(msg) {
 
     case 'ssh_config':
       if (window._wzApplyConfig) window._wzApplyConfig(msg);
+      break;
+
+    case 'device_pref':
+      if (window._wzRenderDevicePref) _wzRenderDevicePref(msg.pref || 'auto');
+      break;
+
+    case 'local_launch_mode':
+      if (window._wzRenderLocalLaunchMode) _wzRenderLocalLaunchMode(msg.mode || 'none');
+      break;
+
+    case 'remote_launch_mode':
+      if (window._wzRenderRemoteLaunchMode) _wzRenderRemoteLaunchMode(msg.mode || 'headless');
+      { const cmdEl = document.getElementById('wz-ssh-cmd');
+        if (cmdEl && msg.remote_command != null) cmdEl.value = msg.remote_command;
+        const lcEl = document.getElementById('wz-local-client');
+        if (lcEl && msg.local_client != null) lcEl.value = msg.local_client; }
+      break;
+
+    case 'device_choice_available':
+      _showDeviceChoiceModal(msg.devices || []);
+      break;
+
+    case 'startup_status':
+      _showStartupStatus(msg.text, msg.kind);
+      break;
+
+    case 'device_choice_resolved':
+      _hideDeviceChoiceModal();
+      toast('Device: ' + msg.device, 'success');
+      break;
+
+    case 'connection_mode_set':
+      _hideConnectionPicker();
+      window._connModeResolved = true;
+      _updateConnectionLabel(msg.mode);
+      if (msg.requires_restart) {
+        toast('Connection mode saved — restart NEXUS to switch to it', 'warn');
+      } else {
+        toast('Connecting via ' + (_CONN_MODE_LABELS[msg.mode] || msg.mode), 'success');
+      }
       break;
 
     case 'ssh_test_result':
@@ -11225,6 +11792,16 @@ function handleJSONFrame(msg) {
       toast('Bookmark: ' + (msg.msg || 'error'), 'warn');
       break;
 
+    /* ── DRM / DRM+ quick-tune list (added w035, Step 5) ────────────── */
+    case 'drm_quicktune':
+      _drmQuickTune = msg.list || [];
+      drmRenderQuickTune();
+      break;
+
+    case 'drm_qt_error':
+      toast('DRM quick-tune: ' + (msg.msg || 'error'), 'warn');
+      break;
+
     /* ── Reporting / Logbook (added w033) ──────────────────────────── */
     case 'logbook':
       LOGBOOK = msg.entries || [];
@@ -11339,7 +11916,7 @@ function _anyDecoderActive() {
 
 /* ── Decoder control — one active at a time ─────────────────────── */
 // Slugs the bridge understands
-const DECODER_SLUGS = ['cw','rtty','psk31','psk63','psk125','navtex','olivia','olivia16','contestia','mfsk16','mfsk32','hell','dominoex','wefax','sstv','pocsag','acars','ais','adsb','hfdl','vdl2','rtl433','dsd','dab','trunk'];
+const DECODER_SLUGS = ['cw','rtty','psk31','psk63','psk125','navtex','olivia','olivia16','contestia','mfsk16','mfsk32','hell','dominoex','wefax','sstv','pocsag','acars','ais','adsb','hfdl','vdl2','rtl433','dsd','dab','drm','trunk'];
 
 let _activeDecoderSlug = null;  // currently running decoder (non-FT8)
 
@@ -11372,6 +11949,8 @@ const DECODERS_DB = {
   external: { label: 'EXTERNAL — SEPARATE FEED/PROCESS', items: [
     { slug: 'adsb',   name: 'ADS-B Aircraft',           tagSym: '▣', tagText: 'dump1090',   color: 'var(--orange)' },
     { slug: 'dab',    name: 'DAB / DAB+',                tagSym: '▣', tagText: 'dab-cmdline', color: 'var(--orange)' },
+    { slug: 'drm',    name: 'DRM / DRM+',                tagSym: '▣', tagText: 'dream',       color: 'var(--orange)' },
+    { slug: 'hdradio', name: 'HD Radio (NRSC-5)',        tagSym: '▣', tagText: 'nrsc5',       color: 'var(--orange)' },
     { slug: 'hfdl',   name: 'HFDL HF Data Link',         tagSym: '▣', tagText: 'dumphfdl',    color: 'var(--orange)' },
     { slug: 'vdl2',   name: 'VDL2 VHF Data Link',        tagSym: '▣', tagText: 'dumpvdl2',    color: 'var(--orange)' },
     { slug: 'rtl433', name: 'ISM Sensors (rtl_433)',     tagSym: '▣', tagText: 'rtl_433',     color: 'var(--orange)' },
@@ -11467,9 +12046,9 @@ document.addEventListener('click', function(e) {
 });
 
 // Decoders needing wideband IQ — incompatible with Compact/IQ Lite
-const _WIDEBAND_DECODERS = new Set(['pocsag','ais','acars','dab']);
+const _WIDEBAND_DECODERS = new Set(['pocsag','ais','acars','dab','drm']);
 // Decoders incompatible with Compact (no IQ at all)
-const _IQ_DECODERS = new Set(['pocsag','ais','acars','wefax','sstv','ft8','scanner','dab']);
+const _IQ_DECODERS = new Set(['pocsag','ais','acars','wefax','sstv','ft8','scanner','dab','drm']);
 
 // ── Olivia sub-mode arming — click a mode button to select it, then press
 // Start. Mirrors the highlight styling used by the fldigi mode-echo sync
@@ -11882,6 +12461,12 @@ function _schedAxFlush() {
   });
 }
 function applyState(s) {
+  // Startup connection picker (added 2026-07-29) — checked first, before
+  // anything else in this function, so a fresh launch with no remembered
+  // connection_mode shows the picker before the rest of the state (VFO,
+  // spectrum, etc.) even has a chance to render behind it.
+  if (s.connection_mode !== undefined) _handleConnectionModeState(s.connection_mode);
+
   // Process center_hz FIRST — liveCenter must be correct before VFO
   // and tune line calculations use it. vfo_hz and sample_rate both depend on it.
   if (s.center_hz !== undefined && !window._isDragging) {
@@ -11913,9 +12498,10 @@ function applyState(s) {
     const cinEl = document.getElementById('cin-freq-display');
     if (cinEl) cinEl.textContent = mhz + '.000';
     const metaEl = document.getElementById('cin-meta');
-    if (metaEl) metaEl.textContent =
-      (s.mode || DS.vfos.a.mode) + ' · SNR ' +
-      (s.signal_snr !== undefined ? (s.signal_snr >= 0 ? '+' : '') + s.signal_snr.toFixed(0) + ' dB' : '—');
+    if (metaEl) metaEl.textContent = (typeof _cinMetaLine === 'function')
+      ? _cinMetaLine()
+      : (s.mode || DS.vfos.a.mode) + ' · SNR ' +
+        (s.signal_snr !== undefined ? (s.signal_snr >= 0 ? '+' : '') + s.signal_snr.toFixed(0) + ' dB' : '—');
     // Auto-refresh Near VFO mode in Freq Lists tab
     if (typeof _flNearVFO !== 'undefined' && _flNearVFO) {
       try { flRenderTable(); } catch(e) {}
@@ -12048,6 +12634,7 @@ function applyState(s) {
     if (s.valid_devices !== undefined)  window._lastValidDevices  = s.valid_devices;
     if (s.active_device !== undefined)  window._lastActiveDevice  = s.active_device;
     try { _sshUpdateDeviceSelect(vd, ad); } catch(e) {}
+    try { _updateGeneralDeviceSelect(vd, ad); } catch(e) {}
   }
   // Antenna selector — update when valid_antennas or active_antenna changes
   if (s.valid_antennas !== undefined || s.active_antenna !== undefined) {
@@ -12280,10 +12867,7 @@ function _cinEnter() {
   const fd = document.getElementById('cin-freq-display');
   if (fd) fd.textContent = mhz;
   const md = document.getElementById('cin-meta');
-  if (md) md.textContent =
-    DS.vfos.a.mode + ' · ' +
-    (DS.liveSR >= 1e6 ? (DS.liveSR/1e6).toFixed(0) + ' MSPS' : (DS.liveSR/1e3).toFixed(0) + ' kSPS') +
-    ' · ' + (DS.vfos.a.snr ? (DS.vfos.a.snr>=0?'+':'') + DS.vfos.a.snr.toFixed(0) + ' dB SNR' : 'Monitoring');
+  if (md) md.textContent = _cinMetaLine();
   const sn = document.getElementById('cin-signal-name');
   if (sn) sn.textContent = 'DARKSKY NEXUS — Live Spectrum Intelligence';
   const se = document.getElementById('cin-status-engine');
@@ -12349,6 +12933,23 @@ let _cinSceneState  = {};   // per-scene scratch, reset on scene switch
 let _cinFrameNo     = 0;
 let _cinResizeBound = false;
 
+// Positions #cin-station (station name + RDS/DLS text) just below the
+// nixie readout for the RETRO scene. A fixed CSS top:% can't work here —
+// #cin-nixie's rendered height depends on viewport size/aspect (it's
+// sized in px/vw, not vh), so at some window sizes a static percentage
+// collided with the tube glyphs (user screenshot, 2026-07-28: "BBC
+// RADIO6MUSIC" / "Now Playing…" printed straight across the digits).
+// Measuring the actual rendered box and placing the station block right
+// under it is the only approach that holds at every window size.
+function _cinLayoutRetroStation() {
+  const overlay = _elCinOverlay, station = document.getElementById('cin-station'),
+        nixie = document.getElementById('cin-nixie');
+  if (!overlay || !station || !nixie || DS.cinScene !== 'retro') return;
+  const ovRect = overlay.getBoundingClientRect(), nxRect = nixie.getBoundingClientRect();
+  if (!nxRect.height) return; // not laid out yet (e.g. display:none mid-transition)
+  station.style.top = Math.round(nxRect.bottom - ovRect.top + 14) + 'px';
+}
+
 function setCinScene(id, quiet) {
   if (!CIN_SCENES.includes(id)) id = 'nexus';
   DS.cinScene = id;
@@ -12363,6 +12964,15 @@ function setCinScene(id, quiet) {
     const c = document.getElementById(cid);
     if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height);
   });
+  const station = document.getElementById('cin-station');
+  if (id === 'retro') {
+    // rAF x2: wait for the dataset.scene change above to actually apply
+    // (#cin-nixie's display:none→block) and for layout to settle before
+    // measuring it.
+    requestAnimationFrame(() => requestAnimationFrame(_cinLayoutRetroStation));
+  } else if (station) {
+    station.style.top = ''; // restore default CSS (top:12%) for other scenes
+  }
   if (!quiet && DS.cinematic) toast(CIN_SCENE_NAMES[id], 'info');
 }
 
@@ -12445,7 +13055,235 @@ function _cinSceneNexus(ctx, W, H, phase, bins, lvl) {
   _cinDrawSpectrum(bins);
 }
 
+/* ── Nixie-tube readout (RETRO scene) — real SVG, not canvas ──────────
+   2026-07-28: replaced the canvas strokeText version — canvas shadowBlur
+   is a cheap approximation and the digits still looked like a printed
+   font. Then rebuilt again same day around a capsule-shaped glass tube
+   (rx=ry=width/2 rounded rect) with straight cathode-grid wires and a
+   feColorMatrix-tinted blur behind a filled+stroked digit — closer to a
+   real IN-14/IN-17 nixie than the earlier dome-path + diagonal-mesh take.
+   Built with DOM/SVG calls instead of a template string so nothing here
+   depends on user-controlled text ending up in innerHTML. */
+let _cinNixieLastStr = null;
+
+function _cinNixieBrassBase(g, svgNS, cx, bottomY, w) {
+  const brass = document.createElementNS(svgNS, 'rect');
+  brass.setAttribute('x', cx - w * 0.42);
+  brass.setAttribute('y', bottomY);
+  brass.setAttribute('width', w * 0.84);
+  brass.setAttribute('height', 10);
+  brass.setAttribute('fill', 'url(#nixieBrass)');
+  g.appendChild(brass);
+  [-1, 1].forEach(sign => {
+    const pin = document.createElementNS(svgNS, 'circle');
+    pin.setAttribute('cx', cx + sign * w * 0.22);
+    pin.setAttribute('cy', bottomY + 5);
+    pin.setAttribute('r', '1.6');
+    pin.setAttribute('fill', '#ffaa55');
+    g.appendChild(pin);
+  });
+}
+
+// One capsule-shaped glass tube: outer body, inner rim, top ambient glow,
+// and a clipped straight-wire cathode grid — everything but the digit/dot
+// itself, shared by both digit tubes and the decimal-point spacer tube.
+function _cinNixieBuildBulb(g, svgNS, cx, bottomY, w, h, idx) {
+  const capR = w / 2, topY = bottomY - h;
+
+  const body = document.createElementNS(svgNS, 'rect');
+  body.setAttribute('x', cx - capR); body.setAttribute('y', topY);
+  body.setAttribute('width', w); body.setAttribute('height', h);
+  body.setAttribute('rx', capR); body.setAttribute('ry', capR);
+  body.setAttribute('fill', 'url(#nixieGlassBody)');
+  body.setAttribute('stroke', 'rgba(180,180,180,.55)');
+  body.setAttribute('stroke-width', '1.4');
+  g.appendChild(body);
+
+  const rim = document.createElementNS(svgNS, 'rect');
+  rim.setAttribute('x', cx - capR + 2); rim.setAttribute('y', topY + 2);
+  rim.setAttribute('width', w - 4); rim.setAttribute('height', h - 4);
+  rim.setAttribute('rx', capR - 2); rim.setAttribute('ry', capR - 2);
+  rim.setAttribute('fill', 'none');
+  rim.setAttribute('stroke', 'rgba(255,255,255,.25)');
+  rim.setAttribute('stroke-width', '0.8');
+  g.appendChild(rim);
+
+  const clipId = `nixieClip${idx}`;
+  const clipPath = document.createElementNS(svgNS, 'clipPath');
+  clipPath.setAttribute('id', clipId);
+  const clipShape = document.createElementNS(svgNS, 'rect');
+  clipShape.setAttribute('x', cx - capR); clipShape.setAttribute('y', topY);
+  clipShape.setAttribute('width', w); clipShape.setAttribute('height', h);
+  clipShape.setAttribute('rx', capR); clipShape.setAttribute('ry', capR);
+  clipPath.appendChild(clipShape);
+  g.appendChild(clipPath);
+
+  const grid = document.createElementNS(svgNS, 'g');
+  grid.setAttribute('stroke', '#ffb366');
+  grid.setAttribute('stroke-width', '.6');
+  grid.setAttribute('opacity', '.3');
+  grid.setAttribute('clip-path', `url(#${clipId})`);
+  const gridTop = topY + capR * 0.9, gridBot = bottomY - capR * 0.9;
+  for (let vx = cx - capR + capR * 0.4; vx <= cx + capR - capR * 0.35; vx += w * 0.24) {
+    const ln = document.createElementNS(svgNS, 'line');
+    ln.setAttribute('x1', vx); ln.setAttribute('y1', gridTop);
+    ln.setAttribute('x2', vx); ln.setAttribute('y2', gridBot);
+    grid.appendChild(ln);
+  }
+  for (let hy = gridTop; hy <= gridBot; hy += h * 0.16) {
+    const ln = document.createElementNS(svgNS, 'line');
+    ln.setAttribute('x1', cx - capR + 3); ln.setAttribute('y1', hy);
+    ln.setAttribute('x2', cx + capR - 3); ln.setAttribute('y2', hy);
+    grid.appendChild(ln);
+  }
+  g.appendChild(grid);
+
+  const glow = document.createElementNS(svgNS, 'ellipse');
+  glow.setAttribute('cx', cx); glow.setAttribute('cy', topY + capR * 0.9);
+  glow.setAttribute('rx', capR * 0.95); glow.setAttribute('ry', capR * 0.55);
+  glow.setAttribute('fill', 'url(#nixieGlassGlow)');
+  glow.setAttribute('opacity', '.7');
+  g.appendChild(glow);
+}
+
+function _cinNixieBuildDigit(g, svgNS, cx, bottomY, w, h, ch, idx) {
+  _cinNixieBuildBulb(g, svgNS, cx, bottomY, w, h, idx);
+
+  // Blurred, warm-tinted halo behind the glyph (feColorMatrix pushes the
+  // blur orange), then the crisp filled+stroked digit on top — this is
+  // what gives the "glowing element inside dark glass" look rather than
+  // a flat printed character.
+  const glowText = document.createElementNS(svgNS, 'text');
+  glowText.setAttribute('x', cx);
+  glowText.setAttribute('y', bottomY - h * 0.42);
+  glowText.setAttribute('text-anchor', 'middle');
+  glowText.setAttribute('dominant-baseline', 'middle');
+  glowText.setAttribute('font-family', "'Courier New', monospace");
+  glowText.setAttribute('font-size', String(Math.round(h * 0.5)));
+  glowText.setAttribute('fill', '#ff7b00');
+  glowText.setAttribute('stroke', '#ffb366');
+  glowText.setAttribute('stroke-width', String(Math.max(1, w * 0.026)));
+  glowText.setAttribute('filter', 'url(#nixieGlow)');
+  glowText.setAttribute('class', 'cin-nixie-flicker');
+  glowText.style.animationDelay = (idx * 0.31) + 's';
+  glowText.textContent = ch;
+  g.appendChild(glowText);
+
+  const text = document.createElementNS(svgNS, 'text');
+  text.setAttribute('x', cx);
+  text.setAttribute('y', bottomY - h * 0.42);
+  text.setAttribute('text-anchor', 'middle');
+  text.setAttribute('dominant-baseline', 'middle');
+  text.setAttribute('font-family', "'Courier New', monospace");
+  text.setAttribute('font-size', String(Math.round(h * 0.5)));
+  text.setAttribute('fill', '#ffdca0');
+  text.setAttribute('class', 'cin-nixie-flicker');
+  text.style.animationDelay = (idx * 0.31) + 's';
+  text.textContent = ch;
+  g.appendChild(text);
+
+  _cinNixieBrassBase(g, svgNS, cx, bottomY, w);
+}
+
+function _cinNixieBuildSpacer(g, svgNS, cx, bottomY, w, h, idx) {
+  _cinNixieBuildBulb(g, svgNS, cx, bottomY, w, h, idx);
+
+  // tiny glowing dot marking the decimal point — real nixie-clock kits use
+  // exactly this kind of slim separate "colon" tube for the same purpose
+  const dotY = bottomY - h * 0.22, dotR = Math.max(2, w * 0.22);
+  const halo = document.createElementNS(svgNS, 'circle');
+  halo.setAttribute('cx', cx); halo.setAttribute('cy', dotY); halo.setAttribute('r', dotR);
+  halo.setAttribute('fill', '#ff7b00');
+  halo.setAttribute('filter', 'url(#nixieGlow)');
+  halo.setAttribute('class', 'cin-nixie-flicker');
+  halo.style.animationDelay = (idx * 0.31) + 's';
+  g.appendChild(halo);
+  const dot = document.createElementNS(svgNS, 'circle');
+  dot.setAttribute('cx', cx); dot.setAttribute('cy', dotY); dot.setAttribute('r', dotR * 0.7);
+  dot.setAttribute('fill', '#ffe6b8');
+  dot.setAttribute('class', 'cin-nixie-flicker');
+  dot.style.animationDelay = (idx * 0.31) + 's';
+  g.appendChild(dot);
+
+  _cinNixieBrassBase(g, svgNS, cx, bottomY, w);
+}
+
+// Rebuilds the SVG only when the displayed digits actually change — the
+// scene calls this every frame, but there's no need to churn the DOM 60x/sec.
+function _cinNixieUpdate(freqStr) {
+  if (freqStr === _cinNixieLastStr) return;
+  _cinNixieLastStr = freqStr;
+  const g = document.getElementById('cin-nixie-tubes');
+  if (!g) return;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  while (g.firstChild) g.removeChild(g.firstChild);
+
+  const [intPart, decPart] = freqStr.split('.');
+  const slots = [];
+  for (const ch of intPart) slots.push({ ch });
+  slots.push({ spacer: true });
+  for (const ch of (decPart || '')) slots.push({ ch });
+
+  const digitW = 76, spacerW = 26, gapPx = 14, tubeH = 190;
+  const totalW = slots.reduce((s, sl) => s + (sl.spacer ? spacerW : digitW), 0) + gapPx * (slots.length - 1);
+  const bottomY = 224, baseH = 16;
+  const startX = 450 - totalW / 2; // viewBox is 900 wide, centred at 450
+
+  const base = document.createElementNS(svgNS, 'rect');
+  base.setAttribute('x', String(startX - 20));
+  base.setAttribute('y', String(bottomY + 10));
+  base.setAttribute('width', String(totalW + 40));
+  base.setAttribute('height', String(baseH));
+  base.setAttribute('rx', '4');
+  base.setAttribute('fill', 'url(#nixieWood)');
+  base.setAttribute('stroke', 'rgba(255,200,140,.18)');
+  g.appendChild(base);
+
+  let x = startX;
+  slots.forEach((sl, i) => {
+    const w = sl.spacer ? spacerW : digitW;
+    const cx = x + w / 2;
+    if (sl.spacer) _cinNixieBuildSpacer(g, svgNS, cx, bottomY, w, tubeH * 0.8, i);
+    else _cinNixieBuildDigit(g, svgNS, cx, bottomY, w, tubeH, sl.ch, i);
+    x += w + gapPx;
+  });
+}
+
 /* ── Scene: RETRO — valve receiver ── */
+// Riveted brass border + corner brackets for the RETRO panel — closing
+// the gap the user flagged 2026-07-28 (live screenshot vs. their steampunk
+// reference render): a soft translucent panel reads as UI chrome, not
+// brass hardware. Small bolt-head dots along the edge + reinforced corner
+// L-brackets is the cheapest way to sell "riveted metal plate."
+function _cinDrawRivets(ctx, x, y, w, h, r) {
+  const spacing = 34, pts = [];
+  for (let px = x + r; px <= x + w - r; px += spacing) { pts.push([px, y + 6]); pts.push([px, y + h - 6]); }
+  for (let py = y + r; py <= y + h - r; py += spacing) { pts.push([x + 6, py]); pts.push([x + w - 6, py]); }
+  pts.forEach(([rx, ry]) => {
+    const rg = ctx.createRadialGradient(rx - 0.6, ry - 0.6, 0, rx, ry, 2.6);
+    rg.addColorStop(0, 'rgba(255,225,180,0.9)');
+    rg.addColorStop(0.5, 'rgba(190,130,60,0.8)');
+    rg.addColorStop(1, 'rgba(60,35,12,0.55)');
+    ctx.fillStyle = rg;
+    ctx.beginPath(); ctx.arc(rx, ry, 2.3, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+function _cinDrawCornerBracket(ctx, cx, cy, sx, sy, size) {
+  ctx.strokeStyle = 'rgba(220,170,95,0.55)'; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + sy * size);
+  ctx.lineTo(cx, cy);
+  ctx.lineTo(cx + sx * size, cy);
+  ctx.stroke();
+  const rg = ctx.createRadialGradient(cx - 0.6, cy - 0.6, 0, cx, cy, 4);
+  rg.addColorStop(0, 'rgba(255,225,180,0.95)');
+  rg.addColorStop(0.5, 'rgba(190,130,60,0.85)');
+  rg.addColorStop(1, 'rgba(60,35,12,0.6)');
+  ctx.fillStyle = rg;
+  ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
+}
+
 function _cinSceneRetro(ctx, W, H, phase, bins, lvl) {
   const st = _cinSceneState;
   if (!st.bg || st.bgW !== W || st.bgH !== H) {
@@ -12455,78 +13293,184 @@ function _cinSceneRetro(ctx, W, H, phase, bins, lvl) {
   }
   ctx.fillStyle = st.bg; ctx.fillRect(0, 0, W, H);
   const amber = a => `rgba(255,179,0,${a})`;
+  const mm = Math.min(W, H);
 
-  // Tuning dial band across the centre
-  const dialY = H * 0.40, f = DS.vfos.a.freq / 1e6 || 14.074;
-  const span = Math.max(0.6, f * 0.04);
-  const pxPerMHz = W / span;
-  const bandG = ctx.createLinearGradient(0, dialY - 46, 0, dialY + 46);
-  bandG.addColorStop(0, 'rgba(255,140,0,0)'); bandG.addColorStop(.5, 'rgba(255,140,0,0.06)'); bandG.addColorStop(1, 'rgba(255,140,0,0)');
-  ctx.fillStyle = bandG; ctx.fillRect(0, dialY - 46, W, 92);
-  ctx.strokeStyle = amber(.25); ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(0, dialY + 30); ctx.lineTo(W, dialY + 30); ctx.stroke();
-  const minor = span / 60, fStart = f - span / 2;
-  ctx.textAlign = 'center'; ctx.font = '10px monospace';
-  for (let tf = Math.ceil(fStart / minor) * minor; tf < fStart + span; tf += minor) {
-    const x = (tf - fStart) * pxPerMHz;
-    const major = Math.round(tf / minor) % 5 === 0;
-    ctx.strokeStyle = amber(major ? .55 : .22);
-    ctx.beginPath(); ctx.moveTo(x, dialY + 30); ctx.lineTo(x, dialY + 30 - (major ? 26 : 13)); ctx.stroke();
-    if (major) { ctx.fillStyle = amber(.5); ctx.fillText(tf.toFixed(2), x, dialY - 12); }
-  }
-  // Red needle at centre
-  ctx.shadowColor = '#ff5500'; ctx.shadowBlur = 14;
-  ctx.strokeStyle = '#ff6a00'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(W / 2, dialY - 40); ctx.lineTo(W / 2, dialY + 38); ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // VU needle meter, bottom-left — ballistic response to signal
-  const vx = W * 0.17, vy = H * 0.82, vr = Math.min(W, H) * 0.16;
-  const a0 = Math.PI * 1.25, a1 = Math.PI * 1.75;
-  const target = Math.min(1, lvl.avg * 1.6 + lvl.peak * 0.2);
-  st.vu = (st.vu || 0) + (target - (st.vu || 0)) * 0.09;
-  const bl = ctx.createRadialGradient(vx, vy, 0, vx, vy, vr * 1.25);
-  bl.addColorStop(0, 'rgba(255,170,40,0.10)'); bl.addColorStop(1, 'rgba(255,170,40,0)');
-  ctx.fillStyle = bl; ctx.beginPath(); ctx.arc(vx, vy, vr * 1.25, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = amber(.5); ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(vx, vy, vr, a0, a1); ctx.stroke();
-  for (let i = 0; i <= 10; i++) {
-    const a = a0 + (a1 - a0) * i / 10, redZone = i >= 8;
-    ctx.strokeStyle = redZone ? 'rgba(255,60,30,.8)' : amber(.55);
-    ctx.lineWidth = i % 5 === 0 ? 2 : 1;
-    const inner = vr - (i % 5 === 0 ? 14 : 8);
+  // Hybrid chassis silhouette — a soft wood/Bakelite panel framing the
+  // valves and dial. Subtle enough to sit inside NEXUS's dark theme rather
+  // than a literal wood-texture faceplate.
+  // Sized/positioned to clear #cin-info (freq readout + meta + exit hint),
+  // which the CSS pins at bottom:66% for this scene — the dial arc below
+  // must stay under that line or the two fight each other (2026-07-28 fix:
+  // first pass had the arc rising right through the frequency number).
+  // panelH extended 2026-07-28 (user request: "move the dial & signal down
+  // further to just above the cinematic mode buttons") so the chassis frame
+  // grows to enclose the relocated dial rather than the dial floating below
+  // the panel's bottom edge.
+  const panelX = W * 0.16, panelY = H * 0.04, panelW = W * 0.68, panelH = H * 0.86;
+  ctx.save();
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(panelX, panelY, panelW, panelH, 22);
+  else ctx.rect(panelX, panelY, panelW, panelH);
+  const panelGrad = ctx.createLinearGradient(0, panelY, 0, panelY + panelH);
+  panelGrad.addColorStop(0, 'rgba(78,46,20,0.5)');
+  panelGrad.addColorStop(0.5, 'rgba(44,24,10,0.4)');
+  panelGrad.addColorStop(1, 'rgba(16,8,3,0.3)');
+  ctx.fillStyle = panelGrad; ctx.fill();
+  ctx.strokeStyle = 'rgba(20,11,4,0.7)'; ctx.lineWidth = 5; ctx.stroke();
+  ctx.strokeStyle = 'rgba(224,181,98,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(255,205,145,0.06)'; ctx.lineWidth = 1;
+  for (let gy = panelY + 8; gy < panelY + panelH; gy += 7) {
     ctx.beginPath();
-    ctx.moveTo(vx + Math.cos(a) * vr, vy + Math.sin(a) * vr);
-    ctx.lineTo(vx + Math.cos(a) * inner, vy + Math.sin(a) * inner);
+    ctx.moveTo(panelX, gy + Math.sin(gy * 0.05) * 4);
+    ctx.lineTo(panelX + panelW, gy + Math.cos(gy * 0.04) * 4);
     ctx.stroke();
   }
+  ctx.restore();
+  // Inner bevel highlight — sells the "recessed panel" depth cue
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(panelX + 3, panelY + 3, panelW - 6, panelH - 6, 19);
+  else ctx.rect(panelX + 3, panelY + 3, panelW - 6, panelH - 6);
+  ctx.strokeStyle = 'rgba(255,220,170,0.12)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // Riveted brass border + reinforced corner brackets — this is the piece
+  // that actually reads as "hardware" rather than a soft translucent panel.
+  _cinDrawRivets(ctx, panelX, panelY, panelW, panelH, 22);
+  const bs = 16;
+  _cinDrawCornerBracket(ctx, panelX + 11, panelY + 11, 1, 1, bs);
+  _cinDrawCornerBracket(ctx, panelX + panelW - 11, panelY + 11, -1, 1, bs);
+  _cinDrawCornerBracket(ctx, panelX + 11, panelY + panelH - 11, 1, -1, bs);
+  _cinDrawCornerBracket(ctx, panelX + panelW - 11, panelY + panelH - 11, -1, -1, bs);
+
+  // Nixie-tube frequency readout — replaces both the old valve row (which
+  // read as decorative "fake candles", per user feedback 2026-07-28) and
+  // the plain neon #cin-freq-display numeral (hidden for this scene via
+  // CSS). Rendered as a real SVG overlay (#cin-nixie, positioned via CSS)
+  // rather than drawn on this canvas — see _cinNixieUpdate. One glass tube
+  // per digit, with a slim decorative "spacer" tube marking the decimal
+  // point, matching the vintage/steampunk nixie-clock reference photos the
+  // user shared.
+  _cinNixieUpdate((DS.vfos.a.freq / 1e6 || 14.074).toFixed(3));
+
+  // Semicircular tuning dial — merges the old horizontal frequency ruler
+  // and separate VU meter into one backlit glass arc: fixed ticks + a
+  // hairline mark the tuned frequency (the displayed span is always
+  // centred on it), while the amber needle sweeps live with signal
+  // strength, like a classic combined dial/S-meter.
+  // cy fixed as a fraction of H (not panel-relative) so the arc's top edge
+  // lands safely below #cin-info's text block regardless of panel size.
+  // 2026-07-28: moved from 0.66 to 0.82 per user request ("move the dial &
+  // signal down further to just above the cinematic mode buttons") — see
+  // matching #cin-info bottom% change and the panelH increase above, both
+  // needed to keep the dial paired with its meta text and inside the panel.
+  const cx = W / 2, cy = H * 0.82, dr = mm * 0.24;
+  const a0 = Math.PI * 1.08, a1 = Math.PI * 1.92;
+  const f = DS.vfos.a.freq / 1e6 || 14.074;
+  const span = Math.max(0.6, f * 0.04);
+  const fStart = f - span / 2, minor = span / 60;
+
+  // Brass bezel ring + end-cap housings — turns the bare arc into a
+  // physical meter bolted to the panel, matching the reference render's
+  // "SIGNAL" gauge housing (2026-07-28).
+  ctx.beginPath();
+  ctx.arc(cx, cy, dr * 1.14, a0 - 0.03, a1 + 0.03);
+  ctx.arc(cx, cy, dr * 1.03, a1 + 0.03, a0 - 0.03, true);
+  ctx.closePath();
+  const bezelGrad = ctx.createLinearGradient(cx - dr * 1.14, cy, cx + dr * 1.14, cy);
+  bezelGrad.addColorStop(0, '#4a3216'); bezelGrad.addColorStop(0.25, '#dcae5e');
+  bezelGrad.addColorStop(0.5, '#6b4a22'); bezelGrad.addColorStop(0.75, '#dcae5e');
+  bezelGrad.addColorStop(1, '#4a3216');
+  ctx.fillStyle = bezelGrad; ctx.fill();
+  ctx.strokeStyle = 'rgba(20,12,4,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+
+  [a0, a1].forEach(ea => {
+    const ex = cx + Math.cos(ea) * dr * 1.09, ey = cy + Math.sin(ea) * dr * 1.09;
+    ctx.save();
+    ctx.translate(ex, ey); ctx.rotate(ea + Math.PI / 2);
+    const capGrad = ctx.createLinearGradient(-8, 0, 8, 0);
+    capGrad.addColorStop(0, '#5b3d18'); capGrad.addColorStop(0.5, '#c99a52'); capGrad.addColorStop(1, '#3a2510');
+    ctx.fillStyle = capGrad;
+    ctx.fillRect(-8, -7, 16, 14);
+    ctx.strokeStyle = 'rgba(20,12,4,0.6)'; ctx.lineWidth = 1; ctx.strokeRect(-8, -7, 16, 14);
+    ctx.restore();
+  });
+
+  const arcGrad = ctx.createRadialGradient(cx, cy, dr * 0.55, cx, cy, dr * 1.05);
+  arcGrad.addColorStop(0, 'rgba(255,150,40,0.05)');
+  arcGrad.addColorStop(0.85, 'rgba(255,140,30,0.09)');
+  arcGrad.addColorStop(1, 'rgba(255,120,20,0)');
+  ctx.fillStyle = arcGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, dr * 1.05, a0, a1);
+  ctx.arc(cx, cy, dr * 0.7, a1, a0, true);
+  ctx.closePath(); ctx.fill();
+
+  ctx.strokeStyle = amber(.5); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx, cy, dr, a0, a1); ctx.stroke();
+
+  // Glass reflection streak across the dial face — a diagonal soft-white
+  // band clipped to the dial's annulus, like light catching a curved
+  // glass cover over the gauge.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, dr * 1.02, a0, a1);
+  ctx.arc(cx, cy, dr * 0.72, a1, a0, true);
+  ctx.closePath();
+  ctx.clip();
+  const reflGrad = ctx.createLinearGradient(cx - dr, cy - dr, cx + dr * 0.3, cy - dr * 0.3);
+  reflGrad.addColorStop(0, 'rgba(255,255,255,0)');
+  reflGrad.addColorStop(0.45, 'rgba(255,255,255,0.04)');
+  reflGrad.addColorStop(0.55, 'rgba(255,255,255,0.11)');
+  reflGrad.addColorStop(0.65, 'rgba(255,255,255,0.03)');
+  reflGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = reflGrad;
+  ctx.fillRect(cx - dr * 1.15, cy - dr * 1.15, dr * 2.3, dr * 1.15);
+  ctx.restore();
+
+  ctx.textAlign = 'center'; ctx.font = '9px monospace';
+  for (let tf = Math.ceil(fStart / minor) * minor; tf < fStart + span; tf += minor) {
+    const t = (tf - fStart) / span, ang = a0 + (a1 - a0) * t;
+    const major = Math.round(tf / minor) % 5 === 0;
+    const rOuter = dr, rInner = dr - (major ? 16 : 8);
+    ctx.strokeStyle = amber(major ? .6 : .25);
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(ang) * rOuter, cy + Math.sin(ang) * rOuter);
+    ctx.lineTo(cx + Math.cos(ang) * rInner, cy + Math.sin(ang) * rInner);
+    ctx.stroke();
+    if (major) {
+      const lx = cx + Math.cos(ang) * (dr + 14), ly = cy + Math.sin(ang) * (dr + 14);
+      ctx.fillStyle = amber(.55);
+      ctx.fillText(tf.toFixed(2), lx, ly + 3);
+    }
+  }
+
+  const midA = (a0 + a1) / 2;
+  ctx.strokeStyle = '#ff6a00'; ctx.lineWidth = 2;
+  ctx.shadowColor = '#ff5500'; ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.moveTo(cx + Math.cos(midA) * (dr + 6), cy + Math.sin(midA) * (dr + 6));
+  ctx.lineTo(cx + Math.cos(midA) * (dr * 0.68), cy + Math.sin(midA) * (dr * 0.68));
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Ballistic signal-strength needle, pivoting from dial centre
+  const target = Math.min(1, lvl.avg * 1.6 + lvl.peak * 0.2);
+  st.vu = (st.vu || 0) + (target - (st.vu || 0)) * 0.09;
   const na = a0 + (a1 - a0) * st.vu;
   ctx.strokeStyle = '#ffd780'; ctx.lineWidth = 2.5;
   ctx.shadowColor = '#ffb300'; ctx.shadowBlur = 10;
-  ctx.beginPath(); ctx.moveTo(vx, vy); ctx.lineTo(vx + Math.cos(na) * (vr - 6), vy + Math.sin(na) * (vr - 6)); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(na) * (dr * 0.62), cy + Math.sin(na) * (dr * 0.62));
+  ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.fillStyle = amber(.85); ctx.beginPath(); ctx.arc(vx, vy, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = amber(.85); ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = amber(.45); ctx.font = '9px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('SIGNAL', vx, vy + 18);
+  ctx.fillText('SIGNAL', cx, cy + 22);
+  const quality = target > 0.66 ? 'GOOD' : target > 0.33 ? 'FAIR' : 'WEAK';
+  ctx.fillStyle = amber(.6); ctx.font = 'bold 9px monospace';
+  ctx.fillText(quality, cx, cy + 34);
 
-  // Valves, bottom-right — each glows with one slice of the band
-  const nV = 5, vGap = Math.min(W, H) * 0.07, vby = H * 0.82;
-  for (let i = 0; i < nV; i++) {
-    let m = 0;
-    const lo = Math.floor(i * bins.length / nV), hi = Math.floor((i + 1) * bins.length / nV);
-    for (let j = lo; j < hi; j++) if (bins[j] > m) m = bins[j];
-    const e = m / 255, flick = 0.85 + Math.random() * 0.15;
-    const x = W * 0.80 + (i - (nV - 1) / 2) * vGap, r = vGap * 0.32;
-    const gg = ctx.createRadialGradient(x, vby, 0, x, vby, r * 2.4);
-    gg.addColorStop(0, `rgba(255,200,90,${(0.25 + e * 0.55) * flick})`);
-    gg.addColorStop(0.35, `rgba(255,140,30,${(0.12 + e * 0.3) * flick})`);
-    gg.addColorStop(1, 'rgba(255,120,20,0)');
-    ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(x, vby, r * 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = `rgba(255,230,170,${0.3 + e * 0.6})`;
-    ctx.beginPath(); ctx.arc(x, vby, r * 0.35, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = amber(.22); ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(x, vby, r, 0, Math.PI * 2); ctx.stroke();
-  }
   // Film grain
   ctx.fillStyle = 'rgba(255,220,180,0.025)';
   for (let i = 0; i < 50; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 1.3, 1.3);
@@ -12690,6 +13634,7 @@ function _cinStartCanvas() {
     canvas.width  = window.innerWidth;
     canvas.height = window.innerHeight;
     if (spec) { spec.width = window.innerWidth; spec.height = Math.round(window.innerHeight * 0.35); }
+    requestAnimationFrame(_cinLayoutRetroStation);
   }
   resize();
   if (!_cinResizeBound) { window.addEventListener('resize', resize); _cinResizeBound = true; }
@@ -12718,10 +13663,7 @@ function _cinStartCanvas() {
     const fd = document.getElementById('cin-freq-display');
     if (fd) fd.textContent = (DS.vfos.a.freq / 1e6).toFixed(3);
     const md = document.getElementById('cin-meta');
-    if (md) md.textContent =
-      DS.vfos.a.mode + ' · ' +
-      (DS.liveSR >= 1e6 ? (DS.liveSR/1e6).toFixed(0) + ' MSPS' : (DS.liveSR/1e3).toFixed(0) + ' kSPS') +
-      (DS.vfos.a.snr ? ' · SNR ' + (DS.vfos.a.snr>=0?'+':'') + DS.vfos.a.snr.toFixed(0) + ' dB' : '');
+    if (md) md.textContent = _cinMetaLine();
     const tc = document.getElementById('cin-status-time');
     if (tc) {
       const nw = new Date();
@@ -13508,6 +14450,36 @@ function toast(msg, type = 'info') {
   setTimeout(() => el.remove(), 3000);
 }
 
+// Added 2026-07-31 (startup UX audit). Renders _broadcast_startup_status()
+// broadcasts as a single persistent, in-place-updating line rather than
+// stacking toasts — see #startup-status-strip's own HTML comment for why
+// this exists instead of reusing toast() above.
+let _startupStatusHideTimer = null;
+function _showStartupStatus(text, kind) {
+  const strip = document.getElementById('startup-status-strip');
+  const dot   = document.getElementById('startup-status-dot');
+  const txt   = document.getElementById('startup-status-text');
+  if (!strip || !txt || !text) return;
+  txt.textContent = text;
+  const color = kind === 'warn' ? 'var(--amber)' : kind === 'ok' ? 'var(--green)' : 'var(--accent)';
+  if (dot) dot.style.background = color;
+  strip.style.borderColor = color;
+  strip.style.display = 'block';
+  strip.style.opacity = '1';
+  if (_startupStatusHideTimer) { clearTimeout(_startupStatusHideTimer); _startupStatusHideTimer = null; }
+  // Only auto-hide once things have genuinely settled (the final "Connected:
+  // <device> (<mode>)" line) -- warnings (device ambiguity still waiting on
+  // you, a failed auto-launch) and in-progress steps stay on screen until
+  // replaced by the next real status, so nothing relevant can vanish while
+  // it still matters.
+  if (kind === 'ok' && /^Connected:/.test(text)) {
+    _startupStatusHideTimer = setTimeout(() => {
+      strip.style.opacity = '0';
+      setTimeout(() => { strip.style.display = 'none'; }, 300);
+    }, 4000);
+  }
+}
+
 /* ═══════════════════════════════════════════
    COMMAND PALETTE
 ═══════════════════════════════════════════ */
@@ -13825,11 +14797,84 @@ function _updateStreamModeButtons(mode) {
       r.checked = (r.value === auth);
     });
     _wzAuthChange();
+    window._wzRenderDevicePref(cfg.device_preference || 'auto');
+    // Added 2026-07-31 -- headless/GUI startup option (local + remote).
+    _setVal('wz-local-path', cfg.local_sdrconnect_path || '');
+    window._wzRenderLocalLaunchMode(cfg.local_launch_mode || 'none');
+    window._wzRenderRemoteLaunchMode(cfg.remote_launch_mode || 'headless');
   };
   function _setVal(id, v) {
     const el = document.getElementById(id);
     if (el) el.value = v;
   }
+
+  // Highlight the active local-launch-mode button; called on config load
+  // and again after every _wzSetLocalLaunchMode() click / broadcast echo.
+  // Added 2026-07-31 (see local_launch_mode in w035_NEXUS.py).
+  window._wzRenderLocalLaunchMode = function(mode) {
+    window._localLaunchMode = mode;
+    ['none', 'headless', 'gui'].forEach(m => {
+      const btn = document.getElementById('wz-local-' + m);
+      if (!btn) return;
+      const active = (m === mode);
+      btn.style.background  = active ? 'rgba(0,200,255,0.10)' : 'none';
+      btn.style.color       = active ? 'var(--accent)' : 'var(--muted)';
+      btn.style.borderColor = active ? 'rgba(0,200,255,0.4)' : 'var(--border)';
+    });
+  };
+
+  // User clicked None/Headless/Full GUI in the local-launch section, or
+  // edited the SDRConnect.app path field -- persist via set_local_launch_mode
+  // and reflect it locally immediately rather than waiting on the echo.
+  window._wzSetLocalLaunchMode = function(mode) {
+    window._wzRenderLocalLaunchMode(mode);
+    const path = document.getElementById('wz-local-path')?.value.trim() || '';
+    if (typeof sendCmd === 'function') {
+      sendCmd({ cmd: 'set_local_launch_mode', mode: mode, path: path });
+    }
+  };
+
+  // Same pair, for the SSH pane's remote Headless/Full GUI toggle.
+  window._wzRenderRemoteLaunchMode = function(mode) {
+    ['headless', 'gui'].forEach(m => {
+      const btn = document.getElementById('wz-remote-' + m);
+      if (!btn) return;
+      const active = (m === mode);
+      btn.style.background  = active ? 'rgba(0,200,255,0.10)' : 'none';
+      btn.style.color       = active ? 'var(--accent)' : 'var(--muted)';
+      btn.style.borderColor = active ? 'rgba(0,200,255,0.4)' : 'var(--border)';
+    });
+  };
+
+  window._wzSetRemoteLaunchMode = function(mode) {
+    window._wzRenderRemoteLaunchMode(mode);
+    if (typeof sendCmd === 'function') {
+      sendCmd({ cmd: 'set_remote_launch_mode', mode: mode });
+    }
+  };
+
+  // Highlight the active device-preference button; called on config load
+  // and again after every _wzSetDevicePref() click / broadcast echo.
+  window._wzRenderDevicePref = function(pref) {
+    ['auto', 'usb', 'nrsp'].forEach(p => {
+      const btn = document.getElementById('wz-devpref-' + p);
+      if (!btn) return;
+      const active = (p === pref);
+      btn.style.background   = active ? 'rgba(0,200,255,0.10)' : 'none';
+      btn.style.color         = active ? 'var(--accent)' : 'var(--muted)';
+      btn.style.borderColor   = active ? 'rgba(0,200,255,0.4)' : 'var(--border)';
+    });
+  };
+
+  // User clicked one of the three DEVICE PREFERENCE buttons — persist it
+  // via the backend (set_device_pref WS handler) and reflect it locally
+  // immediately rather than waiting on the broadcast echo.
+  window._wzSetDevicePref = function(pref) {
+    window._wzRenderDevicePref(pref);
+    if (typeof sendCmd === 'function') {
+      sendCmd({ cmd: 'set_device_pref', pref: pref });
+    }
+  };
 })();
 
 function _wzTab(tab) {
@@ -13913,6 +14958,15 @@ function _wzLaunch() {
 function _wzDismiss() {
   const wiz = document.getElementById('conn-wizard');
   if (wiz) wiz.style.display = 'none';
+}
+
+// Added 2026-07-29: this wizard no longer shows unconditionally on every
+// launch (that's now #connection-picker-modal's job) — call this to open
+// it on demand instead, e.g. from the picker's remote-USB option or the
+// top-bar Connection control's "Advanced settings" link.
+function _wzShow() {
+  const wiz = document.getElementById('conn-wizard');
+  if (wiz) wiz.style.display = 'flex';
 }
 
 function _wzSkip() {
@@ -14024,6 +15078,220 @@ function _sshUpdateDeviceSelect(validDevices, activeDevice) {
       // Send the selection to SDRConnect
       _sshSelectDevice(defaultDev);
     }
+  }
+}
+
+/* ── General device selector (2026-07-29) ────────────────────────────────
+   Unlike #ssh-device-select above (only visible during an active SSH
+   session), this one is independent of connection method and only appears
+   when there's a genuine choice to make — more than one real SDRplay unit
+   in SDRConnect's device list (e.g. a USB RSPdx and a networked nRSP-ST at
+   the same time). Routes through the 'select_device' WS command, which
+   does a proper send + confirm-handshake (see set_stream_mode's backend
+   pattern) instead of #ssh-device-select's raw one-shot sdr_send. ────── */
+const _NON_HW_DEVICES = new Set(['iq file', 'demo', 'none', 'no device', 'simulator']);
+
+function _isNetworkDevice(name) {
+  return /\((IQ Lite|Full IQ|Compact)\)\s*$/i.test(name);
+}
+
+function _deviceFriendlyLabel(name) {
+  return (_isNetworkDevice(name) ? '🌐 ' : '💻 ') + name;
+}
+
+function _updateGeneralDeviceSelect(validDevices, activeDevice) {
+  const stripEl = document.getElementById('device-select-strip');
+  const sel = document.getElementById('device-select');
+  if (!stripEl || !sel) return;
+  const devices = validDevices ? validDevices.split(',').map(d => d.trim()).filter(Boolean) : [];
+  const real = devices.filter(d => !_NON_HW_DEVICES.has(d.toLowerCase()));
+  // Only show when there's an actual choice — one real device needs no selector.
+  if (real.length < 2) { stripEl.style.display = 'none'; return; }
+  stripEl.style.display = 'flex';
+  sel.innerHTML = '';
+  real.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d;
+    opt.textContent = _deviceFriendlyLabel(d);
+    if (d === activeDevice) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function _pickDevice(name) {
+  if (!name) return;
+  sendCmd({ cmd: 'select_device', device: name });
+}
+
+/* ── Startup device-choice modal ──────────────────────────────────────────
+   Shown when the backend can't tell which device to auto-connect to (both
+   a USB device and a networked nRSP-ST visible at once, device_preference
+   still 'auto') instead of silently guessing. See _auto_select_device()
+   in the Python backend. ────────────────────────────────────────────── */
+function _showDeviceChoiceModal(devices) {
+  const modal = document.getElementById('device-choice-modal');
+  const list  = document.getElementById('device-choice-list');
+  if (!modal || !list || !devices || !devices.length) return;
+  // BUGFIX (2026-07-31, live user report: popup appears but "when i make
+  // my selection... nothing happens"): this used to build each button's
+  // onclick as a template-literal string with `JSON.stringify(d.name)`
+  // spliced straight into a DOUBLE-quoted HTML attribute. JSON.stringify
+  // always wraps its output in double quotes too, so for any real device
+  // name (e.g. 'nRSP-ST (240517b350) (IQ Lite)') the attribute value
+  // closed after "_pickDevice(" and the rest of the name became stray,
+  // unparsed HTML -- the button rendered fine but its onclick handler was
+  // silently broken, every time, for every device. This bug was dormant
+  // since the modal was built (nothing had ever made this ambiguity path
+  // reachable in practice) and only surfaced once the 2026-07-31
+  // precedence fix made it fire for real. Fixed by building buttons with
+  // safe DOM APIs (createElement/textContent/dataset) instead of string-
+  // interpolated onclick attributes -- no escaping pitfalls possible.
+  list.innerHTML = '';
+  devices.forEach(d => {
+    const icon  = d.kind === 'usb' ? '💻' : '🌐';
+    const label = d.kind === 'usb' ? 'USB (direct)' : 'Network (WS)';
+    const btn = document.createElement('button');
+    btn.style.cssText = 'text-align:left;font-family:var(--mono);font-size:11px;padding:10px 12px;' +
+      'background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:5px;cursor:pointer;width:100%';
+    btn.innerHTML = `${icon} <b></b><br><span style="font-size:9px;color:var(--muted)">${label}</span>`;
+    btn.querySelector('b').textContent = d.name;   // safe -- textContent, not innerHTML
+    btn.addEventListener('click', () => {
+      _pickDevice(d.name);
+      _hideDeviceChoiceModal();
+    });
+    list.appendChild(btn);
+  });
+  modal.style.display = 'flex';
+}
+
+function _hideDeviceChoiceModal() {
+  const modal = document.getElementById('device-choice-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+/* ── Startup connection picker (added 2026-07-29) ───────────────────────
+   Real gate, not a reactive prompt: the backend (sdr_bridge()/rtl_bridge())
+   won't attempt ANY connection until 'set_connection_mode' arrives, or a
+   previous session's persisted choice already resolved it before this
+   browser even connected — see _connection_mode_ready in the Python
+   backend. Added after the earlier device_choice_available broadcast
+   turned out not to fix "nrsp-st still connects first": that only ever
+   fired AFTER SDRConnect was already connected and streaming, so by the
+   time it appeared, the horse had bolted. This picker blocks the
+   connection from ever starting in the first place. ───────────────────── */
+window._connModeResolved = false;
+
+const _CONN_MODE_LABELS = {
+  nrsp_ws:       '🌐 nRSP-ST',
+  usb_local_ws:  '💻 USB',
+  usb_remote_ws: '🌐 USB (remote)',
+  rtlsdr:        '📻 RTL-SDR',
+};
+
+function _showConnectionPicker() {
+  const m = document.getElementById('connection-picker-modal');
+  if (m) m.style.display = 'flex';
+  // Always reopen on step 1, regardless of where a previous, abandoned
+  // pass through the picker left off.
+  const step1 = document.getElementById('cpk-step-mode');
+  const step2 = document.getElementById('cpk-step-launch');
+  if (step1) step1.style.display = '';
+  if (step2) step2.style.display = 'none';
+  window._cpkPendingMode = null;
+}
+function _hideConnectionPicker() {
+  const m = document.getElementById('connection-picker-modal');
+  if (m) m.style.display = 'none';
+}
+function _updateConnectionLabel(mode) {
+  // Deliberately does NOT repeat the mode/device text here (e.g. "nRSP-ST")
+  // -- that already shows in the device-select-strip dropdown right next
+  // to this button (or the ssh-strip badge for a remote session), so
+  // duplicating it made the top bar show "nRSP-ST" twice side by side.
+  // This button's job is just to reopen the picker; the specific device
+  // in use is the other control's job. (Fixed 2026-07-29, live user report
+  // with a screenshot showing the exact duplication.)
+  const el = document.getElementById('topbar-connection-label');
+  if (!el) return;
+  el.textContent = mode ? '⚙ Connection ▾' : 'Choose connection ▾';
+}
+
+// Added 2026-07-31 (startup UX audit): local modes (nrsp_ws/usb_local_ws)
+// no longer finish here -- they advance to the #cpk-step-launch panel so
+// the launch-mode question is answered in the same flow, not a separate
+// wizard pane the user has to remember exists. usb_remote_ws and rtlsdr
+// are unaffected (remote already has its own combined launch-mode toggle
+// in the SSH pane; rtlsdr has no SDRConnect concept at all).
+window._cpkPendingMode = null;
+function _pickConnectionMode(mode) {
+  if (mode === 'nrsp_ws' || mode === 'usb_local_ws') {
+    window._cpkPendingMode = mode;
+    const sub = document.getElementById('cpk-launch-subtext');
+    if (sub) {
+      sub.textContent = 'Only applies if SDRConnect isn\'t already open — if it\'s '
+        + 'already running and connected, NEXUS will just use it.';
+    }
+    // Prefill from the same config the advanced wizard pane uses (shared
+    // #wz-local-path field), so this combined flow reflects whatever was
+    // last saved rather than always starting blank.
+    const pathEl = document.getElementById('cpk-local-path');
+    const savedPathEl = document.getElementById('wz-local-path');
+    if (pathEl) pathEl.value = savedPathEl ? savedPathEl.value : '';
+    document.getElementById('cpk-step-mode').style.display   = 'none';
+    document.getElementById('cpk-step-launch').style.display = '';
+    return;
+  }
+  sendCmd({ cmd: 'set_connection_mode', mode: mode });
+  _hideConnectionPicker();
+  _updateConnectionLabel(mode);
+  window._connModeResolved = true;
+  if (mode === 'usb_remote_ws') {
+    // Needs SSH/remote host details — reuse the existing wizard's SSH pane
+    // rather than duplicating those fields here.
+    _wzShow();
+    if (typeof _wzTab === 'function') _wzTab('ssh');
+  }
+}
+
+function _cpkBack() {
+  document.getElementById('cpk-step-launch').style.display = 'none';
+  document.getElementById('cpk-step-mode').style.display   = '';
+  window._cpkPendingMode = null;
+}
+
+// User answered "should NEXUS start SDRConnect" — sends both settings
+// together (connection_mode + local_launch_mode) so they can't end up
+// disagreeing the way they could as two separate wizard-pane actions.
+function _cpkFinish(launchMode) {
+  const mode = window._cpkPendingMode;
+  if (!mode) return;
+  const path = (document.getElementById('cpk-local-path') || {}).value || '';
+  sendCmd({ cmd: 'set_connection_mode', mode: mode });
+  sendCmd({ cmd: 'set_local_launch_mode', mode: launchMode, path: path });
+  if (window._wzRenderLocalLaunchMode) window._wzRenderLocalLaunchMode(launchMode);
+  const savedPathEl = document.getElementById('wz-local-path');
+  if (savedPathEl && path) savedPathEl.value = path;
+  _hideConnectionPicker();
+  _updateConnectionLabel(mode);
+  window._connModeResolved = true;
+  window._cpkPendingMode = null;
+  // Reset to step 1 for next time the picker is reopened.
+  document.getElementById('cpk-step-launch').style.display = 'none';
+  document.getElementById('cpk-step-mode').style.display   = '';
+}
+
+// Called from applyState() on every 'state' broadcast, but only actually
+// does anything the first time (guarded by _connModeResolved) — state
+// broadcasts fire constantly for tuning/etc., and the picker must not be
+// able to flash back up mid-session just because a field it doesn't care
+// about changed.
+function _handleConnectionModeState(mode) {
+  if (window._connModeResolved) return;
+  if (mode) {
+    window._connModeResolved = true;
+    _updateConnectionLabel(mode);
+  } else {
+    _showConnectionPicker();
   }
 }
 
@@ -15024,7 +16292,7 @@ function showTab(name) {
     }
   });
   // Light up Decoders toggle when any decoder sub-tab is selected
-  const decoderTabs = ['ft8', 'wspr', 'cw', 'rtty', 'psk31', 'navtex', 'wefax', 'sstv', 'pocsag', 'acars', 'ais', 'adsb', 'hfdl', 'vdl2', 'rtl433', 'dsd', 'dab', 'trunk', 'marine', 'multimon', 'rivet', 'freedv'];
+  const decoderTabs = ['ft8', 'wspr', 'cw', 'rtty', 'psk31', 'navtex', 'wefax', 'sstv', 'pocsag', 'acars', 'ais', 'adsb', 'hfdl', 'vdl2', 'rtl433', 'dsd', 'dab', 'drm', 'hdradio', 'trunk', 'marine', 'multimon', 'rivet', 'freedv'];
   const decBtn = document.getElementById('tab-dec-btn');
   if (decBtn) decBtn.classList.toggle('selected', decoderTabs.includes(name));
   if (name === 'ft8')    { try { ft8InitMap(); } catch(e) {} }
@@ -15033,6 +16301,7 @@ function showTab(name) {
   if (name === 'ais')    { try { aisInitMap(); } catch(e) {} }
   if (name === 'adsb')   { try { adsbInitMap(); } catch(e) {} }
   if (name === 'dab')    { try { dabPopulateChannels(); } catch(e) {} }
+  if (name === 'hdradio') { try { hdCheckRegion(); } catch(e) {} }
   if (name === 'multimon') { try { multimonApplyModes(); } catch(e) {} }
   if (name === 'air')    { try { populateAirChannels(); } catch(e) {} }
   if (name === 'marine') { try { _populateMarineChannels(); } catch(e) {} }
@@ -16646,7 +17915,7 @@ function _flBuildDropdowns(){
 // ════════════════════════════════════════════════════════════════════════
 // REPORTING / LOGBOOK (added w033)
 // ════════════════════════════════════════════════════════════════════════
-// LogEntry shape (mirrors w034_NEXUS.py's persisted schema):
+// LogEntry shape (mirrors w035_NEXUS.py's persisted schema):
 //   { id, timestamp (ISO8601 UTC string), callsign, frequency (MHz, number),
 //     mode, snr (dB, number|null), grid, mission, notes, source ('manual'|'auto') }
 //
@@ -18521,9 +19790,15 @@ function drawSpectrumMarkers() {
     spCtx.closePath(); spCtx.fill();
     spCtx.globalAlpha = 1;
 
-    // Bookmark label — white on dark pill, centred on marker, raised from base
+    // Bookmark label — white on dark pill, centred on marker, raised from base.
+    // BUGFIX (2026-07-29, live user report: "notes is shown on the spectrum
+    // rather than name"): this used to swap in bm.notes whenever bm.name was
+    // 4 characters or shorter (e.g. any callsign like "GB3", "R4", "BBC"),
+    // which silently overrode a perfectly good name the user had just typed
+    // into the bookmark dialog. Name now always wins when present; notes is
+    // only used as a fallback when there's no name at all.
     const bmName = bm.name || bm.label || '';
-    const label  = (bmName && bmName.length <= 4 && bm.notes) ? bm.notes : (bmName || (bm.freq_mhz ? bm.freq_mhz.toFixed(3) + ' MHz' : ''));
+    const label  = bmName || bm.notes || (bm.freq_mhz ? bm.freq_mhz.toFixed(3) + ' MHz' : '');
     if (label) {
       spCtx.save();
       spCtx.font = '9px "Radio Canada", sans-serif';
@@ -18715,8 +19990,11 @@ function renderBookmarkPanel() {
     ${items.map(b => {
       const col     = _markerColour(b);
       const bmName  = b.name || b.label || '';
-      const dispName = (bmName && bmName.length <= 4 && b.notes) ? b.notes : (bmName || b.notes || '—');
-      const dispSub  = (bmName && bmName.length <= 4 && b.notes) ? bmName : '';
+      // BUGFIX (2026-07-29): same name/notes swap issue as the spectrum
+      // marker label above — name always wins as the primary display; notes
+      // is the secondary line (or the primary, only when there's no name).
+      const dispName = bmName || b.notes || '—';
+      const dispSub  = bmName ? (b.notes || '') : '';
       return `<div class="bm-grid-card" onclick="_bmTune(${b.freq_mhz})"
         title="${dispName} · ${b.freq_mhz ? b.freq_mhz.toFixed(3) : '?'} MHz · ${b.mode||'AM'}${b.notes?' · '+b.notes:''}">
         <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
@@ -19496,6 +20774,18 @@ function _cinCaptureBins(bins) {
 
 /* ── Station identity resolution ─────────────────────────────────── */
 function _cinGetStationName() {
+  // DAB now-playing takes top priority — it's an explicit service the user
+  // picked from the ensemble list, not passive VFO tuning, so it should
+  // win over RDS/EIBI/bookmark guesses even if the VFO happens to sit near
+  // a matching entry in one of those lists.
+  if (typeof _dabPlayingSid !== 'undefined' && _dabPlayingSid) {
+    const svc = _dabLastEnsembleMsg
+      ? (_dabLastEnsembleMsg.services || []).find(s => s.sid === _dabPlayingSid)
+      : null;
+    if (svc && svc.name) return svc.name;
+    const heroName = (document.getElementById('dab-hero-name') || {}).textContent || '';
+    if (heroName && heroName !== 'No station selected') return heroName;
+  }
   const mode = DS.vfos.a.mode || 'USB';
   // RDS takes priority when WFM
   if (mode === 'WFM') {
@@ -19516,6 +20806,26 @@ function _cinGetStationName() {
   const match = bms.find(b => Math.abs(b.freq_mhz - DS.vfos.a.freq/1e6) < 0.005);
   if (match) return match.name || '';
   return '';
+}
+
+// Shared "mode · rate · quality" HUD line — same DAB-over-VFO priority as
+// _cinGetStationName(). Single source of truth so the three places that
+// paint it (enter, VFO state update, per-frame HUD refresh) can't drift.
+function _cinMetaLine() {
+  if (typeof _dabPlayingSid !== 'undefined' && _dabPlayingSid && _dabLastEnsembleMsg) {
+    const svc = (_dabLastEnsembleMsg.services || []).find(s => s.sid === _dabPlayingSid);
+    const kind = (svc && svc.is_dab_plus) ? 'DAB+' : 'DAB';
+    const ensemble = _dabLastEnsembleMsg.ensemble_label || '';
+    const ch = (typeof _dabCurrentChannel !== 'undefined' && _dabCurrentChannel) ? 'CH ' + _dabCurrentChannel : '';
+    // Most UK ensemble names already contain "DAB" (e.g. "BBC National DAB"),
+    // so leading with the kind badge produced a "DAB · ...DAB..." stutter.
+    // Only show the badge when the ensemble name doesn't already say it.
+    const kindRedundant = ensemble && /\bdab\b/i.test(ensemble);
+    return [kindRedundant ? null : kind, ensemble, ch].filter(Boolean).join(' · ');
+  }
+  return DS.vfos.a.mode + ' · ' +
+    (DS.liveSR >= 1e6 ? (DS.liveSR/1e6).toFixed(0) + ' MSPS' : (DS.liveSR/1e3).toFixed(0) + ' kSPS') +
+    (DS.vfos.a.snr ? ' · SNR ' + (DS.vfos.a.snr>=0?'+':'') + DS.vfos.a.snr.toFixed(0) + ' dB' : '');
 }
 
 /* ── Spectrum horizon — draws live FFT as glowing silhouette ─────── */
@@ -19607,6 +20917,14 @@ function _cinUpdateStation() {
   if (nameEl) {
     nameEl.textContent = name;
     nameEl.style.opacity = name ? '1' : '0';
+  }
+  // DAB Dynamic Label text takes the same priority over RDS RadioText that
+  // the station name gets above — it's the equivalent scrolling info field
+  // for whatever DAB service is actually playing.
+  if (typeof _dabPlayingSid !== 'undefined' && _dabPlayingSid) {
+    const dls = (document.getElementById('dab-np-dls-track') || {}).textContent || '';
+    if (rtEl) rtEl.textContent = (dls === '—') ? '' : dls;
+    return;
   }
   // RDS radiotext
   const rt = (document.getElementById('rds-rt') || {}).textContent || '';
@@ -22927,7 +24245,7 @@ function rttyHandleAutodetect(msg) {
   // backend never actually sent a `confidence` field, so every single
   // reply silently fell back to a hardcoded 85%, regardless of whether the
   // detected mark/space was a real signal or noise/a filter-edge artifact.
-  // The backend (RttyDecoder.analyse(), w034_NEXUS.py) now computes and
+  // The backend (RttyDecoder.analyse(), w035_NEXUS.py) now computes and
   // sends a genuine SNR-gated confidence — use it directly. `?? 0`, not
   // `|| 0.85`: a missing field now means "trust nothing", not "assume good".
   _rttyAutoConf=msg.confidence ?? 0;
@@ -25092,7 +26410,7 @@ function dsdAddRow(msg) {
 }
 
 /* ── DAB / DAB+ ───────────────────────────────────────────────────
-   w034: Full-IQ ensemble decode via dab_radio_nexus, a headless tool
+   w035: Full-IQ ensemble decode via dab_radio_nexus, a headless tool
    built on williamyang98/DAB-Radio. NEXUS resamples its own Full-IQ tap
    to 2.048 MSPS and pipes it to the tool's stdin; every discovered
    service is decoded simultaneously (handles both DAB MP2 and DAB+
@@ -25262,7 +26580,9 @@ async function dabScanChannels() {
 
   // Make sure the engine's actually running so dab_ensemble broadcasts
   // happen at all -- give it a moment to spin up before the first retune.
-  if (!_dabIsRunning()) { dabStart(); await _dabSleep(1200); }
+  // dabStart() is now async (see its own 2026-07-31 settle-delay comment)
+  // -- await it directly rather than racing it against a fixed sleep here.
+  if (!_dabIsRunning()) { await dabStart(); await _dabSleep(1200); }
 
   const channels = DAB_BAND3_CHANNELS;
   let foundCount = 0;
@@ -25294,7 +26614,43 @@ async function dabScanChannels() {
         foundCount ? 'success' : 'warn');
 }
 
-function dabStart() { sendCmd({ cmd: 'dab_start' }); }
+// BUGFIX (2026-07-30, live user request: "when we start dab decoder can
+// you auto set samplerate to 2msps?"): dab_radio_nexus needs precisely
+// 2.048 MSPS on its stdin and NEXUS resamples up to that from whatever
+// Full-IQ rate SDRConnect is actually providing (see _dab_feed_iq()) --
+// but the user still had to remember to manually dial in 2 MSPS in
+// SDRConnect first, since 2 MSPS -> 2.048 MSPS is the exact rate this was
+// live-tested and confirmed working against (see CHANGELOG's "live Full
+// IQ @ 2 MSPS DAB testing" entry). Skipped in IQ Lite mode -- that
+// hardware is fixed at 192 kSPS and setSampleRate() only adjusts the
+// display zoom span there, not a real device rate (see its own comment),
+// so forcing "2 MSPS" would be misleading and wouldn't actually help DAB
+// anyway (IQ Lite doesn't deliver raw IQ at all -- Full IQ mode is a
+// separate prerequisite this doesn't attempt to auto-switch).
+async function dabStart() {
+  let justChangedRate = false;
+  try {
+    if (!_isIQLiteMode() && DS.liveSR !== 2000000) { setSampleRate(2000000); justChangedRate = true; }
+  } catch(e) {}
+  if (justChangedRate) {
+    // BUGFIX (2026-07-31, live report: DAB scan launched cleanly on every
+    // channel, including a manual retune to 12B against a strong, clearly
+    // OFDM-shaped signal confirmed on the waterfall, but never locked an
+    // ensemble): dab_start used to fire in the exact same tick as the
+    // setSampleRate(2000000) request above. Even after fixing the backend's
+    // stale-rate-confirmation bug (state['hw_sample_rate'] was frozen at
+    // the pre-DAB rate -- see CHANGELOG), the RSPdx hardware itself still
+    // needs real time to physically finish retuning its ADC clock. Every
+    // other retune-adjacent wait in this file builds in a settle delay
+    // (server-side _DAB_RETUNE_SETTLE_S drops IQ for 1s after a channel
+    // change; device_release_wait waits ~2s for SDRConnect to release a
+    // device) -- this path had none, so DAB could start reading IQ before
+    // the sample rate had actually changed on the wire, not just in
+    // NEXUS's own bookkeeping.
+    await _dabSleep(2000);
+  }
+  sendCmd({ cmd: 'dab_start' });
+}
 function dabStop()  { sendCmd({ cmd: 'dab_stop' }); }
 
 const DAB_EMPTY_HTML = `<div class="dab-empty">
@@ -25343,14 +26699,6 @@ function dabClear() {
   _dabFirstSeenAt = {};
   _dabRenderEnsembleList();
   dabStopPlayback();
-}
-
-function dabToggleDetails() {
-  const panel  = document.getElementById('dab-details-panel');
-  const toggle = document.getElementById('dab-details-toggle');
-  if (!panel) return;
-  const open = panel.classList.toggle('open');
-  if (toggle) toggle.classList.toggle('open', open);
 }
 
 function dabToggleDiagDrawer() {
@@ -25532,24 +26880,30 @@ function _dabRenderEnsembleList() {
 function dabUpdateEnsemble(msg) {
   if (!msg) return;
   _dabLastEnsembleMsg = msg;
-  const services = msg.services || [];
+  let services = msg.services || [];
   const ch = msg.channel || _dabCurrentChannel;
 
   const nameEl = document.getElementById('dab-ensemble-name');
   const freqEl = document.getElementById('dab-ensemble-freq');
   const dot    = document.getElementById('dab-lock-dot');
   const statusWrap = document.getElementById('dab-ensemble-status');
-  if (nameEl) nameEl.textContent = msg.ensemble_label ? msg.ensemble_label : 'No ensemble locked';
+  // 2026-07-28: also treat "we have a cached snapshot for this channel" as
+  // locked, not just "this specific broadcast happened to carry services" --
+  // see the empty-services fallback further down for why a momentary empty
+  // broadcast (BBC's 12B dynamic reconfiguration) shouldn't read as unlocked.
+  const cachedHasServices = !!(ch && _dabEnsembleHistory[ch] && _dabEnsembleHistory[ch].services.length);
+  const isLocked = services.length > 0 || cachedHasServices;
+  if (nameEl) nameEl.textContent = (msg.ensemble_label || (cachedHasServices && _dabEnsembleHistory[ch].label)) ? (msg.ensemble_label || _dabEnsembleHistory[ch].label) : 'No ensemble locked';
   if (freqEl) {
     const f = _dabFreqForChannel(ch);
-    freqEl.textContent = (msg.ensemble_label && ch) ? '(' + ch + (f ? ', ' + f.toFixed(3) + ' MHz' : '') + ')' : '';
+    freqEl.textContent = (isLocked && ch) ? '(' + ch + (f ? ', ' + f.toFixed(3) + ' MHz' : '') + ')' : '';
   }
-  if (dot) dot.classList.toggle('locked', services.length > 0);
+  if (dot) dot.classList.toggle('locked', isLocked);
   // UI polish (2026-07-26): drive the same "actually locked" condition
   // onto the status pill itself so CSS can make a real lock visually
   // prominent (bigger/bolder/green name, pill background) instead of the
   // locked ensemble name reading the same size/weight as everything else.
-  if (statusWrap) statusWrap.classList.toggle('locked', services.length > 0);
+  if (statusWrap) statusWrap.classList.toggle('locked', isLocked);
   _dabUpdateDeviceLabel();
 
   if (ch && services.length) {
@@ -25585,15 +26939,39 @@ function dabUpdateEnsemble(msg) {
     _dabScanResolve = null;
   }
 
+  // BUGFIX (2026-07-28, live user report: card grid goes blank switching
+  // from "BBC Guide" to "BBC Radio3" on 12B/BBC National DAB): this used
+  // to treat ANY empty-services broadcast as "not locked yet" and replace
+  // a perfectly good, already-rendered grid with the scanning placeholder.
+  // BBC runs dynamic ensemble reconfiguration on that multiplex (BBC Guide
+  // itself is one of the services whose subchannel gets reallocated as
+  // part of it) -- dab_radio_nexus can genuinely emit a momentary
+  // zero/partial-services dab_ensemble line while it re-parses the MCI
+  // after one of these reconfig events, with nothing actually wrong. A
+  // real receiver doesn't blank its station list over that, it just keeps
+  // showing what it already knew. We already cache the last known-good
+  // snapshot per channel in _dabEnsembleHistory (below) -- fall back to it
+  // here instead of discarding a working grid. Only show the "scanning"
+  // placeholder if we've genuinely never locked this channel at all.
+  let usingCachedFallback = false;
   if (!services.length) {
-    rows.innerHTML = DAB_SCANNING_HTML;
-    return;
+    const cached = ch && _dabEnsembleHistory[ch];
+    if (cached && cached.services && cached.services.length) {
+      services = cached.services;
+      usingCachedFallback = true;
+    } else {
+      rows.innerHTML = DAB_SCANNING_HTML;
+      return;
+    }
   }
+
+  const ensembleLabelForHeader = msg.ensemble_label ||
+    (usingCachedFallback && ch && _dabEnsembleHistory[ch] ? _dabEnsembleHistory[ch].label : '') || ch;
 
   const primaryHtml = `
     <div class="dab-ens-section">
       <div class="dab-ens-hdr">
-        <span class="dab-ens-hdr-name">${msg.ensemble_label || ch}</span>
+        <span class="dab-ens-hdr-name">${ensembleLabelForHeader}</span>
         <span class="dab-ens-hdr-meta">${ch || ''} · ${services.length} station${services.length === 1 ? '' : 's'}</span>
       </div>
       <div class="dab-svc-grid">${services.map(s => {
@@ -25701,7 +27079,7 @@ function _dabUpdateNowPlayingTime() {
 // Item 4's hidden "Technical Details" drawer -- sample rate/bit depth/codec
 // mode/subchannel ID/buffer fill all come from the enriched per-service
 // audio metadata the backend now attaches once dab_radio_nexus has decoded
-// at least one PCM frame for that subchannel (see w034_NEXUS.py's
+// at least one PCM frame for that subchannel (see w035_NEXUS.py's
 // _dab_stderr_thread_fn) -- fields simply read "—" until that happens,
 // never guessed. Codec mode is inferred from the DAB/DAB+ standard itself
 // (DAB+ is always HE-AAC, plain DAB is always MPEG-1 Layer II) rather than
@@ -25752,7 +27130,7 @@ function dabPlayService(sid, name) {
 
   const audio = document.getElementById('dab-audio');
   if (audio) {
-    // w034: dab_radio_nexus decodes every discovered service simultaneously,
+    // w035: dab_radio_nexus decodes every discovered service simultaneously,
     // so that service's PCM buffer already exists the moment it shows up in
     // the ensemble list — no relaunch, no wait, unlike the old dab-cmdline
     // engine (w033 and earlier) which had to kill/respawn its whole decoder
@@ -25842,6 +27220,553 @@ function dabToggleTechDetails() {
   if (!panel) return;
   const open = panel.classList.toggle('open');
   if (toggle) toggle.classList.toggle('open', open);
+}
+
+/* ── DRM / DRM+ — Dream (dream_nexus), Full-IQ piped decode ───────────
+   Unlike DAB's ensemble/multi-service model, dream_nexus decodes exactly
+   one station on whatever frequency NEXUS is currently tuned to — closer
+   in shape to DSD's single-channel model than DAB's card grid. See
+   drm_engine()/_drm_launch() in w035_NEXUS.py for the subprocess side and
+   dream_nexus.cpp's header comment for the stdout/stderr framing this
+   reads. */
+
+// BUGFIX (2026-07-30, live user question: "you need to make sure that
+// modulation is set to AM?"): dream_nexus decodes straight from the raw
+// Full-IQ tap, so SDRConnect's own selected demodulator never touches the
+// samples DRM actually decodes -- but it's very much NOT irrelevant.
+// DRM occupies a symmetric ~4.5-20kHz slot centred on the tuned carrier,
+// same passband shape as AM, and SDRConnect's per-mode AGC/gain-staging
+// still applies to the IQ path even in Full IQ mode (see the
+// "SDRconnect Base Clipping Limitation" project note -- mode-dependent
+// leveling has caused real dynamic-range problems here before). A
+// wideband-FM AGC curve left over from browsing FM stations (exactly
+// what the VFO was on right before the live DRM test that prompted this)
+// is the wrong shape for a narrow digital signal. Neither drmStart() nor
+// drmSetFrequency() forced AM before -- now both do, mirroring
+// hdSetFrequency()'s existing explicit mode-forcing on tune.
+// BUGFIX (2026-07-30, live user report: "no drm decode ..... strong
+// signal" + screenshot): the ENGINE panel showed SAMPLE RATE 125 kSPS at
+// the moment of the report -- an anomalously low Full-IQ rate left over
+// from some earlier session/test, not anything DRM's own code had set
+// (drmStart()/drmSetFrequency() never touched sample rate at all before
+// this). The waterfall in that same screenshot shows a clearly strong,
+// correctly-shaped ~20kHz-wide DRM signal sitting right on the tuned
+// frequency, and dream_nexus ran cleanly and continuously for 7+ minutes
+// with zero crashes (confirming the drm_set_frequency no-op-relaunch fix
+// worked) -- yet SNR/MER stayed flatlined at exactly 0.0 the whole time,
+// "No station decoded yet". That combination (strong, real, correctly-
+// shaped RF + a healthy, continuously-running decoder process + a
+// flatlined-exactly-zero status that never once wobbled) points at
+// dream_nexus's own receive chain never actually getting real samples
+// worth processing, not a weak-signal/propagation problem or a crash.
+// 125 kSPS is well below the 2 MSPS Full-IQ rate already confirmed
+// working live for DAB on this exact hardware (see dabStart()'s own
+// fix) -- applying the same known-good rate here rather than leaving
+// DRM to inherit whatever was last dialed in.
+function drmStart() {
+  try {
+    if (!_isIQLiteMode() && DS.liveSR !== 2000000) setSampleRate(2000000);
+    tuneVFO(DS.vfos.a.freq / 1e6, 'AM', null);
+  } catch(e) {}
+  sendCmd({ cmd: 'drm_start' });
+}
+function drmStop()  { sendCmd({ cmd: 'drm_stop' }); }
+
+function drmClear() {
+  sendCmd({ cmd: 'drm_stop' });
+  drmUpdateStatus({ running: false });
+  const audio = document.getElementById('drm-audio');
+  if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
+}
+
+// Tracks whether the DRM engine is (meant to be) running, so the
+// reconnect listener below knows a stream end is unexpected rather than
+// a deliberate drmStop()/drmClear().
+let _drmRunning = false;
+
+// BUGFIX (2026-07-28): _serve_drm_audio() (w035_NEXUS.py) now deliberately
+// ends the HTTP response if the decoded PCM's sample rate changes after
+// the WAV header was already sent -- DRM's xHE-AAC/SBR codec can report a
+// different rate on later frames than the very first one, and a WAV
+// header can't be changed mid-stream, so the old behavior was to keep
+// streaming under a now-stale header (audible as "stuttered/buffering...
+// slurred speech (slowed)" -- real-world report from live SDRConnect
+// testing, RRI 9570kHz). The <audio> element has no automatic-reconnect
+// behavior of its own, so without this listener the stream would just
+// silently stop the moment the backend closes the (now-stale) connection.
+// Reconnecting fetches a brand-new /drm_audio response, which sends a
+// fresh header at whatever rate is current by then (normally stable after
+// the first couple of frames). Guarded on _drmRunning so a deliberate
+// drmStop()/drmClear() (which already clears audio.src) doesn't trigger
+// an unwanted reconnect.
+(function () {
+  const audio = document.getElementById('drm-audio');
+  if (!audio) return;
+  const reconnect = () => {
+    if (!_drmRunning) return;
+    audio.src = location.protocol + '//' + location.host + '/drm_audio?t=' + Date.now();
+    audio.play().catch(() => {});
+  };
+  audio.addEventListener('ended', reconnect);
+  audio.addEventListener('error', reconnect);
+})();
+
+function drmSetFrequency() {
+  const input = document.getElementById('drm-freq-input');
+  if (!input) return;
+  const raw = (input.value || '').trim();
+  if (!raw) return;
+  // Accepts either a bare number (assumed kHz, matching shortwave listing
+  // convention) or an explicit "... MHz"/"... kHz" suffix.
+  let mhz = parseFloat(raw);
+  if (isNaN(mhz)) return;
+  if (!/mhz/i.test(raw)) mhz = mhz / 1000;  // kHz -> MHz (dream_nexus/NEXUS both work in Hz/MHz internally)
+  // Retune the SDR itself first (same division of responsibility as DAB's
+  // channel quick-tune -- dream_nexus owns no hardware, it only sees
+  // whatever IQ NEXUS's Full-IQ tap feeds it) then tell the backend a
+  // DRM-specific retune happened so it can force a clean relaunch.
+  // BUGFIX (2026-07-28, round 1): this previously sent a raw
+  // {cmd:'tune', freq: Math.round(mhz*1e6)} (Hz, wrong field name) instead
+  // of the {freq_mhz: mhz} shape every other tune call site uses -- the
+  // backend's 'tune' handler reads d.get('freq_mhz', 10), so the missing
+  // field silently fell back to its default and every DRM manual-tune
+  // attempt actually retuned to 10 MHz regardless of what was typed.
+  // BUGFIX (2026-07-28, round 2): even after fixing the field name, hand-
+  // rolling the sendCmd call here bypassed tuneVFO()/_tuneTo() entirely --
+  // those don't just send the tune command, they also recenter the
+  // waterfall/spectrum display (DS.liveCenter, clearing a stale
+  // DS.zoomCenter, flushing the waterfall canvas). DRM frequencies are
+  // often very far from wherever the display was last centered (jumping
+  // from a VHF DAB test to 549 kHz mediumwave, for instance), so skipping
+  // that left the tune cursor pinned off-screen at the display's left edge
+  // even though the VFO itself had genuinely retuned. Delegating to the
+  // real helper fixes both at once -- same helper every other quick-tune
+  // chip in this file (bands, freq lists, sig-intel cards) already uses.
+  // BUGFIX (2026-07-30): was tuneVFO(mhz, null, null) -- left whatever
+  // demod mode was previously active (e.g. WFM from browsing FM
+  // stations) in place. See drmStart()'s own comment above for why DRM
+  // needs AM's gain-staging specifically, even though dream_nexus reads
+  // raw IQ and never touches SDRConnect's own demodulated audio.
+  // BUGFIX (2026-07-30): also force 2 MSPS here, same reasoning as
+  // drmStart()'s own comment -- quick-tune cards and the manual-entry Tune
+  // button retune through this function without necessarily having
+  // clicked Start first, so this needs the same guard independently.
+  try {
+    if (!_isIQLiteMode() && DS.liveSR !== 2000000) setSampleRate(2000000);
+    tuneVFO(mhz, 'AM', null);
+  } catch(e) {}
+  sendCmd({ cmd: 'drm_set_frequency', freq_mhz: mhz });
+}
+
+// DRM quick-tune list -- persisted server-side (darksky_drm_quicktune.json,
+// same pattern as bookmarks), seeded with publicly reported real DRM
+// frequencies so there's something to click on the first run rather than
+// an empty list next to a manual-entry box with no dial-scan convention
+// most users already know (added w035, Step 5 live testing).
+let _drmQuickTune = [];
+
+// UI pass (2026-07-28, live user request: "can this be individual card
+// buttons" instead of the old cramped scrollable row-list): now renders
+// into the .drm-qt-grid CSS grid (see its own comment above .drm-qt-card
+// for why group headers can be grid items too) -- same underlying grouped-
+// by-'group' data and drmQuickTune()/drmQtDelete() call sites as before,
+// just a different DOM shape per entry.
+function drmRenderQuickTune() {
+  const container = document.getElementById('drm-qt-list');
+  if (!container) return;
+  if (!_drmQuickTune.length) {
+    container.innerHTML = '<div style="grid-column:1/-1;font-family:var(--mono);font-size:8px;color:var(--muted);padding:2px 0">No quick-tune entries yet — use + to add one.</div>';
+    return;
+  }
+  // Group by 'group', preserving first-seen order (Map iterates insertion order).
+  const groups = new Map();
+  for (const e of _drmQuickTune) {
+    const g = e.group || 'Custom';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(e);
+  }
+  let html = '';
+  for (const [group, entries] of groups) {
+    html += `<div class="drm-qt-group-hdr">${_escHtml(group)}</div>`;
+    for (const e of entries) {
+      const khz = Number(e.freq_khz) || 0;
+      const freqLabel = khz >= 1000 ? (khz / 1000).toFixed(khz % 1000 ? 3 : 0) + ' MHz' : khz + ' kHz';
+      html += `<div class="drm-qt-card" onclick="drmQuickTune(${khz})" title="${_escHtml(e.label || '')}">
+          <button class="drm-qt-card-del" onclick="event.stopPropagation();drmQtDelete('${e.id}')" title="Remove">&#10005;</button>
+          <span class="drm-qt-card-freq">${freqLabel}</span>
+          <span class="drm-qt-card-label">${_escHtml(e.label || '')}</span>
+        </div>`;
+    }
+  }
+  container.innerHTML = html;
+}
+
+function drmQuickTune(freqKhz) {
+  const input = document.getElementById('drm-freq-input');
+  if (input) input.value = String(freqKhz);
+  drmSetFrequency();
+}
+
+function drmQtAddCurrent() {
+  const input = document.getElementById('drm-freq-input');
+  const raw = input ? (input.value || '').trim() : '';
+  let khz = parseFloat(raw);
+  if (isNaN(khz)) {
+    // Input empty -- fall back to whatever VFO A is currently tuned to.
+    khz = (DS.vfos && DS.vfos.a ? DS.vfos.a.freq : 0) / 1000;
+  } else if (/mhz/i.test(raw)) {
+    khz = khz * 1000;
+  }
+  if (!khz || khz <= 0) { toast('Enter or tune to a frequency first', 'warn'); return; }
+  const label = prompt('Label for this quick-tune entry?', '');
+  if (label === null) return; // cancelled
+  sendCmd({ cmd: 'drm_qt_save', entry: { freq_khz: khz, label: label.trim() || (khz + ' kHz'), group: 'Custom' } });
+}
+
+function drmQtDelete(id) {
+  sendCmd({ cmd: 'drm_qt_delete', id: id });
+}
+
+function drmSetRxmode() {
+  const sel = document.getElementById('drm-rxmode-select');
+  if (!sel) return;
+  sendCmd({ cmd: 'drm_set_rxmode', rxmode: parseInt(sel.value, 10) || 0 });
+}
+
+const _DRM_ROBUSTNESS_LABELS = { A: 'Mode A', B: 'Mode B', C: 'Mode C', D: 'Mode D', E: 'DRM+ (Mode E)' };
+
+// Handles both lifecycle broadcasts ({running:true/false[,error]}) and the
+// richer per-tick status snapshots (_drm_status's own shape --
+// {locked,robustness_mode,station_label,text_message,snr_db,mer_db}) --
+// dream_nexus's stderr thread emits both under the same 'drm_status' type,
+// see _drm_stderr_thread_fn()'s own comment for why.
+function drmUpdateStatus(msg) {
+  const badge = document.getElementById('dec-badge-drm');
+  const startBtn = document.getElementById('dec-start-drm');
+  const stopBtn  = document.getElementById('dec-stop-drm');
+  if ('running' in msg) {
+    _drmRunning = !!msg.running;
+    if (msg.running) {
+      if (badge) { badge.textContent = '● Live'; badge.className = 'decoder-status-badge active'; badge.style.color = 'var(--green)'; }
+      if (startBtn) startBtn.style.display = 'none';
+      if (stopBtn)  stopBtn.style.display  = '';
+    } else {
+      if (badge) { badge.textContent = '○ Idle'; badge.className = 'decoder-status-badge inactive'; badge.style.color = ''; }
+      if (startBtn) startBtn.style.display = '';
+      if (stopBtn)  stopBtn.style.display  = 'none';
+      if (msg.error) toast('DRM: ' + msg.error, 'warn');
+      _drmSetLock(false);
+      const audio = document.getElementById('drm-audio');
+      if (audio) { audio.pause(); audio.removeAttribute('src'); }
+      return;
+    }
+  }
+
+  if ('locked' in msg) {
+    _drmSetLock(!!msg.locked, msg);
+    // Same "start playback the moment the stream is real" convention as
+    // DAB's per-service audio.src assignment -- here there's only ever
+    // one stream, so this fires once per lock rather than once per click.
+    const audio = document.getElementById('drm-audio');
+    if (audio && msg.locked && !audio.src) {
+      audio.src = location.protocol + '//' + location.host + '/drm_audio?t=' + Date.now();
+      audio.play().catch(() => {});
+    }
+  }
+
+  const snrEl = document.getElementById('drm-snr-val');
+  if (snrEl) snrEl.textContent = (typeof msg.snr_db === 'number') ? 'SNR ' + msg.snr_db.toFixed(1) + ' dB' : 'SNR —';
+  const merEl = document.getElementById('drm-mer-val');
+  if (merEl) merEl.textContent = (typeof msg.mer_db === 'number') ? 'MER ' + msg.mer_db.toFixed(1) + ' dB' : 'MER —';
+
+  const bars = document.getElementById('drm-signal-bars');
+  if (bars && typeof msg.snr_db === 'number') {
+    // Same 4-tier SNR->bar convention as DAB's _dabUpdateSignalBars() --
+    // DRM's own SNR is measured on the OFDM signal itself so the same
+    // rough dB thresholds apply.
+    const snr = msg.snr_db;
+    const tier = snr >= 12 ? 's4' : snr >= 7 ? 's3' : snr >= 3 ? 's2' : 's1';
+    bars.className = 'dab-signal-bars ' + tier;
+  }
+
+  const nameEl = document.getElementById('drm-station-name');
+  const avatar = document.getElementById('drm-hero-avatar');
+  if (msg.station_label) {
+    if (nameEl) nameEl.textContent = msg.station_label;
+    if (avatar) { const col = _dabColorFromName(msg.station_label); avatar.style.background = col.css; avatar.style.color = '#fff'; avatar.textContent = _dabInitials(msg.station_label); }
+  }
+
+  const textWrap  = document.getElementById('drm-text-wrap');
+  const textTrack = document.getElementById('drm-text-track');
+  if (textTrack) {
+    const text = msg.text_message || '';
+    textTrack.textContent = text || '—';
+    if (textWrap) textWrap.classList.toggle('static', !text);
+  }
+}
+
+function _drmSetLock(locked, msg) {
+  const status = document.getElementById('drm-lock-status');
+  const dot    = document.getElementById('drm-lock-dot');
+  const label  = document.getElementById('drm-lock-label');
+  const mode   = document.getElementById('drm-mode-label');
+  if (status) status.classList.toggle('locked', locked);
+  if (dot)    dot.classList.toggle('locked', locked);
+  if (label)  label.textContent = locked ? ((msg && msg.station_label) || 'Signal locked') : 'No signal';
+  if (mode)   mode.textContent = (locked && msg && msg.robustness_mode) ? (_DRM_ROBUSTNESS_LABELS[msg.robustness_mode] || msg.robustness_mode) : '';
+}
+
+/* ── HD Radio / NRSC-5 — nrsc5_nexus, Full-IQ piped decode ────────────
+   Like DAB (and unlike DRM), nrsc5 decodes every discovered program
+   (HD1-HD8) simultaneously -- program grid + per-program play-selection
+   mirrors DAB's service-card pattern, not DRM's single-stream one. See
+   hd_engine()/_hd_launch() in w035_NEXUS.py for the subprocess side and
+   nrsc5_nexus.c's header comment for the stdout/stderr framing this reads.
+   Region gate: HD Radio is US/Canada-only -- the exact inverse of DAB's
+   Americas-excluded gate (see _dabRegionUnsupportedHTML()'s own comment
+   for why) -- reuses the same _bpRegion geo-detection, just flipped. */
+
+function _hdRegionUnsupportedHTML() {
+  return `<div style="font-family:var(--mono);font-size:9px;color:var(--muted);line-height:1.7;padding:4px 2px">
+    HD Radio (NRSC-5/iBOC) is a North American standard, only broadcast in
+    the <b style="color:var(--text)">US and Canada</b>. Most of the rest of
+    the world uses <b style="color:var(--text)">DAB/DAB+</b> instead — see
+    that tab if you're outside North America.
+  </div>`;
+}
+function hdCheckRegion() {
+  const body = document.getElementById('hdradio-body');
+  if (!body) return;
+  if (typeof _bpRegion !== 'undefined' && _bpRegion !== 'ITU-2') {
+    if (!body.dataset.regionGated) {
+      body.dataset.regionGated = '1';
+      body.dataset.savedHtml = body.innerHTML;
+      body.innerHTML = _hdRegionUnsupportedHTML();
+    }
+  } else if (body.dataset.regionGated) {
+    body.innerHTML = body.dataset.savedHtml;
+    delete body.dataset.regionGated;
+    delete body.dataset.savedHtml;
+  }
+}
+
+function hdStart() { sendCmd({ cmd: 'hd_start' }); }
+function hdStop()  { sendCmd({ cmd: 'hd_stop' }); }
+
+function hdClear() {
+  sendCmd({ cmd: 'hd_stop' });
+  hdUpdateStatus({ running: false });
+  const audio = document.getElementById('hd-audio');
+  if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
+  const list = document.getElementById('hd-program-list');
+  if (list) list.innerHTML = '<div style="grid-column:1/-1;font-family:var(--mono);font-size:8px;color:var(--muted);padding:2px 0">Start the decoder — programs appear here as nrsc5 discovers them.</div>';
+  _hdPrograms = {};
+  _hdPlayingProgram = null;
+}
+
+// Tracks whether the HD Radio engine is (meant to be) running, so the
+// reconnect listener below knows a stream end is unexpected rather than a
+// deliberate hdStop()/hdClear() -- same convention as _drmRunning.
+let _hdRunning = false;
+let _hdPrograms = {};        // program(int) -> {program_type, access, title, artist, album, genre}
+let _hdPlayingProgram = null;
+
+// Reconnect the <audio> tag if the backend closes the stream unexpectedly
+// (program buffer went stale, subprocess relaunched on a retune) -- same
+// pattern as DRM's own listener; HD Radio's audio rate never drifts
+// (fixed NRSC5_SAMPLE_RATE_AUDIO) so this fires far less often than DRM's.
+(function () {
+  const audio = document.getElementById('hd-audio');
+  if (!audio) return;
+  const reconnect = () => {
+    if (!_hdRunning || _hdPlayingProgram === null) return;
+    audio.src = location.protocol + '//' + location.host + '/hd_audio?t=' + Date.now();
+    audio.play().catch(() => {});
+  };
+  audio.addEventListener('ended', reconnect);
+  audio.addEventListener('error', reconnect);
+})();
+
+function hdSetFrequency() {
+  const input = document.getElementById('hd-freq-input');
+  if (!input) return;
+  const raw = (input.value || '').trim();
+  if (!raw) return;
+  let mhz = parseFloat(raw);
+  if (isNaN(mhz)) return;
+  // Bare numbers under 30 are almost certainly already MHz (FM broadcast
+  // band, or an AM frequency typed as e.g. "1.01" MHz) -- unlike DRM's
+  // shortwave-kHz-by-default convention, HD Radio's FM band (88-108 MHz)
+  // makes MHz the sane default here; explicit "kHz" suffix still works
+  // for AM entries like "1010 kHz".
+  if (/khz/i.test(raw)) mhz = mhz / 1000;
+  // Same division of responsibility as DAB/DRM's own manual-tune: retune
+  // the SDR itself first via the real tuneVFO()/_tuneTo() helper (which
+  // also recenters the waterfall/spectrum display), then tell the backend
+  // a HD-Radio-specific retune happened so it can force a clean relaunch.
+  // mode is passed through explicitly since nrsc5's native sample rate
+  // depends on FM vs AM (see _hd_feed_iq()'s own comment) -- DS.vfos.a.mode
+  // reflects whatever the VFO is currently set to at tune time.
+  const mode = (DS.vfos && DS.vfos.a && DS.vfos.a.mode) || 'WFM';
+  try { tuneVFO(mhz, mode === 'AM' ? 'AM' : 'WFM', null); } catch(e) {}
+  sendCmd({ cmd: 'hd_set_frequency', freq_mhz: mhz, mode: mode === 'AM' ? 'AM' : 'FM' });
+  const modeEl = document.getElementById('hd-mode-readout');
+  if (modeEl) modeEl.textContent = mode === 'AM' ? 'AM' : 'FM';
+}
+
+function hdPlayProgram(program) {
+  _hdPlayingProgram = program;
+  sendCmd({ cmd: 'hd_play_program', program: program });
+  document.querySelectorAll('#hd-program-list .drm-qt-card').forEach(el => {
+    el.classList.toggle('active', Number(el.dataset.program) === program);
+  });
+  const audio = document.getElementById('hd-audio');
+  if (audio) {
+    audio.src = location.protocol + '//' + location.host + '/hd_audio?t=' + Date.now();
+    audio.play().catch(() => {});
+  }
+  const label = document.getElementById('hd-program-label');
+  if (label) label.textContent = 'HD' + (program + 1);
+  _hdRenderId3(program);
+}
+
+function hdStopProgram() {
+  _hdPlayingProgram = null;
+  sendCmd({ cmd: 'hd_stop_program' });
+  const audio = document.getElementById('hd-audio');
+  if (audio) { audio.pause(); audio.removeAttribute('src'); }
+}
+
+function _hdRenderProgramGrid() {
+  const container = document.getElementById('hd-program-list');
+  if (!container) return;
+  const keys = Object.keys(_hdPrograms).map(Number).sort((a, b) => a - b);
+  if (!keys.length) {
+    container.innerHTML = '<div style="grid-column:1/-1;font-family:var(--mono);font-size:8px;color:var(--muted);padding:2px 0">Start the decoder — programs appear here as nrsc5 discovers them.</div>';
+    return;
+  }
+  container.innerHTML = keys.map(p => {
+    const info = _hdPrograms[p] || {};
+    const typeLabel = info.program_type || '';
+    return `<div class="drm-qt-card${p === _hdPlayingProgram ? ' active' : ''}" data-program="${p}" onclick="hdPlayProgram(${p})" title="${_escHtml(typeLabel)}">
+        <span class="drm-qt-card-freq">HD${p + 1}</span>
+        <span class="drm-qt-card-label">${_escHtml(typeLabel || 'Program ' + (p + 1))}</span>
+      </div>`;
+  }).join('');
+}
+
+function hdUpdateProgram(msg) {
+  const program = msg.program || 0;
+  _hdPrograms[program] = Object.assign(_hdPrograms[program] || {}, {
+    program_type: msg.program_type, access: msg.access,
+  });
+  _hdRenderProgramGrid();
+}
+
+function hdUpdateId3(msg) {
+  const program = msg.program || 0;
+  _hdPrograms[program] = Object.assign(_hdPrograms[program] || {}, {
+    title: msg.title, artist: msg.artist, album: msg.album, genre: msg.genre,
+  });
+  if (program === _hdPlayingProgram) _hdRenderId3(program);
+}
+
+function _hdRenderId3(program) {
+  const el = document.getElementById('hd-id3-line');
+  if (!el) return;
+  const info = _hdPrograms[program] || {};
+  const parts = [info.title, info.artist].filter(Boolean);
+  el.textContent = parts.length ? parts.join(' — ') : '';
+}
+
+function hdUpdateStationText(msg) {
+  // hd_station_name/hd_station_slogan/hd_station_message all land here --
+  // name goes to the hero name, slogan/message go to the scroll track
+  // below it (mirrors DAB's DLS / DRM's text_message use of the same
+  // .dab-np-dls-track element).
+  if ('name' in msg) {
+    const nameEl = document.getElementById('hd-station-name');
+    const avatar = document.getElementById('hd-hero-avatar');
+    if (msg.name) {
+      if (nameEl) nameEl.textContent = msg.name;
+      if (avatar && !avatar.dataset.hasLogo) {
+        const col = _dabColorFromName(msg.name);
+        avatar.style.background = col.css; avatar.style.color = '#fff'; avatar.textContent = _dabInitials(msg.name);
+      }
+    }
+  }
+  const text = msg.slogan || msg.message || '';
+  if (text) {
+    const textWrap  = document.getElementById('hd-text-wrap');
+    const textTrack = document.getElementById('hd-text-track');
+    if (textTrack) textTrack.textContent = text;
+    if (textWrap) textWrap.classList.toggle('static', false);
+  }
+}
+
+function hdUpdateLot(msg) {
+  // Station logo -- swap the initials avatar for the real image once one
+  // arrives (album art isn't shown here; the ID3 title/artist line already
+  // covers now-playing text, and a second image slot isn't worth the
+  // layout complexity for v1).
+  if (msg.kind !== 'logo' || !msg.b64) return;
+  const avatar = document.getElementById('hd-hero-avatar');
+  if (!avatar) return;
+  avatar.dataset.hasLogo = '1';
+  avatar.style.background = 'var(--panel)';
+  avatar.textContent = '';
+  avatar.style.backgroundImage = `url(data:${msg.mime || 'image/jpeg'};base64,${msg.b64})`;
+  avatar.style.backgroundSize = 'cover';
+  avatar.style.backgroundPosition = 'center';
+}
+
+function hdUpdateSync(msg) {
+  _hdSetLock(!!msg.locked, msg);
+  const merEl = document.getElementById('hd-mer-val');
+  if (merEl) merEl.textContent = (typeof msg.mer_db === 'number') ? 'MER ' + msg.mer_db.toFixed(1) + ' dB' : 'MER —';
+  const berEl = document.getElementById('hd-ber-val');
+  if (berEl) berEl.textContent = (typeof msg.ber === 'number') ? 'BER ' + (msg.ber * 100).toFixed(2) + '%' : 'BER —';
+  const bars = document.getElementById('hd-signal-bars');
+  if (bars && typeof msg.mer_db === 'number') {
+    // Same 4-tier convention as DAB/DRM's own signal bars -- NRSC-5's MER
+    // is measured on the OFDM signal itself so similar rough dB
+    // thresholds apply (nrsc5 typically reports usable MER well above
+    // DAB's own range, so the tiers are shifted up slightly).
+    const mer = msg.mer_db;
+    const tier = mer >= 18 ? 's4' : mer >= 12 ? 's3' : mer >= 6 ? 's2' : 's1';
+    bars.className = 'dab-signal-bars ' + tier;
+  }
+}
+
+function _hdSetLock(locked, msg) {
+  const status = document.getElementById('hd-lock-status');
+  const dot    = document.getElementById('hd-lock-dot');
+  const label  = document.getElementById('hd-lock-label');
+  if (status) status.classList.toggle('locked', locked);
+  if (dot)    dot.classList.toggle('locked', locked);
+  if (label)  label.textContent = locked ? 'Signal locked' : 'No signal';
+}
+
+function hdUpdateStatus(msg) {
+  const badge = document.getElementById('dec-badge-hdradio');
+  const startBtn = document.getElementById('dec-start-hdradio');
+  const stopBtn  = document.getElementById('dec-stop-hdradio');
+  if ('running' in msg) {
+    _hdRunning = !!msg.running;
+    if (msg.running) {
+      if (badge) { badge.textContent = '● Live'; badge.className = 'decoder-status-badge active'; badge.style.color = 'var(--green)'; }
+      if (startBtn) startBtn.style.display = 'none';
+      if (stopBtn)  stopBtn.style.display  = '';
+    } else {
+      if (badge) { badge.textContent = '○ Idle'; badge.className = 'decoder-status-badge inactive'; badge.style.color = ''; }
+      if (startBtn) startBtn.style.display = '';
+      if (stopBtn)  stopBtn.style.display  = 'none';
+      if (msg.error) toast('HD Radio: ' + msg.error, 'warn');
+      _hdSetLock(false);
+      const audio = document.getElementById('hd-audio');
+      if (audio) { audio.pause(); audio.removeAttribute('src'); }
+    }
+  }
 }
 
 /* ── Trunked Digital Voice — P25/DMR/NXDN via OP25 / trunk-recorder ──

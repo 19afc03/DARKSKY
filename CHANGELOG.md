@@ -1,10 +1,2038 @@
-# DARKSKY NEXUS w034 — Build History
+# DARKSKY NEXUS w035 — Build History
 
 WebSocket bridge and signal intelligence companion for SDRplay RSPdx and
 compatible SDRplay receivers. Interfaces with SDRConnect via WebSocket.
 Also supports RTL-SDR USB dongles via rtl_tcp (direct, no SDRConnect needed).
 
 © 2025 Jon Nicol & Claude / Anthropic — Freeware, personal & educational use.
+
+### Wired, not yet tested (2026-08-03) — dream_nexus Windows bundling plumbing + new build doc
+
+Following macOS's dream_nexus bundling being fully confirmed (see the
+entry directly below), started the equivalent Windows work. Unlike
+macOS, HD Radio's own Windows build doc (`NEXUS_nrsc5_build_windows.md`)
+was already written back on 2026-07-30 but never build-tested — both HD
+Radio and DRM now need a real live build pass on Windows.
+
+**Spec/bat plumbing (mirrors DAB/HD Radio's existing pattern exactly):**
+`DARKSKY_NEXUS_Windows.spec` now checks for `build\bundled\dream_nexus.exe`
+and bundles it automatically if found — plus, unlike DAB/HD Radio, it
+also globs and bundles any `.dll` files sitting alongside it in
+`build\bundled\`, since (per the plan below) this build isn't expected to
+be fully static the way DAB's vcpkg build is. `build_Windows.bat` gained
+a matching "Checking for bundled DRM engine..." informational step
+(Step 3d), same pattern as the existing DAB/HD Radio checks. Confirmed
+`_drm_find_binary()` in `w035_NEXUS.py` already had full Windows PATH-search
+support (`dream_nexus.exe`, `C:\dream_nexus\dream_nexus.exe`,
+`%LOCALAPPDATA%\dream_nexus\dream_nexus.exe`) from whenever the DRM
+integration was originally written — no Python changes needed, this was
+purely a build-script gap.
+
+**New doc:** `NEXUS_dream_drm_build_windows.md` — written following the
+same honest "not yet build-tested" convention every other Windows doc in
+this project started with. Planned route: Qt's official MSVC kit (not
+MinGW) for `qmake`, plus vcpkg's **dynamic** triplet (`x64-windows`, not
+DAB's static `x64-windows-static`) for the five dependencies
+(fftw3/speexdsp/libsndfile/fdk-aac/portaudio) — the dynamic choice is
+deliberate: Qt's prebuilt MSVC kits use the dynamic MSVC runtime, and
+pairing that with vcpkg's static triplet risks the same
+`LNK2038: mismatch detected for 'RuntimeLibrary'` class of error DAB's
+own Windows doc hit and fixed via `CMP0091`, except qmake has no
+equivalent single-flag fix for that the way CMake does. Carries forward
+the macOS doc's confirmed "dream_nexus links zero Qt frameworks/DLLs at
+runtime" finding as an expectation to verify, not yet confirmed on
+Windows.
+
+### Confirmed (2026-08-03) — dream_nexus macOS bundling proven end-to-end; all three companion engines now confirmed
+
+`dream_nexus` (DRM/DRM+) rebuilt from source with `MACOSX_DEPLOYMENT_TARGET=14.0`
+and fully bundled into `build/bundled/`, completing the same treatment
+already proven for `dab_radio_nexus` and `nrsc5_nexus` below. Resolved
+this doc's own previously-flagged uncertainty: `dream_nexus` links **zero**
+Qt frameworks (confirmed via its real saved link command,
+`~/dream/link_dream_nexus.sh` — only `speexdsp`/`fftw`/`libsndfile`/
+`fdk-aac`/`portaudio` plus macOS system frameworks), so the simple
+DAB/nrsc5-style `install_name_tool` loop applies; `macdeployqt` was never
+needed.
+
+Needed **five** from-source dependencies — the most of any of the three
+engines — because Homebrew's own bottles for `speexdsp`, `fftw`,
+`libsndfile`, `fdk-aac`, and `portaudio` are all built against whatever
+macOS version the bottle was compiled on, and (confirmed empirically)
+Homebrew's `superenv` build system ignores `MACOSX_DEPLOYMENT_TARGET`
+even under `--build-from-source`. All five were built from source outside
+Homebrew into the same shared `~/fftw-local` prefix already used for DAB
+and nrsc5's own from-source deps — `fftw` needed a second, double-precision
+build alongside the existing float build (`libfftw3.3.dylib` for dream vs.
+`libfftw3f.3.dylib` for DAB/nrsc5), reusing the same source tree via
+`make distclean` + reconfigure. `libsndfile` was built with
+`-DENABLE_EXTERNAL_LIBS=OFF`/`-DENABLE_MPEG=OFF` to avoid pulling in
+further Homebrew-bottled codec deps it doesn't need. All six bundled files
+(`dream_nexus` + 5 dylibs) confirmed `minos 14.0` and fully
+`@executable_path`-relative — no absolute Homebrew/`/Users/...` paths
+left anywhere in the chain — and `dream_nexus --help` runs cleanly
+straight out of `build/bundled/`.
+
+`NEXUS_dream_drm_build_macOS.md`'s Step 6 rewritten to document the real
+confirmed recipe in place of the earlier speculative Qt-branching
+language.
+
+**All three w035 companion engines (DAB, HD Radio, DRM) are now confirmed
+bundled end-to-end for macOS distribution at `minos 14.0`.**
+
+### Confirmed (2026-08-02) — dab_radio_nexus and nrsc5_nexus macOS bundling proven end-to-end
+
+Both engines rebuilt from source with `MACOSX_DEPLOYMENT_TARGET=14.0` and
+fully bundled into `build/bundled/` with zero remaining Homebrew/dev-machine
+dylib references — confirmed via `otool -L`/`otool -l` on every file, and
+by actually running each binary straight out of `build/bundled/` (the real
+deploy location, not the build tree).
+
+**dab_radio_nexus:** links against a from-source `libfftw3f.3.dylib`
+(Homebrew's own bottle can't be re-targeted — its `superenv` build system
+ignores `MACOSX_DEPLOYMENT_TARGET` and always targets the current OS).
+Reconfigured DAB-Radio's own cmake to link directly against the custom
+fftw build via `CMAKE_PREFIX_PATH`/`PKG_CONFIG_PATH`, avoiding any
+dylib-swap version-compatibility risk. Both files confirmed `minos 14.0`.
+
+**nrsc5_nexus:** turned out to need three from-source dependencies, not
+one — `libfftw3f.3.dylib` (shared with DAB, same build reused), plus
+`librtlsdr` and `libusb` (neither anticipated in the original build doc,
+which had guessed `libao`/FAAD2 as the Homebrew deps needing bundling;
+those turned out to only matter for nrsc5's own unused CLI demo tool, not
+`libnrsc5.dylib`). `nrsc5`'s CMake option `-DUSE_SYSTEM_RTLSDR=OFF`
+(vendor-build librtlsdr statically, avoiding the dylib entirely) was
+attempted first but hit a real upstream bug — current `osmocom/rtl-sdr`
+installs `librtlsdr.a`, but nrsc5's CMakeLists.txt expects
+`librtlsdr_static.a` — so librtlsdr and libusb were both built from
+source independently instead, into the same shared `~/fftw-local`
+prefix used for fftw. All four bundled files (`nrsc5_nexus`,
+`libnrsc5.dylib`, `librtlsdr.0.dylib`, `libusb-1.0.0.dylib`) confirmed
+`minos 14.0` and fully `@executable_path`-relative — no absolute
+Homebrew/`/Users/...` paths left anywhere in the chain.
+
+`NEXUS_nrsc5_build_macOS.md`'s Step 6 rewritten to document the real
+recipe in place of the original speculative one.
+
+### Fixed + Added (2026-08-02) — macOS release bundling: dylib bundling bug, DRM bundling plumbing added
+
+**Bugfix:** `DARKSKY_NEXUS_macOS.spec` bundled the DAB/HD Radio engine
+executables into the packaged `.app` but never bundled the Homebrew
+dylibs sitting alongside them in `build/bundled/` (e.g.
+`libfftw3f.3.dylib` for DAB) — each build doc's own bundling steps
+repoint the executable's dependency to `@executable_path/...`, which only
+resolves if that dylib is actually present next to the binary at
+runtime. PyInstaller only collects files explicitly listed in
+`Analysis(binaries=...)`, so the dylib silently never made it into the
+real packaged app, even though manual testing (running the binary
+straight out of `build/bundled/`, where the dylib happens to sit right
+there) never caught it. Fixed: the spec now bundles every `.dylib` in
+`build/bundled/` alongside whichever engine executable(s) are present,
+deduplicated.
+
+**Added:** DRM (`dream_nexus`) bundling plumbing — `build_macOS.sh`
+(new Step 3d check) and the `.spec`'s binaries list never had any
+bundling support for it at all, unlike DAB and HD Radio (a real gap, not
+a stale reference — DRM's own live-wiring is still in progress). The
+Python side was already ready (`_drm_find_binary()` already checks
+`sys._MEIPASS` for a bundled copy, mirroring `_dab_find_binary()`/
+`_hd_find_binary()` exactly) — only the build script and spec needed the
+same plumbing the other two engines already had.
+
+**Also (2026-08-02):** all three companion-engine build docs
+(`NEXUS_dab_radio_build_macOS.md`, `NEXUS_dream_drm_build_macOS.md`,
+`NEXUS_nrsc5_build_macOS.md`) now explicitly pin
+`MACOSX_DEPLOYMENT_TARGET=14.0` — building on a newer macOS (e.g.
+Tahoe/26) without this silently stamps the CURRENT OS as each binary's
+minimum required version, which macOS's own loader then enforces at
+launch (refuses to run on Sequoia/Sonoma, no explanatory error). Confirmed
+live: the `dab_radio_nexus` and `libfftw3f.3.dylib` already sitting in
+`build/bundled/` (built 2026-07-26, before this fix) both reported Min OS
+26.0.0 via `otool -l` — genuine, not theoretical. `build_macOS.sh` and
+`DARKSKY_NEXUS_macOS.spec` were already fixed for the main app itself in
+an earlier pass this session (`MACOSX_DEPLOYMENT_TARGET` export +
+`LSMinimumSystemVersion`).
+
+### Diagnostic (2026-08-01) — "no ensemble detected" on 12B traced to dab_radio_nexus being SIGTERM'd ~30s after launch, not a scan failure
+
+Live report: DAB started cleanly on 12B, fed real IQ for ~30s (confirmed by
+frame counters), then no ensemble ever appeared. Added returncode logging to
+`dab_engine()`'s watchdog (w035_NEXUS.py) revealed the subprocess wasn't
+crashing — it was found already dead with `returncode=-15` (SIGTERM) right
+before being silently relaunched, meaning something in NEXUS itself killed
+it mid-scan.
+
+`_dab_proc.terminate()` only has one call site in the whole file —
+`_dab_terminate()` — which itself is only reachable from 3 places: the
+`dab_stop` WS handler, the `dab_set_channel` WS handler, and
+`dab_engine()`'s own graceful-stop branch. None of the three had an obvious
+trigger in the captured log (no `dab_stop`/retune from the frontend visible
+in the ~30s window). Added a one-time diagnostic: `_dab_terminate()` now
+logs a short call stack whenever it fires against a still-running
+subprocess, so the next reproduction pins down exactly which of the three
+call sites — or an as-yet-unfound fourth one — is actually firing.
+
+Python-only change, no C++ rebuild required — just restart NEXUS.
+
+### Diagnostic (2026-08-01) — instrumented shared-carousel MOT Slideshow data to find why individual stations never get a logo on ensembles with a "Guide"-style shared data service
+
+Live report on 12B: tuning to "BBC Guide" shows a real slideshow image, but
+tuning to an ordinary station (e.g. BBC Radio1Dance) on the same ensemble
+never gets one — "No slideshow image yet" permanently.
+
+Root cause hypothesis (grounded in DAB-Radio source, not yet confirmed
+live): `resolve_audio_subchannel_for_data_component()` in
+`dab_radio_nexus.cpp` re-tags every slideshow image from a data-packet
+component with the subchannel of whichever service *owns* that physical
+data component. Services like "BBC Guide" own their own data component, so
+their images always resolve correctly — but this means a single shared MOT
+carousel broadcasting a *directory* of every station's logo (a known
+real-world DAB pattern) can only ever reach the one owning service, never
+the other stations whose logos it's actually carrying. DAB-Radio's own
+`Basic_Slideshow` struct (`basic_slideshow.h`) already carries per-object
+fields (`name` / MOT ContentName, `category_id`, `slide_id`,
+`category_title`, `transport_id`) that our code currently discards — these
+are the likely place the broadcaster encodes which station each image in
+the carousel belongs to.
+
+Added two new `dab_debug` stderr events to `dab_radio_nexus.cpp`, both
+diagnostic-only (no behaviour change yet):
+- `slideshow_meta` — dumps every per-object field on `Basic_Slideshow`
+  (name/category_id/slide_id/category_title/transport_id/trigger_time/
+  expire_time) for every image completed on the MSC packet-mode path,
+  before it gets reduced to raw image bytes for the wire.
+- `service_components_dump` — dumps every service (SId + label) and every
+  service component including data components (SId, component_id,
+  subchannel_id, transport_mode, label), fired once per newly-discovered
+  data packet channel, so `slideshow_meta`'s fields can be hand-correlated
+  against real station SIds/labels.
+
+Next: capture these logs live on 12B while BBC Guide's carousel is running,
+identify the actual encoding, then build a cross-station mapping so an
+individual station's logo resolves correctly instead of only the carousel's
+owning service. Scoped purely to the packet-mode "shared carousel" case —
+does not touch the already-working PAD slideshow path or the temp-file
+delivery mechanism.
+
+### Fixed (2026-08-01) — DAB audio played ~10 seconds then went silent on every channel, after the MOT Slideshow FEC-gate patch
+
+Direct follow-up to the FEC-gate patch and its diagnostic instrumentation
+below. Live report, reproduced twice in a row on a fresh SDRConnect
+restart (ruling out the earlier session's crash as the cause): audio
+played for roughly 10 seconds after selecting any channel, then went
+silent, every time. The new `dab_debug` instrumentation made the cause
+directly visible in the log: `packet_slideshow_complete` fired **20+
+times within about a minute**, several images 10-22KB each, immediately
+followed by the reported silence window.
+
+Root cause: `write_frame()` (real-time audio PCM, the `"DAB1"` stdout
+frame) and `write_slideshow()` (MOT images, `"DAB2"`) shared the exact
+same `StdoutFrameWriter::m_mutex` *and* the exact same OS stdout pipe —
+harmless while packet-mode slideshow was still gated off entirely (see
+the FEC-gate entry below), but the fix that unblocked it also unblocked a
+genuinely busy MOT carousel on this ensemble. A single OS pipe has a
+small kernel buffer; once the image traffic backed it up, the blocking
+`fwrite()`/`fflush()` call stalled whichever thread was holding
+`m_mutex` at the time — which stalled *every* other subchannel's
+`write_frame()` too, since they all share that one lock. `_serve_dab_audio()`
+already has its own 10-second staleness timeout that closes the HTTP
+audio stream once no new PCM arrives (added long before this bug, for a
+different reason) — that's exactly what "10 seconds then silence" was.
+
+Fix: `write_slideshow()` no longer touches stdout or `m_mutex` at all.
+Each completed image is now written to a small OS temp file
+(`std::filesystem::temp_directory_path()`), and only a short JSON pointer
+(`{"type":"dab_slideshow_file","path":"...",...}`, not the image bytes)
+goes out over the existing stderr status channel — stdout is audio-only
+again, exactly as it was before this feature existed. `w035_NEXUS.py`'s
+`_dab_stderr_thread_fn()` reads the file directly (off the hot audio
+path entirely), caches/broadcasts it exactly as the old inline frame
+used to, then deletes the temp file. Requires a further
+`dab_radio_nexus` rebuild — same clone/patch/build cycle as the FEC-gate
+fix.
+
+### Diagnostic (2026-08-01) — instrumented both MOT Slideshow transports in dab_radio_nexus.cpp to pin down why logos still don't appear after the DAB-Radio library patch
+
+Direct follow-up to the FEC-gate patch below. User applied the two `sed`
+patches to their local `~/DAB-Radio` checkout and rebuilt, but the logo
+still never appeared — with genuinely no way to tell from the existing
+wire protocol *why*: whether the patch didn't actually take effect in the
+running binary, whether a `Basic_Data_Packet_Channel` is now being
+constructed but no MOT object is ever completing, or whether the problem
+is actually downstream in NEXUS's own Python/JS delivery path (the
+2026-08-01 fix two entries below).
+
+Added a shared `emit_debug()` stderr-JSON emitter and four call sites:
+`pad_slideshow_complete` (PAD/X-PAD transport, in `attach_audio_channels()`)
+and `data_packet_channel_discovered` + `packet_slideshow_complete`
+(MSC packet-mode transport, in `attach_data_packet_channels()`). The
+`data_packet_channel_discovered` line firing at all is the direct,
+unambiguous proof the local library patch actually took effect — if it
+never appears, the patch isn't live in whatever binary is actually
+running (stale build, wrong binary earlier on PATH than
+`/usr/local/bin`). `w035_NEXUS.py`'s `_dab_stderr_thread_fn()` now handles
+`dab_debug` messages with `log.warning`, so all of this surfaces directly
+in the console without needing to enable `--radio-enable-logging` (which
+the 2026-07-27 investigation already found degrades live audio across a
+full multi-service ensemble). Diagnostic only — no behavioural change;
+requires the same rebuild + reinstall cycle as the FEC-gate patch before
+it takes effect.
+
+### Fixed (2026-08-01) — DAB station logos (MOT Slideshow) never appeared, even though audio/DLS/EPG all worked correctly
+
+Live diagnostic request: "why do DAB/DAB+ station logos never appear, even
+though audio, PAD/DLS, and EPG decoding all work correctly." Traced end to
+end through `dab_radio_nexus.cpp`'s FIC/MSC/MOT wiring (both the PAD-based
+and, since the 2026-07-27 fix, MSC packet-mode `Basic_Data_Packet_Channel`
+transports — see that entry's own comment for the BBC Radio6Music
+investigation that added the second path) and confirmed the whole decode
+chain was correct: completed slideshow images were being reassembled and
+written to `w035_NEXUS.py`'s `_dab_slideshow[subchannel_id]` cache exactly
+as designed.
+
+The actual break was one hop further downstream, in the WebSocket delivery
+path — not a decode bug at all. `_dab_stdout_thread_fn()` only ever
+broadcast a freshly-arrived slideshow image ONCE, live, to whichever
+browsers happened to be connected at that exact instant. The frontend's
+`dabUpdateSlideshow()` only accepts an image if it's for whatever station
+is *already* `_dabPlayingSid` at that moment. But `dab_radio_nexus` decodes
+every discovered subchannel simultaneously in the background from the
+moment the ensemble locks — regardless of what the user has clicked
+"Play" on — so in practice a station's logo is almost always decoded and
+broadcast-and-discarded well before the user ever selects that station.
+After that, nothing ever re-sent it: `_dab_slideshow`'s cached bytes were
+only ever read back once more anywhere in the file, purely to set an
+informational `has_slideshow: true` flag on the next `dab_ensemble`
+snapshot (never the actual image bytes) — no `dab_get_slideshow` command,
+no `/dab_slideshow?sid=` HTTP endpoint (unlike audio's own `/dab_audio`),
+and the existing `dab_play_service` WS handler was a pure
+`state['dab_play_sid'] = sid` state flip with no cache lookup at all. A
+code comment at the frontend call site had explicitly flagged this exact
+gap as a known, accepted limitation at the time DLS's own
+snapshot-hydration was added (2026-07-25) but never closed for slideshow.
+
+Fix: `dab_play_service`'s WS handler now looks up the target service's
+real `subchannel_id` and, if `_dab_slideshow` already has a cached image
+for it, unicasts it to just that client immediately in the exact same
+`dab_slideshow` message shape the live broadcast already uses — so
+`dabUpdateSlideshow()` on the frontend needed zero changes. Deliberately
+keys the lookup off `subchannel_id` (always correct) rather than the
+`sid` that happened to be resolved at original-broadcast time, which
+sidesteps a related edge case: a slideshow arriving before FIC has
+finished populating `_dab_services` would previously be cached correctly
+but broadcast with `sid: None`, making it permanently unmatchable by the
+frontend's `msg.sid !== _dabPlayingSid` check even on a lucky live-timing
+hit. Also added the equivalent hydration to `browser_handler()`'s
+initial-state block for `state.get('dab_play_sid')`, so a browser refresh
+while a station with an already-decoded logo is playing no longer blanks
+it either.
+
+### Fixed (2026-07-31) — DAB still found zero ensembles after the sample-rate-confirmation fix, even against a strong, visually confirmed OFDM signal
+
+Direct follow-up. After the sample-rate snap-back guard fix below, a fresh
+live test confirmed the resampler was now correctly computing
+`2000000 Hz -> 2048000 Hz (ratio 128/125)` on every channel — but a manual
+retune to 12B (BBC National DAB) still showed "No ensemble locked", despite
+a screenshot showing a strong, clearly OFDM-shaped ~1.5MHz-wide signal
+sitting right on 225.648 MHz (+1.7dB SNR, -79dBm, gain 16dB, Antenna A) —
+ruling out "nothing on air" or an antenna/gain problem the same way the
+2026-07-30 DRM 125kSPS bug was ruled in.
+
+Root cause: `dabStart()`'s `setSampleRate(2000000)` request and its
+`sendCmd({cmd:'dab_start'})` call fired in the same synchronous tick — even
+with the confirmation now getting through NEXUS's own state correctly, the
+RSPdx hardware itself still needs real time to physically finish retuning
+its ADC clock after a sample-rate change. Every other retune-adjacent path
+in this file already builds in a settle wait (server-side
+`_DAB_RETUNE_SETTLE_S` drops IQ for 1s after a channel change;
+`device_release_wait` waits ~2s for SDRConnect to release a device before
+relaunching) — this one had none, so `dab_radio_nexus` could start reading
+IQ before the hardware had actually finished switching rate, not just
+before NEXUS's own bookkeeping caught up.
+
+Fix: `dabStart()` is now `async` and, only when it actually had to change
+the rate, awaits a 2s settle delay before sending `dab_start`. Skipped
+entirely when the rate was already 2 MSPS (repeat starts, or after a scan
+already set it), so no needless delay on the common case.
+`dabScanChannels()` now `await`s `dabStart()` directly instead of firing it
+and racing a fixed sleep against it.
+
+Traced via a timeline audit request ("give me a timeline... in case we need
+to select a rollback point"): last confirmed real ensemble decode was
+2026-07-27 in w034, on this exact channel (12B). `dabStart()`'s
+`setSampleRate(2000000)` auto-call was added 2026-07-30, in the same batch
+of work as DRM's own sample-rate fix — the two live bugs found today (the
+snap-back guard below, and this settle-timing gap) are both regressions
+introduced by that one change, not anything DAB's own DSP code did wrong.
+A full rollback wasn't needed; both bugs were fixable in place once traced.
+
+### Fixed (2026-07-31) — DAB scan launched cleanly on every channel but found zero ensembles
+
+Live user report: "ive just scan dab, and nexus is not picking up any
+ensembles." Log showed `dab_radio_nexus` launching and running cleanly on
+all ~38 Band III channels, with NEXUS logging `"DAB: resampling 5000000
+Hz -> 2048000 Hz"` on every single one — identical every time, never
+changing, even right after DAB's own `dabStart()` had just requested
+SDRConnect switch to 2 MSPS. That request log line
+(`"SDRConnect sample rate → 2.0000 MSPS"`) is only the outgoing request,
+not confirmation — the real bug was that the confirmation never got
+applied.
+
+Root cause: a pre-existing "snap-back guard" (`_sr_set_time`, inherited
+from the w026-era codebase) unconditionally ignores every
+`device_sample_rate` update from SDRConnect for 3 seconds after any
+`set_sample_rate` command, to stop a stale echo of the OLD rate from
+clobbering a fresh user choice. It never distinguished a stale echo from
+the genuine confirmation of the NEW rate — it just dropped everything in
+that window. `dabStart()` (added 2026-07-30) chains
+`setSampleRate(2000000)` straight into `dab_start` with no delay, so DAB
+began reading `state['hw_sample_rate']` well inside that 3s guard.
+SDRConnect's real confirmation of the switch to 2 MSPS arrived during the
+window and was silently dropped, and nothing else re-queried it
+afterward — so `state['hw_sample_rate']` stayed frozen at the stale
+pre-DAB value (5,000,000 Hz) for the rest of the session. `_dab_feed_iq()`
+kept computing its resample ratio (256/625) against that stale 5 MSPS
+figure while the real IQ bytes were actually arriving at 2 MSPS, corrupting
+the timebase of every packet fed to `dab_radio_nexus` — explaining clean
+launches with zero real decodes.
+
+Fix: new `_sr_set_target` remembers the exact rate just requested; the
+guard now reads `time.time() - _sr_set_time > 3.0 or hw_sr == _sr_set_target`
+— a confirmation matching the requested rate is always accepted
+immediately, regardless of the 3s window, since it can never be a stale
+echo of something else. Stale echoes of any OTHER rate are still
+correctly suppressed for the full 3s as before.
+
+### Added (2026-07-31) — Startup sequence UX pass: live status strip, ambiguity-vs-auto-stream race fixed, combined connection+launch picker
+
+User request after today's whole DAB/Result-108 saga: "examine the start
+up sequence for the user, as even for me it's a bit disjointed." Audit
+found the actual sequence was almost entirely invisible in the UI — every
+real decision (auto-launching SDRConnect, connecting, device ambiguity,
+final device confirmation) only ever showed up as a Python console log
+line, and `connection_mode`/`local_launch_mode` were two separate config
+axes in two different wizard panes that could silently disagree (exactly
+what caused today's Result-108 confusion). Three changes:
+
+- **Live startup status strip.** New `_broadcast_startup_status()`
+  broadcasts a short line at each real step — "Launching SDRConnect
+  (GUI)…", "Connected to SDRConnect — checking devices…", "Both X and Y
+  found — choose one", "Connected: RSPdx (Full IQ)" — rendered by a new
+  persistent (not stacking-toast) strip at the top of the page
+  (`#startup-status-strip` / `_showStartupStatus()`). Settles/fades 4s
+  after the final "Connected:" line; warnings and in-progress steps stay
+  up until replaced. This is the single biggest lever here — most of
+  today's back-and-forth came down to "paste me the terminal log" because
+  the UI itself said nothing.
+- **Device-ambiguity vs. auto-stream race fixed.** `_deferred_iq_enable()`
+  (the handler that confirms/enables streaming on whatever device
+  SDRConnect reports active, ~1s after connect) now holds off, up to 15s,
+  while a `device_choice_available` ambiguity is unresolved (new
+  `_device_choice_pending` flag, set when the ambiguity is broadcast,
+  cleared by `select_device`). Previously the popup could appear while
+  audio was already flowing from the device the user didn't pick.
+- **Combined connection + launch-mode picker.** The startup picker's two
+  local options (nRSP-ST / USB-local) now advance to a second step —
+  "Should NEXUS start SDRConnect for you?" (None/Headless/Full GUI + app
+  path) — instead of finishing immediately; both `set_connection_mode`
+  and `set_local_launch_mode` are sent together from one flow. Reachable
+  both on first run and via the top-bar Connection control reopening it
+  (always resets to step 1). The advanced wizard pane's separate controls
+  are unchanged/still there — this is a faster combined path to the same
+  settings, not a new source of truth.
+
+### Confirmed (2026-07-31) — DAB decoding real audio again on 12B, end-to-end
+
+Live test success after the full chain of fixes above: sample-rate
+snap-back guard (`_sr_set_target`), `dabStart()` settle delay, and the
+Result-108 device-release polling fix. With RSPdx properly selected (not
+nRSP-ST — device selection was a live variable across these tests too) and
+SDRConnect cleanly handed over to NEXUS, 12B locked and played real DAB
+audio. No rollback to w034 was needed; every bug traced back to the single
+2026-07-30 `dabStart() auto-sets 2 MSPS` change plus one unrelated,
+independently-discovered device-handover timing bug, both now fixed in
+place in w035.
+
+### Fixed (2026-07-31) — "Open Failed / Result 108" recurred when the pre-existing SDRConnect had been actively streaming
+
+Direct follow-up to the fix below. That fix (kill + fixed 2s wait) was
+confirmed working once, but recurred on a later live test: this time the
+user had manually started SDRConnect and left it actively tuned/streaming
+for a while before starting NEXUS with `local_launch_mode='gui'`. An
+actively-connected SDRplay session takes measurably longer to release its
+USB/API handle on SIGTERM than a freshly-launched idle one (the case the
+first fix happened to be tested against) — the fixed 2s window wasn't
+always enough.
+
+`_kill_existing_sdrconnect()` now polls (`pgrep`/`tasklist`) for the
+process to genuinely exit, up to ~5s, escalating to SIGKILL on POSIX if
+it's still alive with 2s left on the clock, then adds a 1.5s buffer for
+the SDRplay driver layer itself to release the device — instead of
+guessing one fixed delay that only covered the idle-process case.
+
+### Fixed (2026-07-31) — Local GUI auto-launch could collide with an already-running SDRConnect ("Open Failed / Result 108")
+
+Live user report + screenshot: right after switching `local_launch_mode`
+to `gui`, SDRConnect showed "Open Failed / Result 108" (SDRplay API's
+device-already-claimed error) instead of opening the RSPdx. Root cause:
+`_local_launch_sdrconnect()` launched a brand-new SDRConnect instance
+without first checking whether one was already running — which, per the
+pre-existing "audio persists" issue in this same file, it very often is
+(SDRconnect_headless runs independent of NEXUS/the browser and nothing
+auto-quits it). Two SDRConnect processes both trying to open the same
+physical USB device is exactly what error 108 means.
+
+- Added `_kill_existing_sdrconnect()` — kills any running
+  `SDRconnect_headless` AND full-GUI `SDRconnect` process by name, mirrors
+  `_kill_sdrconnect_headless()`'s existing pattern exactly.
+- `_local_launch_sdrconnect()` now calls it and waits ~2s for the RSPdx to
+  release before launching the new instance, for the same reason
+  `_ssh_stop_local_client()`'s `device_release_wait` exists — reopening
+  too fast can hold a stale handle and crash SDRConnect outright, not just
+  fail to open.
+
+### Fixed (2026-07-31) — Device-choice popup's clicks were silently broken (HTML attribute escaping bug)
+
+Live user report, immediately after the ambiguity-ask precedence fix below
+made the popup actually appear for the first time: "the pop up appears but
+nrsp-st starts before selection made. when i make my selectiion ...
+nothing happens." Root cause found in `_showDeviceChoiceModal()` in
+`DARKSKY_NEXUS_w035.html`: each button's `onclick` was built as a template
+literal with `JSON.stringify(d.name)` spliced directly into a
+DOUBLE-quoted HTML attribute. `JSON.stringify` always wraps its output in
+double quotes too, so for any real device name (e.g. `'nRSP-ST
+(240517b350) (IQ Lite)'`) the attribute closed right after `_pickDevice(`
+and the rest became stray unparsed HTML — the button rendered fine but its
+click handler was silently broken, for every device, every time. This bug
+has existed since the modal was first built (2026-07-29) but was dormant:
+nothing had ever made the ambiguity path reachable in a real session until
+today's precedence fix.
+
+- Rebuilt `_showDeviceChoiceModal()` using `createElement`/`textContent`/
+  `addEventListener` instead of string-interpolated `onclick` attributes —
+  no HTML/JS-escaping pitfalls possible with this approach, unlike the
+  inline-onclick pattern used (safely, only ever with static string
+  literals) elsewhere in this file.
+
+Separately confirmed via the live log the user also has to look out for: a
+different, pre-existing handler (`elif prop in ('active_device', ...)`)
+reacts to whatever device SDRConnect reports as *already* active and
+unconditionally confirms/enables its streaming ~1s later — this is
+necessary for normal single-device operation and was NOT touched, but it
+does mean that if SDRConnect auto-resumes streaming from its last device
+before you answer the popup, your click may need to fight a device that's
+already actively streaming. Per this file's own prior direct confirmation
+(see the `iq_streaming`/`selected_device_name` comments above,
+2026-07-2x), SDRConnect may not honour a live device/mode switch while
+already streaming — untested whether that applies to switching between
+two genuinely different physical devices (RSPdx vs nRSP-ST) rather than
+just switching stream mode on the same device. Flagged for the user to
+verify live now that the click itself actually works.
+
+### Fixed (2026-07-31) — Remembered connection_mode was silently hiding the USB/nRSP-ST ambiguity ask
+
+Live user report: "i just started nexus via idle, and it went straight to
+mainscreen with nrsp-st running in iqlite, even though i also have my
+rsp-dx connect to usb." Root cause: the 2026-07-29 startup connection-mode
+picker persists a chosen mode (`nrsp_ws`/`usb_local_ws`) and reapplies it
+silently on every future launch via `_apply_connection_mode()`, which
+forces `device_preference` to `'nrsp'`/`'usb'`. That forced value was
+checked BEFORE `_evaluate_device_selection()`'s "both a USB device and a
+networked device are present — ask the user" branch, so once you'd ever
+picked nRSP-ST, NEXUS would keep silently choosing it forever, never
+re-offering USB even after plugging the RSPdx in. Asked what behaviour was
+wanted: "i would like to choose what to connect to if both devices are
+available."
+
+- Reordered `_evaluate_device_selection()` in `w035_NEXUS.py`: the
+  both-present ambiguity check (and the "already chose this session"
+  short-circuit) now run BEFORE the forced `pref == 'usb'`/`'nrsp'`
+  branches, for every device_preference value — not just `'auto'`. A
+  forced preference still fully applies whenever only one device type is
+  actually present (nothing to choose), it just no longer overrides a
+  genuine both-present ambiguity.
+- No frontend changes needed — reuses the existing `device_choice_available`
+  modal / `select_device` command from the 2026-07-29 device-choice feature.
+
+### Added (2026-07-31) — Startup option: headless or GUI SDRConnect (local + remote)
+
+User request: "at nexus startup, could we add an option whether to have
+headless or not?" Two independent, both opt-in, additions — every default
+leaves prior behaviour completely unchanged:
+
+- **Local auto-launch (new capability).** Previously, for the local
+  connection modes (nRSP-ST WS / USB WS), NEXUS never launched SDRConnect
+  itself — the user always had to already have it running. New
+  `local_launch_mode` config (`none` default / `headless` / `gui`) plus
+  `local_sdrconnect_path`: when not `none`, `sdr_bridge()` now calls
+  `_local_launch_sdrconnect()` once at startup (before its connect loop),
+  launching either `SDRconnect_headless --websocket_port=5454` from inside
+  the configured `.app` bundle, or the full GUI app, via the existing
+  `_ssh_launch_local_client()` launch logic (reused as-is). Best-effort —
+  any failure just falls back to the pre-existing "wait for the user to
+  start it" behaviour, exactly the old failure mode.
+- **Remote Headless/GUI toggle.** The SSH launcher pane's `remote_command`/
+  `local_client` fields (already headless-by-default since the 2026-07-29
+  SSH wizard change) previously required two separate hand-edits to switch
+  to the legacy `--server` + local-GUI-client combo. New
+  `_apply_remote_launch_mode(mode, cfg)` rewrites both fields consistently
+  from one `remote_launch_mode` choice (`headless` default / `gui`),
+  preserving any custom remote install directory already in
+  `remote_command`.
+- New WS commands `set_local_launch_mode` / `set_remote_launch_mode`,
+  deliberately added directly to the main command dispatcher rather than
+  routed through `_handle_ssh_cmd`/`ssh_` prefix — see the removed Auto/
+  Force USB/Force nRSP-ST button row's 2026-07-29 comment for why an
+  unprefixed cmd name landing in that dispatcher is a real, previously-hit
+  trap in this file (`_handle_ssh_cmd()` only ever fires for
+  `cmd.startswith('ssh_')`).
+- `_graceful_shutdown()` now also terminates a NEXUS-launched local GUI
+  process directly via its `Popen` handle (the `gui` local-launch case);
+  the `headless` case needed no new code — already covered unconditionally
+  by the existing `_kill_sdrconnect_headless()` pkill-by-name.
+- Frontend: new "Launch SDRConnect automatically at NEXUS startup"
+  None/Headless/Full GUI control + app-path field in the Connection Setup
+  wizard's nRSP-ST/Local pane, and a Headless/Full GUI toggle in the SSH
+  pane above REMOTE CMD — both persisted immediately on click, both fields
+  remain manually editable as before.
+
+### Docs (2026-07-30) — Official User Manual/Troubleshooting/Quick Start updated for HD Radio (no source scripts available in this folder)
+
+The three official docx/pdf docs (User Manual, Troubleshooting, Quick
+Start) had never actually gained an HD Radio section despite earlier
+tasks marking that work "done" — they were last rebuilt 2026-07-29
+13:50-13:57, before today's HD Radio work existed. No
+`build_usermanual.js`/`build_troubleshooting.js`/`build_quickstart.js`
+source exists anywhere in `w035/` to regenerate from (checked; only
+present in `OLD VERSIONS/w023` through `w032`), so this pass edited the
+existing `.docx` files directly (unzip → edit `word/document.xml` →
+rezip → XSD-validate), matching each doc's exact existing formatting
+conventions rather than reconstructing a build pipeline. Also caught
+Live Translation's own doc entry from earlier today's removal — turned
+out none had ever been added to these three files either, so nothing
+needed deleting there.
+
+- **User Manual:** new "6.20 HD Radio (NRSC-5/iBOC)" section (mirrors
+  6.19 DRM's structure exactly), plus a clause appended to the existing
+  w035 version-highlights table row.
+- **Troubleshooting:** new "HD Radio Issues (w035 only)" section (mirrors
+  "DRM Issues"), covering the `dyld: Library not loaded` deploy-location
+  bug found live today, the "what sample rate for HD Radio" Q&A, and a
+  "shows no signal" note explaining the North America-only coverage
+  constraint.
+- **Quick Start:** new `nrsc5_nexus` row in the optional-external-tools
+  table, and a new "Want to decode HD Radio..." callout (mirrors the DRM
+  one) with the same North America caveat.
+
+All three re-zipped and validated with `validate.py --original` (clean
+diffs: +8/+9/+4 paragraphs respectively, no other structural changes),
+rendered to PDF and visually confirmed via `pdftoppm` page renders before
+being copied into `docs/word/w035/` and `docs/pdf/w035/`.
+
+### Fixed + Confirmed (2026-07-30) — HD Radio's full NEXUS-side wiring proven end-to-end; silent relaunch-loop diagnostic gap closed
+
+Follow-up to the two confirmations above. User is in Aberdeen (no HD
+Radio coverage -- NRSC-5 is North America-only), so "wire nrsc5_nexus
+into live NEXUS" was validated by replaying the same real off-air sample
+through the actual production code path instead: new
+`test_hd_pipeline.py` imports `w035_NEXUS.py` directly, sets
+`state['hd_active']=True`, and drives `hd_engine()` + `_hd_feed_iq()`
+with the real sample fed in small chunks, mirroring `sdr_bridge()`'s live
+per-packet call pattern -- exercising the real resampler (gcd/ratio math
+on the fractional native rate) and the JSON status parser, not just
+`nrsc5_nexus.c` standalone.
+
+First run failed silently: `hd_engine()` relaunched `nrsc5_nexus` every
+~0.25s forever, `_hd_status` stayed `{}`, zero log explaining why. Root
+cause: `nrsc5_nexus` had been copied to `/opt/homebrew/bin/` (Step 5, since
+`/usr/local/bin` needed `sudo` on this Mac) without also copying
+`libnrsc5.dylib` there -- `-rpath,@executable_path` resolves relative to
+wherever the binary *currently* lives, so the exact same dyld issue Step 2
+already fixed once (for `~/nrsc5/`) recurred at the new deploy location.
+Confirmed via `/opt/homebrew/bin/nrsc5_nexus --help` reproducing the exact
+`dyld: Library not loaded: @rpath/libnrsc5.dylib` error directly. Real fix:
+`cp libnrsc5.dylib /opt/homebrew/bin/`.
+
+The silence itself was a separate, real diagnostic gap worth closing on
+its own: `hd_engine()` had no "process died unexpectedly" log (DAB/DRM
+both already have this), and `_hd_stderr_thread_fn` logged non-JSON
+stderr lines -- which is exactly where the real dyld error text was
+sitting the whole time -- at `log.debug` (invisible by default). Both
+fixed in `w035_NEXUS.py`, mirroring `drm_engine()`'s existing pattern
+exactly: `hd_engine()` now logs `"HD Radio: nrsc5_nexus exited
+unexpectedly (code N) -- relaunching"` before each relaunch attempt, and
+the stderr line promoted to `log.warning`. `python3 -m py_compile` clean.
+
+After the dylib fix, `test_hd_pipeline.py` re-run confirmed full success:
+single clean launch (no relaunch spam), correct `1488375 Hz -> 744187.5 Hz
+(FM, ratio 1/2)` resample log, and a fully populated final `_hd_status`
+matching Step 4's direct-binary result (`locked:true`, station name/
+slogan, ID3, program info) plus 2,000,000 bytes of real decoded PCM
+buffered per program (HD1 and HD2). This proves the entire NEXUS-side HD
+Radio pipeline -- launch, resample, feed, JSON parse, audio buffering --
+against real broadcast data, with only genuine over-the-air reception
+(needs a receiver actually inside HD Radio's North America coverage area)
+left unverified. `NEXUS_nrsc5_build_macOS.md` updated: Step 5 now
+requires the dylib copy at every deploy location, new Step 7 documents
+the full pipeline test, Step 6's bundling section corrected to run
+`otool -L` on `libnrsc5.dylib` (not just `nrsc5_nexus`, which only shows
+`@rpath/libnrsc5.dylib` + the system lib) to find the real Homebrew
+dependency chain, and two new Troubleshooting entries added.
+
+### Confirmed (2026-07-30) — nrsc5_nexus (HD Radio) builds and passes its silence smoke test on real hardware
+
+First real build attempt against `nrsc5_nexus.c` (Apple Silicon, Homebrew
+toolchain). Compile step (`clang -c nrsc5_nexus.c -Iinclude`) needed zero
+changes — clean against the real upstream `nrsc5.h`, matching this file's
+own claim of having been written directly against the real header rather
+than guessed. One real fix was needed at link time: `-Wl,-rpath,
+@executable_path` only makes the loader search beside the executable, but
+CMake leaves `libnrsc5.dylib` in `build/src/` — running the linked binary
+failed with `dyld: Library not loaded: @rpath/libnrsc5.dylib` until
+`cp build/src/libnrsc5.dylib .` copied it next to `nrsc5_nexus`. After
+that, `otool -L` shows only `@rpath/libnrsc5.dylib` (resolved) and the
+system `libSystem.B.dylib` -- no direct fftw3/ao/rtlsdr deps on the
+wrapper itself (pulled in transitively via `libnrsc5.dylib`). Silence
+smoke test (piped `/dev/zero`) then passed clean: `hd_status
+running:true` on start, `running:false` on EOF-triggered exit, 0-byte
+stdout, no crash. `NEXUS_nrsc5_build_macOS.md` updated with the confirmed
+link recipe, Step 3 result, and a new Troubleshooting entry for the exact
+dyld error. Step 4 (real off-air signal decode test) still pending.
+
+### Confirmed (2026-07-30) — nrsc5_nexus decodes real off-air HD Radio IQ end-to-end
+
+Follow-up to the build/link/silence-test confirmation above. The original
+Step 4 test plan assumed a same-rate cu8→cs16 format conversion for the
+bundled `support/sample.xz` -- wrong: reading nrsc5's own `src/input.c`
+showed `input_push_cu8()` always applies an internal ÷2 halfband
+decimation before decoding (FM), while `input_push_cs16()` (what
+`nrsc5_nexus.c` uses) has no decimation stage and expects samples already
+at the native rate. A same-rate conversion would have silently fed double
+the intended sample rate and likely produced zero lock -- easy to
+misdiagnose as a real bug in the wrapper. New `convert_nrsc5_sample.py`
+(in `w035/`) does the real conversion: cu8 → nrsc5's own `U8_Q15`
+amplitude scaling → anti-aliased ÷2 decimation to the native FM rate →
+cs16, mirroring the real `_hd_feed_iq()` production path rather than
+nrsc5's exact internal FIR taps. Piped into `nrsc5_nexus`, it locked
+immediately and decoded real broadcast data out of the bundled sample:
+station name/ID (`KUT `, University of Texas at Austin, matching its
+real-world slogan text pulled from the same broadcast), station location,
+audio service info, and real ID3 metadata ("You're Listening to Q with
+Jian Ghomeshi"). One brief lock/re-lock blip mid-stream (MER dipped to
+-14.16 dB, BER spiked to 0.197 for one cycle) before settling back to
+clean decodes -- a real acquisition event, not a bug. `/tmp/hd_stdout.bin`
+came out at 4,035,384 bytes of real `HDR1`-framed PCM, confirming the
+audio path end-to-end too. `NEXUS_nrsc5_build_macOS.md` Step 4 updated
+with the corrected recipe and full confirmed output; overall doc status
+line updated to "fully confirmed working end-to-end." Next real step:
+wire `nrsc5_nexus` into a live NEXUS session against actual over-the-air
+HD Radio.
+
+### Removed (2026-07-30) — Live Translation feature
+
+Explicit user request: "remove the translate feature that was implemented
+earlier." Fully reverted the faster-whisper + LibreTranslate/deep-translator
+Live Translation feature added earlier in the w035 cycle (2026-07-29):
+
+- Backend (`w035_NEXUS.py`): removed the optional `faster_whisper`/
+  `deep_translator` imports and `_HAVE_FASTER_WHISPER`/
+  `_HAVE_DEEP_TRANSLATOR` flags, the `sdr_bridge()` audio-feed hook, the
+  retune-clear block, the `translate_start`/`translate_stop` WS command
+  handlers, and the entire 218-line "LIVE TRANSLATION" engine section
+  (in-process background threads, 6-second rolling audio chunks,
+  generation-counter guard). Verified with `python3 -m py_compile` after
+  every removal step.
+- Frontend (`DARKSKY_NEXUS_w035.html`): removed the `.has-translate`/
+  `.si-col-translate` CSS block, the 6th "Col 6" translate column div
+  inside `#hf-si-grid` (grid reverts to its base 5-column layout), the
+  `translate_status`/`translate_line` message-dispatcher cases, and the
+  100-line JS function block (`hfTranslateToggle()`, `hfTranslateStart()`,
+  `hfTranslateStop()`, `_translateSetGridVisible()`, `_translateOnScroll()`,
+  `translateUpdateStatus()`, `translateAddLine()`, plus the
+  `_translateRunning`/`_translateUserScrolledUp` state vars). Verified with
+  a full `<script>`-block JS syntax check and an HTML div-balance check
+  (the file is structurally sound; a raw regex div-count off-by-one traced
+  to `<div`/`</div>` text inside an HTML comment, not a real markup bug).
+- Build (`build/DARKSKY_NEXUS_macOS.spec`, `build/DARKSKY_NEXUS_Windows.spec`):
+  removed the `faster_whisper`/`deep_translator` `hiddenimports` entries
+  and their ctranslate2 bundling-caveat comments.
+- Known gap: the w035 User Manual docx/pdf (built outside this session,
+  no `build_usermanual.js` source present in this folder) still documents
+  the removed feature. Not rebuilt here since no doc-build source was
+  available in `w035/` -- flagging for a future doc pass if noticed.
+
+### Fixed (2026-07-30) — DRM stuck at 125 kSPS Full-IQ, zero decode despite a strong, correctly-shaped signal
+
+Live user report + screenshot ("no drm decode ..... strong signal"):
+the DRM tab's ENGINE panel showed SAMPLE RATE 125 kSPS, and the
+waterfall clearly showed a strong, correctly-shaped ~20kHz-wide DRM
+signal sitting right on 13.730 MHz -- ruling out "nothing on air".
+`dream_nexus` had run cleanly and continuously for 7+ minutes with zero
+crashes (confirming the drm_set_frequency no-op-relaunch fix from
+earlier today held), yet SNR/MER stayed flatlined at exactly 0.0 the
+entire time -- "No station decoded yet" never budged. That combination
+(strong real RF + a healthy running decoder + a status that never once
+wobbled off exactly zero) points at the receive chain never getting
+real samples worth processing, not weak propagation.
+
+125 kSPS is well below the 2 MSPS Full-IQ rate already confirmed live-
+working for DAB on this exact hardware (see the entry below) -- neither
+`drmStart()` nor `drmSetFrequency()` had ever touched sample rate at
+all, so DRM was silently inheriting whatever was last dialed in from an
+unrelated earlier session/test. Fix: both now call the same
+`setSampleRate(2000000)` guard `dabStart()` uses (skipped in IQ Lite
+mode, skipped if already at 2 MSPS).
+
+### Added (2026-07-30) — dabStart() auto-sets 2 MSPS
+
+Live user request: "when we start dab decoder can you auto set
+samplerate to 2msps?" `dabStart()` now calls the existing `setSampleRate()`
+helper with 2,000,000 Hz before sending `dab_start`, so the user doesn't
+have to remember to dial it in manually first -- 2 MSPS is the exact rate
+this was live-tested and confirmed working against (NEXUS resamples that
+up to `dab_radio_nexus`'s required 2.048 MSPS internally, see
+`_dab_feed_iq()`). Skipped in IQ Lite mode (fixed 192 kSPS hardware rate;
+`setSampleRate()` only adjusts the display zoom span there, and IQ Lite
+doesn't deliver raw IQ for DAB anyway) and skipped entirely if the rate is
+already 2 MSPS, so no redundant toast/network chatter on repeat starts.
+
+### Fixed (2026-07-30) — dream_nexus survives NEXUS shutting down (requires rebuild)
+
+Live user report: "dream_nexus is still running (activity monitor) even
+when nexus is shut down." `_drm_proc` was already in
+`_graceful_shutdown()`'s termination list (2026-07-29 fix), so this isn't
+that gap recurring -- the actual cause is upstream of Python entirely.
+The user runs `w035_NEXUS.py` from IDLE (confirmed by the "= RESTART:
+..." banner in their pasted console output), and IDLE's "Restart Shell"
+tears down the running interpreter directly rather than going through
+Python's normal signal-handling path -- `_graceful_shutdown()` never
+runs, so `proc.terminate()` is never called on `_drm_proc` at all. No
+signal ever reaches `dream_nexus`, and nothing in `dream_nexus.cpp`
+itself would reliably exit on a closed stdin pipe either (`Read()`
+correctly returns "error" on EOF, but whether that unwinds
+`DRMReceiver.process()` and stops the main loop depends on Dream's own
+internal handling, not something this file controls) -- so it can run on
+indefinitely as a true orphan, reachable only from Activity Monitor.
+
+Fix: added a parent-death watchdog directly in `dream_nexus.cpp` --
+captures its real parent PID via `getppid()` once at startup, polls for
+a change every second on a background thread, and self-terminates
+(`std::_Exit(0)`) the moment it detects it's been orphaned (reparented to
+launchd/PID 1). This is independent of signals entirely, so it catches
+every ungraceful-parent-death case (IDLE kill, a crash, Activity Monitor
+force-quitting the Python process, anything), not just this one. POSIX-
+only for now (`#ifdef`'d out on Windows, which has no `getppid()`
+equivalent) -- `dream_nexus.exe` still relies on the normal
+`terminate()` call there until a Windows-specific watchdog is written.
+
+**Requires a rebuild** -- this is a source change to `dream_nexus.cpp`,
+not something that takes effect until it's recompiled per
+`NEXUS_dream_drm_build_macOS.md`'s Step 2. `dab_radio_nexus.cpp` and
+`nrsc5_nexus.c` likely share this identical latent gap (same
+piped-subprocess architecture) -- not yet mirrored there since their
+main-loop shape wasn't checked in the same pass; worth the same fix as a
+follow-up.
+
+### Fixed (2026-07-30) — drm_set_frequency force-relaunched dream_nexus even on a no-op duplicate frequency
+
+Direct follow-up to the diagnostics fix just below — with the new logging
+in place, a second live test against the same real Radio Romania
+International DRM broadcast (9570 kHz) caught the actual bug on the first
+retry: `dream_nexus` launched cleanly at 19:12:42, then 7 seconds later
+(19:12:49) the log showed `DRM: dream_nexus exited unexpectedly (code
+-15) -- relaunching` — code -15 is SIGTERM, i.e. NEXUS itself killed it,
+not a real crash. Cause: a second `drm_set_frequency` call arrived for
+the exact same 9.570000 MHz already active (visible as a duplicate
+"SDRConnect tune → 9.570000 MHz" line), and the handler force-relaunched
+unconditionally on every call, with no check for whether the frequency
+had actually changed. That wipes out an in-progress DRM sync attempt for
+no reason — DRM sync routinely takes longer than 7 seconds, especially
+with `rxmode=0` (auto-detect) scanning across robustness modes A-D.
+
+Fix: `drm_set_frequency` is now a no-op if `dream_nexus` is already
+running against the exact frequency being requested. DAB (`dab_set_channel`)
+and HD Radio (`hd_set_frequency`) share the identical unconditional-
+relaunch design and could show the same symptom under a duplicate/
+redundant call — not fixed here since neither has a live report of it
+happening, but worth the same guard if one shows up.
+
+Also worth noting from the same log: `dream_nexus`'s startup stderr
+listed "No usable FAAD2 aac decoder library found" / "No usable FAAC aac
+encoder library found" / "No usable Opus library found" alongside "Adding
+FDK codec" — read together, this looks like normal codec-probe logging
+(FAAD2/FAAC/Opus are alternate libraries it checked for and didn't need)
+rather than a failure, since FDK-AAC — the codec the build guide already
+has the user install via `brew install fdk-aac`, and what DRM broadcasts
+actually use — was found and added successfully. Not treated as a bug
+fix; flagged here in case decode still fails after the relaunch fix and
+this needs a second look.
+
+### Fixed (2026-07-30) — DRM engine gave no log evidence either way on "no drm decode" report
+
+Live test against a real, scheduled DRM broadcast (Radio Romania
+International, 9570 kHz, German, 1800-1900 UTC, Tiganesti 90kW — confirmed
+against drmrx.org's current A26-season schedule, so this wasn't a "nothing
+on air" case). Log showed `dream_nexus` launched twice ~4.3s apart
+(19:04:18 → 19:04:23) with nothing in between explaining why, and no
+confirmation either way of whether the second instance ever locked.
+
+Root cause of the *missing evidence* (not yet a confirmed root cause of
+the decode failure itself): `_drm_stderr_thread_fn()` only ever
+`log.debug`'d non-JSON stderr lines — exactly where a `dream_nexus`
+crash/assert/usage message would land — and never logged lock
+acquired/lost transitions at all (only broadcast to the browser). Default
+log level is INFO, so both were invisible in the log file. Separately,
+`drm_engine()`'s poll loop silently relaunched on any crash with no log
+line distinguishing "fresh start" from "just crashed."
+
+Fix (diagnostics only, not a decode fix): promoted non-JSON stderr lines
+to `log.warning`, added `log.info` on lock acquired/lost transitions
+(mode/station/SNR/MER), and added a `log.warning` when `drm_engine()`
+detects `dream_nexus` died after a successful launch. Next time this
+happens, the log file alone will show whether it crashed (and the real
+error text) or ran clean but never locked.
+
+### Fixed (2026-07-30) — SDRconnect_headless kept running (and playing audio) after closing the browser
+
+Live user report + Activity Monitor screenshot: after diagnosing the
+2026-07-29 "audio persists" fix as unrelated to this case (user confirmed
+always on SDRConnect/nRSP-ST, never RTL-SDR direct mode), the actual
+process still shown running post-close was `SDRconnect_headless` itself —
+13.5% CPU, 1:41 CPU time, still alive after the Chrome tab was closed.
+
+Root cause: `SDRconnect_headless` is not one of NEXUS's own
+`subprocess.Popen` children (unlike `_dab_proc`/`_hd_proc`/`_drm_proc`/etc,
+which the 2026-07-29 fix already added to `_graceful_shutdown()`'s
+termination list). The common case is the user starts it independently
+(or it's already running); NEXUS only ever *talks to* it over its own
+WebSocket API on port 5454/50000. So even a full, correct NEXUS shutdown
+never touched it — it kept running, with whatever local audio monitor it
+has, indefinitely.
+
+Fix: added `_kill_sdrconnect_headless()`, called first thing in
+`_graceful_shutdown()` — `pkill -TERM -x SDRconnect_headless` on
+macOS/Linux, `taskkill /IM SDRconnect_headless.exe /F` on Windows.
+Best-effort and silent (a no-match just means it wasn't running, the
+normal case for RTL-SDR-only sessions). This rides the *existing*
+"browser closed" shutdown trigger (`_watch_clients_loop()` — last WS
+client disconnects, 5s grace period to survive a page reload, then
+`_request_shutdown()`), so no new detection logic was needed — per
+explicit user request, this now happens automatically and immediately
+every time the browser is closed, no opt-in toggle.
+
+### Fixed (2026-07-30) — Translate column visible before being toggled on (live user report)
+
+Live screenshots: the `🌐 TRANSLATE` column appeared on page load, stacked
+in a narrow strip directly under the BROADCAST MATCHES column, before the
+toggle was ever pressed — instead of staying hidden until turned on.
+
+Root cause: a CSS cascade ordering bug, not a JS one. `.si-col-translate {
+display:none; }` was declared *before* the general `.si-col { display:flex;
+... }` rule in the stylesheet — both single-class selectors, equal
+specificity, so the later `.si-col` rule won the cascade and overrode the
+hide regardless of the element also matching `.si-col-translate`. With the
+column rendered but `#hf-si-grid` still at its default `repeat(5,1fr)`
+(no `.has-translate` class yet, since that's only added once the toggle
+actually fires), CSS grid auto-placement wrapped the 6th DOM child into a
+new implicit row using column 1's own track width — exactly the "stacked
+under column 1" look in the screenshot. Confirmed correct once toggled on
+(second screenshot) purely because `#hf-si-grid.has-translate
+.si-col-translate { display:flex; }`'s higher specificity (ID + 2 classes)
+was never in question — only the *default-hidden* state was broken.
+
+Fix: raised the hide rule's specificity so it can't lose to `.si-col`
+regardless of source order — `.si-col-translate { display:none; }` →
+`.si-col.si-col-translate { display:none; }` (two-class selector).
+
+### Added (2026-07-30) — Wire HD Radio + translation into the packaged builds
+
+Live user question: "when i build for macos or windows are translate and
+hd-radio bundled?" — answer at the time was no, neither had been wired
+into the PyInstaller spec files or build scripts, same gap DAB's own
+bundling closed on 2026-07-26 (see that section below) but hadn't yet been
+repeated for these two newer features. Closed now, "like we did for DAB":
+
+- `DARKSKY_NEXUS_macOS.spec` / `DARKSKY_NEXUS_Windows.spec`: added an
+  `nrsc5_nexus`/`nrsc5_nexus.exe` optional-bundled-binary check, byte-for-
+  byte the same pattern as `dab_radio_nexus`'s own existing block — checks
+  `build/bundled/nrsc5_nexus[.exe]`, bundles it if present, falls back to
+  `_hd_find_binary()`'s normal PATH/Homebrew search at runtime if not.
+  Also added `faster_whisper`/`deep_translator` to both specs'
+  `hiddenimports` lists, with an explicit caveat comment: ctranslate2
+  (faster-whisper's backend) has a real history of needing
+  `--collect-all ctranslate2` beyond plain hiddenimports once frozen —
+  not build-tested here, flagged rather than silently assumed to work.
+- `build_macOS.sh` / `build_Windows.bat`: added a "Checking for bundled HD
+  Radio engine..." step (3c) immediately after the existing DAB check
+  (3b), identical informational-only pattern — the .spec file itself
+  decides whether to actually bundle it.
+- `NEXUS_nrsc5_build_macOS.md`: new "Step 6 — Bundling for distribution"
+  section, adapted from `dab_radio_nexus`'s own proven `otool -L` /
+  `install_name_tool` / `codesign` recipe (in `NEXUS_dab_radio_build_macOS.md`)
+  since the exact Homebrew dylibs `nrsc5_nexus` links against aren't
+  confirmed yet (no real build performed) — framed as "adapt to your own
+  `otool -L` output," not copy-pasted specifics.
+- New `NEXUS_nrsc5_build_windows.md` — nrsc5's own upstream README
+  documents MSYS2 or mingw-w64 cross-compilation for Windows, *not* an
+  MSVC/vcpkg path the way DAB-Radio's own Windows build does — this
+  follows nrsc5's actual documented route rather than assuming DAB-Radio's
+  toolchain would also work for a different upstream project. Flags the
+  MinGW-runtime-DLL bundling question (static link vs. bundle DLLs
+  individually) as genuinely open, pending a real build to check with
+  `dumpbin`/`Dependencies`.
+
+Translation has no equivalent native-binary bundling step — it's pure
+Python packages (`faster-whisper`/`deep-translator`), not a subprocess
+tool like DAB/DRM/HD Radio — so `pip install` into the build environment
+before running PyInstaller is the only additional step needed for those
+to end up in the frozen app, once the ctranslate2-collection caveat above
+is confirmed one way or the other.
+
+**Status: spec/script changes are syntax-verified (`ast.parse` on both
+.spec files, `bash -n` on build_macOS.sh) but not build-tested** — same
+honest caveat as the underlying HD Radio/translation features themselves.
+Nobody has actually run PyInstaller with a real `nrsc5_nexus` binary or a
+real `faster-whisper` install present yet to confirm the bundling
+actually works end-to-end.
+
+### Added (2026-07-30) — Live translation (faster-whisper + LibreTranslate/deep-translator)
+
+New feature: translates whatever's currently tuned and shows the result as
+text — no speech synthesis, matching the original ask exactly ("this do
+not need to be spoken, but rather translate the selected audio and then
+show the translated text"). Design went through two rounds of user
+feedback before implementation: first request specified a popup that
+stops translating entirely when closed; follow-up question asked whether
+the HF Utility tab (like DAB's DLS/FM RDS RadioText scroll) had room
+instead. Investigated both existing scroll widgets
+(`.dab-np-dls-track`'s marquee vs `.si-col-body`'s append-log) and
+recommended append-log — a marquee loses text the instant it scrolls past,
+which defeats the point for a conversation transcript rather than a
+"now playing" fact that gets re-sent every few seconds. Confirmed via
+AskUserQuestion (append-log, `base` Whisper model, LibreTranslate
+self-hosted default, curated language shortlist — all four "Recommended").
+Full design: `NEXUS_live_translation_integration_plan.md`.
+
+- **No subprocess of its own** — unlike DAB/DRM/HD Radio's bundled-tool
+  model, STT/MT run in-process via a background daemon thread per audio
+  chunk (`faster-whisper`'s `model.transcribe()` is CPU-bound/blocking and
+  would stall the event loop — spectrum/waterfall updates for every
+  connected client — if called directly from the audio-feed coroutine).
+  Nothing new needed in `_graceful_shutdown()`'s termination list as a
+  result — the threads are short-lived and already `daemon=True`.
+- **Audio tap**: the same `mono` 48kHz array `sdr_bridge()`'s `t == 1`
+  branch already feeds to every other audio-domain decoder
+  (`cw_dec`/`rtty_dec`/`fax_dec`/etc.) — one more `.active`-gated call
+  alongside them (`state['translate_active']`, not a bare module global —
+  matches `dab_active`/`drm_active`/`hd_active`'s own convention rather
+  than needing separate `global` statements in the WS dispatcher).
+- **STT**: `faster-whisper`, `base` model, lazy-loaded on first use and
+  kept warm (not reloaded on every start/stop toggle — model load takes a
+  couple of seconds). Rolling 6-second non-overlapping chunks, each
+  transcribed then translated in its own background thread; a
+  generation-counter guard (mirrors `_dab_generation`'s straggler-frame
+  pattern, applied here to a thread instead of a subprocess) discards a
+  chunk's result if it's gone stale by the time inference finishes — with
+  one deliberate asymmetry from every other engine's generation counter in
+  this file: `translate_stop` does **not** bump the generation (the plan
+  explicitly asks for the last already-dispatched chunk's result to still
+  be delivered — "better UX than truncating mid-sentence" — only a
+  **retune** or a fresh **start** discards in-flight work).
+- **MT**: `_translate_text()` tries a self-hosted LibreTranslate instance
+  first (`NEXUS_LIBRETRANSLATE_URL` env var, defaults to
+  `http://127.0.0.1:5000` — assumed already running by the user, NEXUS
+  doesn't launch/manage it as its own subprocess), falls back to
+  `deep-translator`'s Google backend automatically if unreachable, and as
+  a last resort returns the original transcribed text unchanged
+  (labelled `'none'`) rather than silently dropping the line — a
+  translation-backend outage shouldn't mean losing the transcript too.
+  Uses `urllib.request` (already imported) for the LibreTranslate POST —
+  no new hard dependency just for that.
+- **Lifecycle**: `translate_start`/`translate_stop` WS commands. Retuning
+  the VFO while active clears the transcript panel and restarts the
+  rolling buffer (a new frequency is a different signal — carrying over
+  stale text would be actively misleading) — wired into the existing
+  `'tune'` WS handler, which now also broadcasts `{cleared:true}` so the
+  frontend can clear its own displayed log in step with the backend's
+  buffer reset.
+- **Frontend**: new 6th column (`🌐 TRANSLATE`) in the HF Utility tab's
+  `#hf-si-grid`, hidden by default (`grid-template-columns` only expands
+  from `repeat(5,1fr)` to `repeat(6,1fr)` once toggled on — users who
+  never touch the feature don't lose any width to it, same reasoning as
+  `#device-select-strip`'s own conditional visibility elsewhere). Header
+  carries a curated 9-language `<select>` and an ON/OFF toggle, mirroring
+  the ↻ refresh buttons already in the other four column headers. Body is
+  a genuine append-log — each entry shows the translated line, the
+  original transcribed text as smaller subtext underneath (useful for
+  checking the translation against what was actually said, especially on
+  a noisy signal where STT itself may have mis-heard), and which backend
+  produced it. Auto-scrolls to the newest line unless the user has
+  manually scrolled up (tracked via a scroll-position check, not a
+  library) — same "don't yank the view out from under someone reading"
+  consideration the DAB DLS/tech-panel scroll areas already handle.
+- **Dependencies** (optional, graceful degradation matching the existing
+  `_HAVE_SCIPY`/`_HAVE_SOUNDDEVICE` pattern): `pip install faster-whisper`
+  (required for STT — `translate_start` returns an error status if
+  missing, rather than silently doing nothing) and `pip install
+  deep-translator` (optional fallback path only).
+
+**Status: implemented, not yet live-tested against a real tuned signal**
+(no network access in this sandbox to install `faster-whisper`/
+`ctranslate2`, and no live SDRConnect connection available here either).
+Code paths were verified by direct reading against `faster-whisper`'s and
+`deep-translator`'s real documented APIs, and `python3 -m py_compile` /
+`node --check` both pass clean, but "compiles" isn't the same claim as
+"decodes real speech and translates it correctly" — that verification is
+still open follow-up work, same honest caveat as HD Radio above.
+
+### Added (2026-07-30) — HD Radio / NRSC-5 decoder (nrsc5_nexus, piped IQ)
+
+New decoder, architecturally the closest sibling to the DAB engine (not
+DRM's): like a DAB ensemble, HD Radio decodes every discovered program
+(HD1-HD8) simultaneously from one IQ feed, so this reuses DAB's
+per-subchannel-buffer/program-card-grid shape rather than DRM's
+single-stream one. Built from `NEXUS_nrsc5_hdradio_integration_plan.md`
+(w034), refreshed against the real upstream `nrsc5.h`
+(theori-io/nrsc5, fetched 2026-07-30) rather than trusting that plan's
+approximate sketch — several details differed from the plan once checked
+against the real header:
+- The native IQ rate constants are `NRSC5_SAMPLE_RATE_CS16_FM` (744187.5 Hz)
+  and `NRSC5_SAMPLE_RATE_CS16_AM` (46511.71875 Hz), not the guessed
+  `_NATIVE_FM`/`_NATIVE_AM` names — and both are fractional, unlike DAB's
+  clean 2.048 MSPS or DRM's clean 48000 Hz, so the IQ resampler needed a
+  different ratio-computation approach (see below).
+- Audio output is always the fixed `NRSC5_SAMPLE_RATE_AUDIO` (44100 Hz) —
+  there's no per-event sample rate to read, simpler than DAB's
+  per-subchannel `BasicAudioParams` or DRM's xHE-AAC/SBR rate drift.
+- MER, BER, and lock/sync are three separate event types
+  (`NRSC5_EVENT_MER` with `lower`/`upper` floats, `NRSC5_EVENT_BER` with
+  `cber`, `NRSC5_EVENT_SYNC`/`NRSC5_EVENT_LOST_SYNC`), not one combined
+  status event.
+- Confirmed nrsc5's own README: `NRSC5_SAMPLE_RATE_CS16_FM` /
+  `NRSC5_SAMPLE_RATE_CS16_AM` exactly match the stock CLI's documented
+  `--iq-input-format cs16` rates (744188/46512 SPS, FM/AM) — good
+  independent confirmation the header wasn't misread.
+
+**New file `nrsc5_nexus.c`** (~400 lines) — headless wrapper, same overall
+shape as `dab_radio_nexus.cpp`/`dream_nexus.cpp`: `nrsc5_open_pipe()` +
+`nrsc5_set_mode(FM|AM)` + `nrsc5_set_callback()` + `nrsc5_start()`, then a
+blocking `fread()`/`nrsc5_pipe_samples_cs16()` loop. stdout emits one frame
+type, `"HDR1"` (4-byte magic + 1-byte program 0-7 + 1-byte is_stereo +
+4-byte payload_len + PCM). stderr emits one JSON line per event —
+`hd_status`/`hd_id3`/`hd_station_name`/`hd_station_slogan`/
+`hd_station_message`/`hd_station_id`/`hd_station_location`/
+`hd_audio_service`/`hd_sync`/`hd_emergency_alert`/`hd_lot` (station
+logo/album art, base64-embedded if under 200KB). Includes its own JSON
+string escaper (untrusted broadcast text) and a minimal base64 encoder for
+LOT images — no third-party dependency pulled in just for those two things.
+
+**Python backend** (`w035_NEXUS.py`) — `hd_engine()` mirrors
+`dab_engine()`'s subprocess-lifecycle shape (0.25s poll, launch-on-active/
+terminate-on-inactive, generation-counter dedup against straggler frames
+from a just-killed subprocess). `_hd_feed_iq()`'s resampler handles the
+fractional native rate by noting FM's rate is exactly 16× AM's rate
+(`744187.5 / 46511.71875 == 16.0` exactly — both derived from the same
+nrsc5 master clock) — so `FM×2` and `AM×32` both land on the same integer,
+`1488375` (which is also `NRSC5_SAMPLE_RATE_CU8`, not a coincidence),
+giving one canonical integer `math.gcd()` target instead of two separate
+fractional-rate code paths. `_hd_store_audio()`/`_serve_hd_audio()` mirror
+DAB's per-program buffer dict + WAV-header-per-connection HTTP streaming
+exactly (`/hd_audio`, `hd_play_program` selects which HD1-HD8 buffer
+drains — pure Python-side selection, no relaunch). New WS commands:
+`hd_start`/`hd_stop`/`hd_set_frequency`/`hd_play_program`/
+`hd_stop_program`. Full-IQ dispatcher hook added alongside the existing
+independent `dab_active`/`drm_active` checks (not an elif-chain — the
+integration plan's own sketch assumed one existed; the real code doesn't).
+`_hd_proc` added to `_graceful_shutdown()`'s termination list (the exact
+same orphaned-subprocess bug class fixed for `_dab_proc`/`_drm_proc`
+2026-07-29 — closed here from the start rather than found later).
+
+**Frontend** — new `#tab-hdradio` panel: frequency input (Tune), a
+read-only MODE readout that follows the VFO's own AM/FM demod (not
+user-selectable — HD Radio's native rate depends on it, so a mismatched
+manual override would just decode nothing), a program card grid (reusing
+DRM's `.drm-qt-grid`/`.drm-qt-card` CSS — visually identical pattern to a
+quick-tune grid, repurposed for program selection instead), and a station-
+status/now-playing column reusing DAB's `.dab-lock-dot`/
+`.dab-np-hero-avatar`/`.dab-signal-bars`/`.dab-np-dls-wrap` classes (station
+logo swaps in over the initials avatar once an `hd_lot` arrives; ID3
+title/artist shown under the station name). Region gate: **inverted** from
+DAB's — HD Radio is shown as unsupported everywhere *except* `_bpRegion ===
+'ITU-2'` (the Americas), the exact opposite condition from
+`_dabRegionUnsupportedHTML()`'s own gate, reusing the same `_bpRegion`
+geo-detection with no new location code. Added to `DECODERS_DB.external`,
+`decoderTabs`, and the message dispatcher (`hd_status`/`hd_sync`/`hd_id3`/
+`hd_station_name`/`hd_station_slogan`/`hd_station_message`/
+`hd_audio_service`/`hd_lot`/`hd_emergency_alert`).
+
+**Status: implemented but not yet build-tested against real nrsc5 source
+or live hardware** — unlike the DRM integration (which went through eleven
++ seven + one real fixes once actually compiled against Dream's source
+tree), `nrsc5_nexus.c` has only been written against the fetched header,
+not yet compiled. nrsc5's own upstream README confirms the real dependency
+list (`cmake autoconf libtool libao-dev libfftw3-dev librtlsdr-dev` on
+Linux; a Homebrew `--HEAD` formula on macOS) and that the stock CLI's
+`--iq-input-format cs16` rates match the header's constants exactly — good
+signs, but real compilation and a real-signal test (same two-stage
+validation DRM went through: stock CLI first, then the custom wrapper) are
+still open follow-up work. See `NEXUS_nrsc5_build_macOS.md` (new).
+
+### Added (2026-07-29) — Startup connection picker: a real gate, not a reactive prompt
+
+Live user reports, in sequence: "when starting nexus, the nrsp-st always
+connects first and am unable to switch to the usb device" → shipped the
+device-choice modal (below) → "w035 still starts first before i make a
+selection" → confirmed via live Claude-in-Chrome inspection that the modal
+appeared but SDRConnect/nRSP-ST was already live behind it → root-caused to
+`_auto_select_device()`'s one-shot 5s poll (fixed above) → even after that
+fix, user pushed back with the real architectural ask: "i think we need to
+add another screen at startup which basically states how do you wish to
+connect? 1. NSRP-ST (WS), 2. SDRPlay Device (USB), 3. SDRPlay Device (WS),
+4. RTL-SDR". Investigation confirmed this was the right call: `main()`
+calls `asyncio.create_task(sdr_bridge())` *and*
+`asyncio.create_task(rtl_bridge())` unconditionally, both fully decoupled
+from any frontend state — so no amount of reactive modal logic could ever
+truly "wait", because the connection was never actually gated on anything.
+
+- New `connection_mode` config field (persisted alongside the existing SSH
+  config): `'nrsp_ws'` / `'usb_local_ws'` / `'usb_remote_ws'` / `'rtlsdr'`.
+- New `_connection_mode_ready` asyncio.Event — a real block. Both
+  `sdr_bridge()` and `rtl_bridge()` now `await` it before attempting *any*
+  connection, and stand down entirely (not just skip a step) if the
+  resolved mode isn't theirs to handle. Resolved either from a previous
+  session's persisted choice (checked in `main()`, gate opens immediately,
+  no picker shown) or from the new `set_connection_mode` WS command on
+  first run.
+- New `_apply_connection_mode()` helper translates the chosen mode into the
+  pre-existing `device_preference` ('nrsp'/'usb') and `state['engine']`
+  ('SDRCONNECT'/'RTLSDR') knobs, so `_evaluate_device_selection()` and
+  `rtl_bridge()`'s existing per-iteration engine check didn't need any
+  mode-aware branches of their own.
+- Frontend: new `#connection-picker-modal` — four large option cards
+  (nRSP-ST WS / SDRplay USB local / SDRplay USB remote / RTL-SDR), shown
+  full-screen and blocking only when `state.connection_mode` arrives empty
+  (no remembered choice). Picking "SDRplay Device (WS)" (remote USB) opens
+  the existing SSH/Connection-Setup wizard's SSH pane, since that's the
+  existing remote-launch machinery — no new remote-connection code needed,
+  just routing.
+- The old `#conn-wizard` (SSH/Connection Setup) no longer shows
+  unconditionally on every launch — that's now this picker's job. The
+  wizard is still reachable on demand (automatically for the remote-USB
+  choice, or manually via the new top-bar "Choose connection" control's
+  "Advanced connection settings" link) for editing SSH host details,
+  default device, timing, etc.
+- New always-visible "Choose connection ▾" control in the top bar shows
+  the current mode and reopens the picker to change it. Per explicit
+  decision: changing it saves the new choice and shows a "restart NEXUS to
+  apply" toast rather than live-switching bridges — deliberately simpler
+  and lower-risk than tearing down an in-flight SDRConnect/rtl_tcp
+  connection (including any auto-launched rtl_tcp subprocess) while NEXUS
+  is running.
+- Removed the now-redundant "DEVICE PREFERENCE" Auto/Force USB/Force
+  nRSP-ST button row from the wizard's nRSP-ST/Local pane — connection_mode
+  already sets the equivalent `device_preference` value under the hood, so
+  a second control for the same setting would just be a way for the two to
+  desync. While removing it, found this row was also silently dead code:
+  its `set_device_pref` command doesn't start with `'ssh_'`, so it never
+  reached `_handle_ssh_cmd()` — the buttons visually toggled but never
+  actually persisted anything server-side. Not fixed (moot now), just
+  noted here for the record.
+
+### Fixed (2026-07-29) — Device choice never re-checked after the initial 5s connect-time poll
+
+Follow-up to the wizard-copy fix below: user confirmed via macOS System
+Information (USB pane, vendor 0x1df7 = SDRplay) and SDRConnect's own device
+dropdown that the RSPdx genuinely was detected, both at the OS level and by
+SDRConnect itself — so the earlier "SDRConnect just hasn't seen it" theory
+wasn't the whole story. Re-reading `_auto_select_device()` found the actual
+bug: it ran exactly once, via `asyncio.create_task()` right after connecting,
+polled `state['valid_devices']` for up to 5 seconds, made its one decision,
+and then never looked again for the rest of that SDRConnect connection. If
+SDRConnect took longer than 5s to finish enumerating a USB RSP — plausible
+right after a fresh plug-in, or if NEXUS simply connects before SDRConnect
+has caught up — the one-shot check saw only the nRSP-ST entries, logged "No
+USB RSP... leaving selection unchanged," and gave up permanently. The later
+`valid_devices` update (once SDRConnect did see the RSPdx) was received and
+stored in `state`, but nothing ever re-evaluated it.
+
+- Split the decision logic out of `_auto_select_device()` into a new
+  `_evaluate_device_selection(trigger)` that reads `state['valid_devices']`
+  as-is (no polling) and can be called repeatedly, not just once.
+- `_auto_select_device()` is now just the initial "wait up to 5s, then
+  evaluate" call — same starting behaviour as before.
+- The `valid_devices` property-changed handler (where `state['valid_devices']`
+  gets updated from live SDRConnect messages) now also calls
+  `_evaluate_device_selection('valid_devices updated')` whenever the string
+  actually changes, so a USB device that shows up late — or gets plugged in
+  after NEXUS is already running — still triggers the choice/auto-select
+  logic instead of being silently missed.
+- Added dedup (`_device_choice_last_pair`) so an unchanged USB/nRSP-ST pair
+  doesn't re-broadcast `device_choice_available` repeatedly if SDRConnect
+  resends `valid_devices` for unrelated reasons.
+
+### Fixed (2026-07-29) — Clarified misleading Connection Setup wizard copy (USB detection dependency)
+
+Live follow-up to the device-choice prompt above: user reported "w035 still
+starts first before i make a selection" (meaning nRSP-ST specifically), with
+the RSPdx physically connected via USB. Live inspection via Claude in Chrome
+(DOM state + on-screen NEXUS log) showed this wasn't a bug in the new
+ambiguity-detection logic — the new `#device-choice-modal` was correctly
+hidden, and the modal the user was actually seeing was the pre-existing,
+unrelated `#conn-wizard` (SSH/Connection Setup wizard, which opens on every
+launch). The real cause: `valid_devices` from SDRConnect only listed the
+three nRSP-ST stream-mode variants — SDRConnect itself wasn't reporting the
+RSPdx at all (`_auto_select_device()` log: "No USB RSP and no default_device
+configured"), most likely because SDRConnect hadn't detected/claimed the USB
+device rather than anything NEXUS controls.
+
+The wizard's "nRSP-ST / Local" tab copy claimed NEXUS "auto-prefers any
+directly-connected USB RSP over a networked nRSP-ST" without mentioning this
+only works once SDRConnect's own device list actually includes the USB
+device — reading like a NEXUS bug when the real gap was upstream, in
+SDRConnect's own hardware detection.
+
+- Reworded the nRSP-ST/Local pane explainer, the `DEFAULT DEVICE` field's
+  tooltip, and the `Auto (USB first)` button's tooltip to state plainly that
+  NEXUS can only choose between devices SDRConnect's own `valid_devices`
+  list reports, and that a USB device missing from that list needs fixing on
+  the SDRConnect/hardware-detection side, not in NEXUS.
+- No backend/logic changes — the device-choice feature itself (`Added
+  (2026-07-29)` entry below) was confirmed working as designed.
+
+### Added (2026-07-29) — Device-choice prompt: stop guessing nRSP-ST vs USB on startup
+
+Live user report: "when starting nexus, the nrsp-st always connects first
+and am unable to switch to the usb device. can there be a 'wait' until
+user selects what they want to connect to?" — followed by "can we not add
+a detection which shows the devices available to the user?"
+
+`_auto_select_device()`'s `'auto'` mode always silently preferred a USB
+device over a networked nRSP-ST when both were present — but SDRConnect
+often already has the nRSP-ST actively streaming (its own persisted
+last-used device) by the time NEXUS's one-shot, connect-time selector
+runs, and switching a live device is unreliable without a proper
+send + confirm handshake. In practice this meant the nRSP-ST effectively
+always won, with no way to switch to USB short of unplugging it.
+
+- `_auto_select_device()` (`'auto'` mode only — `'usb'`/`'nrsp'` forced
+  preferences are unchanged) now detects the genuinely ambiguous case —
+  a USB device AND a networked nRSP-ST both visible in `valid_devices` at
+  once — and instead of guessing, broadcasts `device_choice_available`
+  with both options and leaves SDRConnect's current selection alone.
+  Falls through to the old auto-select behaviour when there's only one
+  real device (no ambiguity, nothing to ask).
+- New `select_device` WS command: sends `selected_device_name` then
+  re-requests `active_device` after a short settle delay, reusing
+  `set_stream_mode`'s already-live-tested confirm-handshake pattern so the
+  IQ-enable sequence actually re-runs for the newly-selected device.
+- The user's choice is remembered for the rest of the NEXUS process
+  (`_user_selected_device`) so a WebSocket reconnect re-applies the same
+  device instead of re-prompting or silently reverting to USB.
+- Frontend: a device-choice modal appears when the backend broadcasts
+  `device_choice_available`, listing each device with a 💻 USB / 🌐
+  Network tag — click one to select it. A new "— device —" dropdown also
+  appears in the top bar itself (independent of the SSH launcher's own
+  device selector, which only shows during an active SSH session)
+  whenever more than one real device is visible, so switching isn't a
+  one-time startup-only choice — it's available any time from then on.
+
+### Housekeeping (2026-07-29) — Folder tidy + docs updated for recent work
+
+Cleared build clutter (`__pycache__`, an empty stray log file) and removed
+~42MB of redundant old-version doc copies (`docs/{pdf,word}/w031–w034`,
+`docs/md/w032`) that had been getting copied forward at every fork — each
+of those versions already has its own complete copy in its own version
+folder. w035/docs now holds only w035's own docs.
+
+Updated all three w035 docs (User Manual, Quick Start, Troubleshooting)
+for everything since the last doc build: the DRM audio slurred/slowed fix,
+the bookmark Name/Notes fix, the audio-persists-after-quit fix, the SSH
+wizard's default-to-Headless change, and the new device preference
+feature — plus a brand new User Manual section (6.19) documenting the DRM
+decoder itself, which had no documentation at all despite being fully
+integrated. Also fixed a real pre-existing bug found along the way: all
+three docs' running headers/footers said "w034" instead of "w035" (a
+stale leftover from the w034→w035 fork), and several code-example lines
+still referenced `w033_NEXUS.py` / `DARKSKY NEXUS w033 macOS.app` instead
+of the current w035 filenames.
+
+### Fixed (2026-07-29) — Bookmark notes shown instead of name
+
+Live user report: fills in both Name and Notes in the bookmark dialog, but
+the spectrum/waterfall label and the ⭐ BM panel card showed Notes instead
+of Name. Root cause: both `drawSpectrumMarkers()` and `renderBookmarkPanel()`
+had a heuristic that swapped in `bm.notes` as the primary label whenever
+`bm.name` was 4 characters or shorter — which silently overrides any short
+name (e.g. "BBC", "GB3", "R4", "4XZ") even when the user deliberately typed
+one. Removed the length-based swap in both places: Name is now always the
+primary label when present, Notes is only ever a fallback (spectrum pill)
+or secondary sub-line (BM panel card) — never a silent override.
+
+### Fixed (2026-07-29) — Audio persists after quitting NEXUS
+
+Live user report: "when i quit and shutdown nexus .... audio persists".
+`_graceful_shutdown()` terminates a fixed list of tracked subprocesses on
+quit (`_rtl_proc`, `_hfdl_proc`, `_vdl2_proc`, `_dsd_proc`), but three
+native decoder engines added since that list was written were never added
+to it: `_dab_proc` (dab_radio_nexus), `_drm_proc` (dream_nexus), and
+`_trunk_proc` (DSD trunking). All three open the SDR/network source
+directly and just pipe raw PCM to Python over stdout — nothing else owns
+that stream. `subprocess.Popen` children aren't killed automatically when
+the parent process dies, so on quit these were left running as orphans,
+still decoding and still holding the audio pipe open — exactly matching
+the report. Added `_dab_proc`, `_drm_proc`, `_trunk_proc`, and
+`_rtl433_proc` (same gap, no audio but same orphan risk) to the shutdown
+termination loop.
+
+### Added (2026-07-29) — Explicit device preference: USB RSP vs. nRSP-ST
+
+`_auto_select_device()` previously had one rule: prefer a directly-connected
+USB RSP if `valid_devices` contains one, otherwise fall back to the
+configured Default Device (typically the nRSP-ST). That's wrong for anyone
+who has both a USB RSP and a networked nRSP-ST reachable at the same time
+and actually wants the nRSP-ST — there was no way to override it short of
+unplugging the USB device.
+
+- `SSH_DEFAULT_CONFIG["device_preference"]` — new key, `"auto"` /
+  `"usb"` / `"nrsp"`, defaults to `"auto"` (old behaviour, unchanged).
+- `_auto_select_device()` now branches on it: `"usb"` only ever selects the
+  USB entry (no nRSP-ST fallback even if USB briefly drops off the list);
+  `"nrsp"` always selects the networked nRSP-ST entry (or the configured
+  Default Device) regardless of USB presence; `"auto"` keeps the original
+  USB-first-then-default logic exactly as it was.
+- New WS command `set_device_pref` — validates the value, persists it to
+  `ssh_config.json`, updates the live in-memory config, broadcasts
+  `{type:"device_pref", pref}` to all connected clients.
+- Connection Setup wizard (nRSP-ST/Local tab) — new DEVICE PREFERENCE row
+  with three buttons (Auto / Force USB RSP / Force nRSP-ST). Selecting one
+  calls `_wzSetDevicePref()`, which sends `set_device_pref` and highlights
+  the active choice immediately; the choice also reflects correctly when
+  the wizard reloads via the existing `ssh_config` message, and syncs
+  across any other open tab via the `device_pref` broadcast.
+
+### Changed (2026-07-29) — SSH connection wizard: default to remote SDRconnect Headless
+
+The "SDRConnect Server" tab's Mode A (SSH into a remote box, start SDRConnect
+there, connect NEXUS) predates SDRconnect Headless (added in SDRconnect
+1.0.7, Feb 2026) — its whole design was: run the old `--server` (raw
+hardware bridge, port 50000 only, no WebSocket API) on the remote box,
+then ALSO launch a full local SDRconnect GUI on this Mac just so
+*something* exposes the WebSocket API at 127.0.0.1:5454 for NEXUS to talk
+to. Headless makes that whole second hop unnecessary — it can open the RSP
+*and* serve the WebSocket API entirely on the remote box by itself.
+
+- `SSH_DEFAULT_CONFIG["remote_command"]` default changed from
+  `./SDRconnect --server` to `./SDRconnect_headless --websocket_port=5454`
+  (the frontend's own JS fallback already assumed this — only the Python
+  default was stale).
+- Added `_sdr_set_target(host, port)` — repoints the live SDRConnect
+  WebSocket bridge (`SDRCONNECT_WS`) at runtime. `sdr_bridge()`'s reconnect
+  loop reads that global by name fresh every iteration, so this takes
+  effect on the very next (re)connect with no restart.
+- `_ssh_do_launch()`'s "no local client configured" branch used to just log
+  a message and do nothing else — NEXUS was still hardcoded to
+  `127.0.0.1:5454`, which nothing was listening on, so this path never
+  actually worked. Now calls `_sdr_set_target(ssh_host, 5454)` and polls
+  the *remote* host's port 5454 for readiness (previously only the local-
+  client branch was ever polled/verified).
+- `_ssh_do_stop()` now reverts the target back to `127.0.0.1` on stop (only
+  if this session had set it), and the remote pkill pattern is now derived
+  from the actual configured `remote_command` instead of being hardcoded to
+  `'SDRconnect --server'` — that pattern never matched a running
+  `SDRconnect_headless` process, so stopping a headless remote session used
+  to leave it running.
+- `_ssh_launch_local_client()` now accepts a full command line (shlex-split)
+  instead of only a bare path, so a *local* headless client with its
+  `--websocket_port=` flag is also a supported LOCAL CLIENT value, not just
+  local-GUI-with-no-args. Backward compatible with existing `.app`/plain-
+  executable configs.
+- Old `--server` + local-GUI-client path (Mode A's original design) still
+  works unchanged if `local_client` is explicitly set — this wasn't ripped
+  out, just no longer the default.
+- Cleared a stale saved SSH config (`~/.darksky_nexus/ssh_config.json`)
+  pointing at a private LAN address left over from earlier testing — not a
+  live setup, confirmed with user.
+
+### Changed (2026-07-28) — DRM tab: quick-tune as cards, 3-column layout
+
+Live user feedback: the quick-tune list was a cramped scrollable row-list
+squeezed into the same 220px sidebar as the frequency/robustness-mode
+controls. Reworked into individual card buttons (`.drm-qt-card`, same grid/
+card convention as DAB's `.dab-svc-grid`/`.dab-svc-card`) in their own
+flexible grid column, with group headers as full-width grid items. Tab is
+now 3 columns: controls (170px) / quick-tune card grid (flexible, main
+real estate) / now-playing status (280px), instead of the old 2-column
+sidebar+main split.
+
+Researched Dream's own plot data (`PlotManager.h/cpp`, `ChannelEstimation`,
+`CReceiveData` — all public methods `dream_nexus.cpp` can already reach)
+for a possible "eye candy" visualization (input PSD spectrum, power delay
+spectrum/impulse response, per-carrier SNR profile, transfer function, SNR
+history) — genuinely feasible without touching Dream internals, but would
+need a new emitted frame type + Python parser + frontend canvas + another
+compile/link/deploy cycle. Deferred by user request ("keep this for
+another day") — not implemented.
+
+### Fixed (2026-07-28) — DRM audio "slurred/slowed" during live SDRConnect testing
+
+Live-tested against a real off-air DRM signal (SNR Tiganesti E1, RRI relay,
+9570 kHz, SDRConnect Full-IQ at 250 kSPS into `dream_nexus`) — real audio
+came through, but stuttered/buffered and played back "slurred... slowed".
+Root cause: `_serve_drm_audio()` (mirrors `_serve_dab_audio()`'s pattern)
+writes the WAV header exactly once per HTTP connection, using whatever
+`entry['sr']` was at that moment. DAB's per-subchannel sample rate is
+fixed for the life of the broadcast, so that pattern is safe there — but
+DRM's xHE-AAC/SBR codec can report a different `sample_rate` on later
+frames than the very first one or two (the core decoder locks onto the
+OFDM frame structure before SBR/bandwidth-extension is confirmed).
+`_drm_store_audio()` already updates `entry['sr']` fresh on every incoming
+`DRM1` frame, but the already-sent WAV header can't retroactively change —
+once the true rate diverges from the header's declared rate, every further
+PCM chunk plays back at the wrong speed under a now-stale header, which is
+exactly what "slurred/slowed" sounds like (higher actual data rate than
+declared → stretched out, lower pitch).
+
+Fix: `_serve_drm_audio()` now closes the HTTP response the moment
+`entry['sr']` diverges from the rate already baked into the header sent on
+that connection, instead of continuing to stream mismatched data.
+Frontend: added `ended`/`error` listeners on `#drm-audio` (new, DRM only —
+DAB doesn't need this since its rate never changes mid-broadcast) that
+reconnect with a fresh `/drm_audio` request whenever the stream ends
+unexpectedly while `_drmRunning` is still true, which picks up a brand-new
+WAV header at the by-then-stable rate. Gated on a new `_drmRunning` flag so
+a deliberate `drmStop()`/`drmClear()` doesn't trigger an unwanted
+reconnect.
+
+### Fixed (2026-07-28) — `_escHtml` was never actually defined (app-wide, pre-existing)
+
+Found while live-testing the DRM quick-tune list below: `_escHtml(...)` is
+called throughout this file (ACARS/VDL2, WSPR, Trunk P25/DMR/NXDN
+rendering, and now DRM) as if it were a shared global HTML-escaping
+helper, but no such global function actually existed anywhere in the
+file — the only `escapeHtml` present is a `const` scoped inside one
+unrelated renderer, invisible to every other call site. Every one of
+those call sites has been silently throwing `ReferenceError: _escHtml is
+not defined` and failing to render whenever that code path actually ran,
+masked completely by `handleJSONFrame`'s own `catch(e) { /* ignore
+malformed */ }` around incoming WS message handling — no console error,
+no visible crash, the row/panel in question just silently never updates.
+Confirmed by bypassing that catch and calling a renderer directly in the
+console. Fix: added a real global `_escHtml()` right before
+`handleJSONFrame`, which fixes every pre-existing call site at once, not
+just the new DRM one that surfaced it. Worth keeping an eye out for
+whether any of those previously-silent failures were mistaken for "no
+data" in ACARS/VDL2/WSPR/Trunk panels during past testing — this bug
+would have made a message that should have rendered look like nothing
+arrived instead.
+
+### Fixed/Added (2026-07-28) — DRM tab: manual-tune bug + quick-tune frequency list
+
+Found while starting Step 5's live SDRConnect wiring test: the DRM tab's
+manual frequency entry silently did nothing useful — typing any
+frequency and hitting Tune always retuned the SDR to 10 MHz regardless of
+input. Root cause: `drmSetFrequency()` sent the retune as `{cmd:'tune',
+freq: Math.round(mhz*1e6)}` (Hz, field named `freq`), but every other
+tune call site in the app — and the backend's actual `tune` WS handler —
+uses `{freq_mhz: <MHz>}`. The backend reads `d.get('freq_mhz', 10)`, so
+the missing field silently fell back to its own default. One-line fix:
+send `freq_mhz` like everything else does.
+
+Also added a persisted DRM quick-tune list (`darksky_drm_quicktune.json`,
+same load/save/WS-handler pattern as bookmarks: `drm_qt_list`,
+`drm_qt_save`, `drm_qt_delete`), seeded with 39 publicly reported real DRM
+frequencies grouped into AIR (India) mediumwave (24 channels, reported
+24/7), shortwave DRM broadcasters (BBC WS, Radio Romania International,
+Music 4 Joy, TDF, RNZI), and DRM+ VHF/FM trial frequencies (Germany,
+Switzerland, France — experimental, may not currently be active). Manual
+entry alone isn't very useful for DRM since there's no dial-scanning
+convention most users already know the way there is for broadcast
+FM/AM — a starting list of known frequencies is what actually gets
+someone to a real signal on the first try. Fully user-editable after the
+seed: a `+` button saves the currently tuned/entered frequency under a
+custom label, each entry has its own remove control.
+
+### Update (2026-07-28) — DRM build: Step 4 — `dream_nexus` confirmed genuinely decoding real DRM content
+
+Follow-up to the entry below. `dream_nexus` now decodes real DRM audio
+end-to-end through its own `CPipeSoundIn`/`CPipeSoundOut` pipe
+interfaces — not just running cleanly (Step 3), but producing a real
+decoded station label, real SNR, and real PCM audio from real DRM signal
+content. Full methodology in `NEXUS_dream_drm_build_macOS.md`'s Step 4
+section and Troubleshooting entry 19.
+
+No genuine DRM I/Q capture was available to test with, so a real Dream
+sample recording (`FMGold_xHE_ModeB_9khz.flac`, from the Dream project's
+own public sample library on SourceForge — mono/real-valued, Dream's
+classic file format, not complex I/Q) was converted into genuine complex
+baseband I/Q via a measured-frequency Hilbert transform, then
+cross-validated as a genuinely valid, decodable signal against Dream's
+own stock binary (`-c 6`/`CS_IQ_POS_ZERO` inchansel mode) *before* being
+trusted as a test input for `dream_nexus` itself — this two-step
+validation is what made the eventual bug diagnosable rather than
+ambiguous ("is it my synthesized signal or my new code?").
+
+First attempt through `dream_nexus` produced silence — no lock, no audio
+— despite the same I/Q being independently confirmed valid. Root cause:
+`CDRMReceiver::LoadSettings()` unconditionally sets the receiver's
+input-channel-selection mode from the settings file (or `CS_MIX_CHAN` —
+average both channels into one real signal — if no settings file value
+exists), and `dream_nexus.cpp` never overrode this. Averaging I and Q
+together silently destroys a complex signal with no error, no crash, and
+no obviously-wrong output shape — exactly the kind of bug a compiler and
+even a plumbing-only smoke test (silence in, silence out — which passed
+cleanly in the Step 3 entry below) can never catch. Fix: one line,
+`DRMReceiver.GetReceiveData()->SetInChanSel(CS_IQ_POS_ZERO);`, placed
+after `LoadSettings()` (must be after — `LoadSettings()` would otherwise
+overwrite an earlier call).
+
+After the fix: confirmed real decode. Status JSON showed
+`station_label:"AIR Journaline"` (a genuine DRM service name pulled live
+from SDC data), `snr_db:20.6`, and ~10.7MB of real `DRM1`-framed PCM
+written to stdout.
+
+**Known follow-up, not blocking:** the `locked` field in the status JSON
+stayed `false` throughout this successful decode.
+`GetAcquiState()==AS_WITH_SIGNAL` is the same check Dream's own
+`ReceptLog.cpp`/`spectrumanalyser.cpp` use internally for "signal
+present," so it's not obviously the wrong flag — but it may behave
+differently on genuine live SDR I/Q (with real front-end AGC/noise-floor
+characteristics) than on this synthesized test signal. Worth re-checking
+once this is wired into live SDRConnect (Phase 2's `_drm_feed_iq()`).
+Also still open: `--rxmode` (forcing a specific DRM robustness mode)
+isn't wired up, and the DRM text-message/PAD field is stubbed empty.
+
+**Still outstanding:** running `dream_nexus` against a genuine live
+SDRConnect I/Q feed (as opposed to this file-based synthesized test) —
+Phase 2's Python-side integration exists in the codebase but hasn't been
+exercised against a running `dream_nexus` process yet.
+
+### Update (2026-07-28) — DRM build: Step 3 (`dream_nexus` binary) confirmed working end-to-end
+
+Follow-up to the entry below. `dream_nexus.cpp` now compiles and links
+against a real `rafael2k/dream` checkout on Apple Silicon, producing a
+working `dream_nexus` binary (`./dream_nexus --help` prints its own real
+usage text — `--sample-rate`, `--rxmode`, `--freq-khz`). Full detail
+(seven real API fixes, the standalone-compile + `make -n`-extracted-link
+approach actually used instead of the originally-planned qmake-target/
+CMakeLists routes) is in `NEXUS_dream_drm_build_macOS.md`'s Step 3 section
+and its Troubleshooting entries 12-18.
+
+Summary of the seven fixes, all against `dream_nexus.cpp` itself (as
+opposed to Step 2's fixes, which were all in Dream's own upstream code):
+`CDRMReceiver` has no `SetSoundInInterface`/`SetSoundOutInterface` of its
+own — sound I/O is injected via `GetReceiveData()->SetSoundInterface()`/
+`GetWriteData()->SetSoundInterface()` instead; `SetInitialRobustnessMode()`
+doesn't exist on `CDRMReceiver` at all (no robustness-mode-forcing API was
+located — `--rxmode` is accepted but not yet wired up, falls back to
+auto-detect); `CParameter::Lock()` is a method, not a `std::mutex` object,
+so the status thread's `std::lock_guard` had to become direct
+`Lock()`/`Unlock()` calls; `CParameter` has no `TextMessage` field (stubbed
+empty pending further investigation of the real `TextMessage.h` classes);
+`CPipeSoundOut` was missing two of `CSoundOutInterface`'s pure virtuals
+(`GetVersion()`, `GetItem()`), making it abstract; a dead
+`GetSampleRate() override` referenced a virtual that doesn't exist; and
+`argparse`'s `std::filesystem` usage needed a `10.15` deployment target
+floor instead of Step 2's `10.13`.
+
+**Still outstanding:** Step 4 — actually running `dream_nexus` against a
+real DRM/DRM+ IQ capture or live SDRConnect feed. The binary runs and
+parses its own CLI correctly; no audio has been decoded through it yet.
+Also open: the `--rxmode` robustness-mode-forcing API and the real
+DRM text-message/PAD source, both noted above.
+
+### Update (2026-07-28) — DRM build: Step 2 (stock Dream console binary) confirmed working
+
+Follow-up to the entry below. Jon ran the actual build on a real Apple
+Silicon Mac and got `dream.app/Contents/MacOS/dream --help` printing
+Dream's own usage text — the stock, unmodified Dream console binary now
+builds and runs end-to-end from a fresh `rafael2k/dream` clone, following
+`NEXUS_dream_drm_build_macOS.md`. Getting there took eleven real fixes
+(full detail in that doc's Troubleshooting section): several Apple
+Silicon Homebrew-path issues (`pkg-config` hardcoded to `/usr/local`,
+`fftw`/`INCLUDEPATH` likewise, `speexdsp` being a separate package from
+`speex`, `fdk-aac` simply not installed) and — more notably — four
+genuine bugs in `rafael2k/dream`'s own `src/sound/drm_portaudio.h`/
+`.cpp`/`soundfactory.cpp` unrelated to this integration at all (duplicate
+base class, a stray typo character breaking a method declaration, wrong
+class names in `soundfactory.cpp`, a method declared but never defined,
+and a missing linker flag). None of that portaudio-backend code will
+actually be used by `dream_nexus` itself (it injects `CPipeSoundIn`/
+`CPipeSoundOut` directly, bypassing device enumeration entirely), but
+fixing it through was worthwhile as an end-to-end toolchain sanity check
+before touching `dream_nexus.cpp`.
+
+**Still outstanding: Step 3** — adding `dream_nexus.cpp` itself to the
+build and getting a working `dream_nexus` binary. That file's own API
+usage (`CDRMReceiver` constructor/setters, `CSoundOutInterface`'s real
+virtual list, `ERobMode` spellings, `CParameter` accessors) remains
+unverified against a real compile, same caveat as before.
+
+### Added (2026-07-28) — DRM / DRM+ decoder integration (Dream / `dream_nexus`)
+
+New "DRM / DRM+" decoder tab, following `NEXUS_DRM_Dream_integration_plan.md`
+closely and mirroring the DAB/DAB+ integration's own piped-subprocess
+architecture (`dab_radio_nexus` → `dream_nexus`, same conventions).
+
+**Status: code-complete but unbuilt/untested.** No C++ toolchain or Dream
+source tree was available in this sandbox — `dream_nexus.cpp` has never
+been compiled against a real Dream checkout. Several Dream API names
+(`CDRMReceiver` constructor, `SetSoundInInterface`/`SetSoundOutInterface`,
+`CSoundOutInterface`'s virtual method list, `ERobMode` enumerator spellings,
+`CParameter` accessors) are best-effort from the integration plan's own
+research and are flagged inline as likely needing small fixes on first
+real build — see `NEXUS_dream_drm_build_macOS.md`'s own "first draft, NOT
+yet build-tested" notice and its "things most likely to need adjusting"
+list. Python and JS sides were verified for syntax only (`py_compile`,
+`node --check`), not exercised against a live subprocess.
+
+New/changed files:
+- **`dream_nexus.cpp`** (new) — headless Dream wrapper. `CPipeSoundIn`
+  reads interleaved int16 I/Q from stdin (Dream's own `CAudioFileIn` can't
+  stream from a pipe — it `sf_seek()`s on open, which silently fails on a
+  non-seekable pipe with zero/garbage audio, no error). `CPipeSoundOut`
+  (this project's own addition — the integration plan only worked out the
+  input side) captures Dream's decoded audio and frames it to stdout as
+  `"DRM1" + sample_rate + is_stereo + bytes_per_sample + payload_len +
+  payload`. Status snapshots (`locked`, `robustness_mode` A–E,
+  `station_label`, `text_message`, `snr_db`, `mer_db`) are polled every
+  500ms and emitted as `{"type":"drm_status",...}` JSON lines on stderr,
+  rate-limited to >0.3dB SNR/MER changes.
+- **`NEXUS_dream_drm_build_macOS.md`** (new) — build guide mirroring
+  `NEXUS_dab_radio_build_windows.md`'s structure; explicitly marked
+  untested, with a numbered list of the exact API-name risks to check
+  against a real `src/DrmReceiver.h`/`src/sound/soundinterface.h`/
+  `src/GlobalDefinitions.h`/`src/Parameter.h` once cloned.
+- **`w035_NEXUS.py`** — full DRM backend: `_drm_launch()`/`_drm_terminate()`/
+  `_drm_find_binary()` (mirrors the DAB trio exactly), `_drm_feed_iq()`
+  (resamples raw hardware-rate IQ to 48000 Hz via `resample_poly`, writes
+  interleaved int16 to `dream_nexus`'s stdin — DRM uses PCM16, not
+  DAB's float32), `_drm_stdout_thread_fn()`/`_drm_stderr_thread_fn()`
+  (demux "DRM1" audio frames / parse `drm_status` JSON), `drm_engine()`
+  (0.25s subprocess lifecycle poll, same shape as `dab_engine()`),
+  `_serve_drm_audio()` (dynamic-WAV-header HTTP stream at `/drm_audio`,
+  simpler than DAB's since there's only ever one stream). New WS commands:
+  `drm_start`, `drm_stop`, `drm_set_frequency`, `drm_set_rxmode`. Same
+  generation-counter (`_drm_generation`) and retune-settle-window
+  (`_DRM_RETUNE_SETTLE_S`) conventions as DAB, to stop stale frames from a
+  just-killed subprocess bleeding into a new frequency's stream.
+- **`DARKSKY_NEXUS_w035.html`** — new `#tab-drm` panel: frequency input +
+  Tune button, robustness-mode selector (Auto/A–D), lock-status pill,
+  station name/avatar, SNR/MER readout with signal bars (reusing DAB's
+  `.dab-signal-bars`/`.dab-lock-dot`/`.dab-np-*` CSS classes — global, not
+  scoped to the DAB panel, so no new CSS was needed), scrolling text
+  message ticker (reuses `.dab-np-dls-track`), and an `<audio>` element
+  pointed at `/drm_audio`. Registered `'drm'` alongside `'dab'` in every
+  decoder-registry point: `DECODER_SLUGS`, `DECODERS_DB.external.items`,
+  `_WIDEBAND_DECODERS`, `_IQ_DECODERS`, `decoderTabs`. New `case
+  'drm_status':` in the WS message dispatch → `drmUpdateStatus()`;
+  `drmStart()`/`drmStop()`/`drmClear()`/`drmSetFrequency()`/
+  `drmSetRxmode()` send the corresponding WS commands. DRM is a
+  single-station decoder (not DAB's multi-service ensemble grid), so the
+  UI shape is closer to DSD/Trunk's simpler layout than DAB's card grid.
+
+**To actually use this:** clone `github.com/rafael2k/dream` (or the
+`F4JTV/dream` fork), follow `NEXUS_dream_drm_build_macOS.md` to build
+`dream_nexus`, fix forward against whatever API names have drifted (the
+doc explains exactly where to look), place the binary where
+`_drm_find_binary()` looks (`/usr/local/bin/dream_nexus` on macOS, or
+bundle it the same way `dab_radio_nexus` is bundled — see that binary's
+own spec-file wiring for the pattern), then restart NEXUS. A Windows
+build guide analogous to `NEXUS_dab_radio_build_windows.md` has not been
+written yet — Phase 1 only produced the macOS doc, since that's what this
+sandbox could reason about without a toolchain either way.
+
+### Fixed (2026-07-28) — Windows build: cmd window flashes open/closed during DAB channel scan
+
+Live user report on the Windows build: running the DAB Band III scan
+flashed a console (cmd) window open and closed at every channel tested.
+Cause: `dab_radio_nexus.exe` is a console application, and the NEXUS
+backend itself is built `--windowed`/`--noconsole` — with no parent
+console for the child process to attach to, Windows opens a brand new
+one for it. `dabScanChannels()` relaunches `dab_radio_nexus` once per
+channel (see `_dab_launch()`), so the scan looked like a rapid-fire
+window flash. Fixed by passing `creationflags=CREATE_NO_WINDOW` to that
+`subprocess.Popen()` call — no-ops harmlessly on macOS/Linux dev
+machines via a `getattr(subprocess, 'CREATE_NO_WINDOW', 0)` fallback.
+
+Follow-up: applied the same `creationflags=CREATE_NO_WINDOW` fix to the
+other console-tool subprocess launches — `_launch_rtl433()`,
+`_launch_dumphfdl()`, `_launch_dumpvdl2()`, the DSD engine loop, and the
+OP25/trunk-recorder engine loop. All five now guard with
+`getattr(subprocess, 'CREATE_NO_WINDOW', 0)`, a no-op on macOS/Linux.
+DSD+'s own GUI audio-config window (Windows-only alternative to DSD) is
+unaffected — CREATE_NO_WINDOW only suppresses the OS-allocated console
+for a console-subsystem child, not a window the app creates itself.
+
+Not touched: `fldigi.exe` and WSJT-X's launch are genuine Windows GUI
+applications (confirmed by reading their launch sites) — CREATE_NO_WINDOW
+wouldn't apply anyway, a GUI-subsystem executable never gets an OS
+console regardless of this flag. `rtl_tcp` IS a real console tool and
+would flash too, but it's launched once at RF-source startup rather
+than repeatedly like the DAB scan — left alone for now since it's a
+single flash, not a rapid-fire one; same one-line fix if it's worth
+doing.
+
+### Fixed (2026-07-28) — DAB: station card grid blanking when switching off "BBC Guide"
+
+Live user report: on 12B/BBC National DAB, the 15-card station grid
+stayed populated while "BBC Guide" was selected, but switching to "BBC
+Radio3" (or any other real station) blanked it back to the scanning
+placeholder — audio/Now Playing switched fine, only the grid broke.
+
+Root cause: `dabUpdateEnsemble()` treated *any* `dab_ensemble` broadcast
+with an empty `services` array as "not locked yet" and unconditionally
+replaced the rendered grid with `DAB_SCANNING_HTML`. BBC runs dynamic
+ensemble reconfiguration on 12B, and "BBC Guide" specifically is a
+non-audio EPG/MOT data service whose own subchannel gets reallocated as
+part of that reconfiguration — so `dab_radio_nexus` can legitimately
+emit a momentary empty/partial `dab_ensemble` line while re-parsing the
+MCI after a reconfig event, with nothing actually broken. A real DAB
+receiver doesn't blank its station list over that.
+
+Fixed by falling back to the already-cached last-known-good snapshot in
+`_dabEnsembleHistory[ch]` (which the same function already maintains)
+instead of discarding a working grid — only shows the scanning
+placeholder if this channel has genuinely never locked at all. Also
+made the ensemble-name text and "locked" dot/status-pill state consider
+the cached snapshot, not just the current broadcast, so they don't
+flicker unlocked during the same momentary gap.
+
+Decoding "BBC Guide"'s actual EPG payload (FIC parsing, MSC packet-mode
+reassembly, MOT objects, TS 102 818 schedule data) is a distinct,
+much larger potential feature — out of scope for this fix, noted as a
+possible future project if wanted.
+
+### Redesigned (2026-07-28) — Retro scene: dial/signal gauge moved down near scene buttons
+
+User request: move the tuning dial and SIGNAL needle down, closer to the
+cinematic scene-select buttons, to free up vertical space in the middle
+of the panel for the station name/DLS text (see previous fix). Moved
+`cy` from `H*0.66` to `H*0.82`; extended `panelH` from `H*0.68` to
+`H*0.86` so the brass chassis frame grows to actually enclose the
+relocated dial instead of it floating below the panel edge; dropped
+`#cin-info`'s retro `bottom%` override from 66% to 58% to keep the meta
+line/exit hint paired just above the dial's new position. Checked
+clearance numerically at H=600/800/1080 — smallest margin (H=600) is
+14px between the dial's lowest label and the panel edge, 22px to the
+scene-bar row; both positive at every size tested.
+
+### Fixed (2026-07-28) — Retro scene: station name/DLS text overlaid on nixie tubes
+
+Screenshot showed "BBC RADIO6MUSIC" and the DAB DLS "Now Playing…" line
+printed straight across the middle of the nixie digits. `#cin-station`
+had a fixed `top:12%`, but `#cin-nixie` is sized in px/vw (not vh) so its
+rendered height varies with window size/aspect — no static percentage
+holds at every window size. Fixed with a measured layout instead of a
+guessed one: `_cinLayoutRetroStation()` reads `#cin-nixie`'s actual
+`getBoundingClientRect()` and places `#cin-station` 14px below its
+bottom edge. Runs on scene switch to Retro and on window resize while
+Retro is active; other scenes still use the default CSS `top:12%`.
+
+### Redesigned (2026-07-28) — Retro panel: brass hardware pass
+
+User compared the live screenshot against a steampunk reference render
+(brass control panel, rivets, engraved gauge housing, glass reflection)
+and it didn't land — the panel read as a soft translucent overlay, not
+metal hardware. Added: bolt-head rivets spaced along the panel border +
+reinforced L-bracket corners (`_cinDrawRivets`/`_cinDrawCornerBracket`);
+a brass bezel ring around the tuning dial with two end-cap housings at
+the arc's terminals (mimicking a physical meter bolted to the panel); a
+diagonal glass-reflection highlight clipped to the dial face; a
+GOOD/FAIR/WEAK signal-quality word under the SIGNAL label, mirroring the
+reference's paired labels. Panel fill/border also darkened and thickened
+for a more solid "brass plate" read instead of glass.
+
+Deliberately did not restyle the NEXUS/RETRO/BARS/PHOSPHOR/POLAR scene
+tab bar — that's shared chrome across all 5 cinematic scenes, not
+Retro-specific, so turning it into brass knobs would look wrong under
+the other 4 scenes.
+
+### Redesigned (2026-07-28) — Nixie readout rebuilt as real SVG, not canvas
+
+Third pass on the Cinematic Retro nixie display. Canvas `shadowBlur` was
+always an approximation of glow; rebuilt the whole readout as an inline
+SVG element (`#cin-nixie`, positioned over the canvas via CSS) so the
+glow is a genuine `feGaussianBlur` filter. Each digit tube is now a
+capsule-shaped glass body (`rx=ry=width/2` rounded rect, like a real
+IN-14/IN-17 envelope) with straight cathode-grid wires clipped to the
+glass, a warm top-of-tube ambient glow, and a filled+stroked digit sat
+on a `feColorMatrix`-tinted blurred halo — closer to the reference nixie
+photos than the earlier dome-path/diagonal-mesh/stroke-only-wire canvas
+version. No third-party image assets used (researched first — no
+suitably licensed free nixie asset pack exists — so this is entirely
+self-authored SVG/JS, avoiding any licensing risk).
+
+`_cinSceneRetro()` no longer draws the readout itself; it just calls
+`_cinNixieUpdate(freqStr)`, which rebuilds the SVG's digit group only
+when the displayed string actually changes (not every animation frame).
+Old canvas helpers (`_cinNixieDomePath`, `_cinDrawNixieBase`,
+`_cinDrawNixieDigit`, `_cinDrawNixieSpacer`) removed entirely.
+
+### Fixed (2026-07-28) — Cinematic HUD: "DAB · BBC National DAB" text stutter
+
+`_cinMetaLine()` always led with a `DAB`/`DAB+` badge before the ensemble
+name, but most UK ensemble names already contain the word "DAB" (e.g. "BBC
+National DAB"), producing a visible stutter. Now checks the ensemble label
+with `/\bdab\b/i` first and only shows the leading badge when the name
+doesn't already say it.
+
+### Fixed (2026-07-28) — Nixie digits were solid filled blocks, not glowing wire
+
+Live screenshot showed the digits rendering as thick filled sans-serif
+characters — looked like a printed number, not a nixie tube. Real
+nixie/wire-filament digits are thin glowing *outlines*; the fix was to
+stop using `fillText()` for the digit and switch to a two-pass
+`strokeText()`: a wide, heavily-blurred stroke first for the ambient
+glow bleed, then a thin crisp stroke on top for the visible filament
+line. Also bumped the cathode-mesh backdrop opacity (0.10→0.16) and made
+it an actual crossed lattice instead of one diagonal direction, and
+strengthened the glass envelope's outline/added a faint inset rim line
+so individual tubes read as distinct glass shapes rather than merging
+into one glow blob. Re-verified via the same Node Canvas2D mock harness
+(no headless browser/`node-canvas` available — no network access in the
+sandbox to install either); still needs a live look to confirm the wire
+effect actually reads as intended.
+
+### Redesigned (2026-07-28) — Retro scene: nixie-tube frequency readout replaces the valve row
+
+User feedback on the valve row: "the valves look more like fake candles" —
+and asked for a nixie-tube-clock-style readout instead (referencing
+vintage/steampunk nixie clock photos). Replaced both the valve row and the
+plain neon `#cin-freq-display` numeral with one glass tube per digit,
+standing on a wood-plank base:
+
+- New helpers `_cinDrawNixieDigit()`, `_cinDrawNixieSpacer()`,
+  `_cinDrawNixieBase()`, `_cinNixieDomePath()`. The glass dome is built
+  from two `quadraticCurveTo()` curves rather than `ctx.arc()` — arc's
+  start/end-angle sweep direction is easy to get backwards; the bezier
+  approach is unambiguous.
+- Digits come from the live tuned frequency (`toFixed(3)`, split into
+  integer/decimal parts), laid out dynamically so it works whether the
+  band shows 1, 2, or 3 integer digits (3.500 / 14.074 / 225.648 all
+  tested). A slim decorative "spacer" tube with a tiny glowing dot marks
+  the decimal point — the same trick real nixie-clock kits use for a
+  colon/separator tube — so the reading stays unambiguous, not just
+  decorative filler.
+- Digit glow brightness is NOT tied to spectrum energy (unlike the old
+  valves) — it's real information, so it stays a small, non-data-driven
+  flicker (0.94–1.0) for atmosphere instead of dimming unreadable when a
+  band happens to be quiet.
+- `#cin-overlay[data-scene=retro] #cin-freq-display{display:none}` added
+  so the old plain-neon numeral doesn't double up with the new tubes.
+- Re-verified with the Node Canvas2D mock harness across 4 test
+  frequencies (1/2/3-digit MHz values) and 2 frames each — all draw calls
+  finite, base+tube row width stays well inside the panel bounds. Same
+  caveat as before: no headless browser or `node-canvas` available in the
+  sandbox (no network access), so this is geometry/NaN verification only,
+  not a real screenshot.
+
+### Fixed (2026-07-28) — Retro scene: dial arc was colliding with the frequency readout
+
+Live screenshot from the user caught the real problem with the first pass:
+`#cin-info` (the giant frequency number, DAB/RDS meta line, and exit hint)
+is pinned by CSS at `bottom:66%` for this scene — a value tuned for the
+old, thinner ruler-band dial. The new bigger semicircular arc rose right
+through that text, so the tick marks and the "225.648" numerals were
+overlapping and hard to read.
+
+- Dial recentred lower and shrunk (`cy: H*0.66`, `dr: mm*0.24`, was
+  panel-relative `*0.74`/`*0.30`) so the arc's top edge sits at ~41% down,
+  clear of the text block's ~34% bottom edge.
+- Panel silhouette was also nearly invisible in the screenshot — bumped
+  gradient/border opacity, grain-line opacity, and added a thin inner
+  bevel highlight so it actually reads as a recessed chassis panel.
+- Panel enlarged (`panelH: H*0.68`, was `*0.64`) to comfortably contain
+  the now-lower dial with less unused space at the bottom.
+- Re-verified with the same Node Canvas2D mock harness (still no headless
+  browser/`node-canvas` available in the sandbox — no network access to
+  install either) and manually confirmed the arc-top vs text-bottom
+  vertical math clears with margin. Needs one more live look to confirm
+  the fix actually reads correctly on screen.
+
+### Redesigned (2026-07-28) — Cinematic Mode "Retro" scene: vintage valve radio
+
+Rebuilt `_cinSceneRetro()` from scratch as a proper vintage tube-radio
+panel, per a design brief agreed with the user (hybrid dark/wood-panel
+silhouette, semicircular needle dial, glowing valve row, fully
+signal-reactive):
+
+- New soft wood/Bakelite panel silhouette (rounded rect, subtle grain
+  lines, brass-toned border) frames the scene without fighting NEXUS's
+  dark theme — replaces the previous plain radial-gradient background.
+- The old horizontal frequency ruler + separate quarter-circle VU meter
+  are merged into one big backlit semicircular dial: fixed tick marks
+  and a hairline mark the tuned frequency (the displayed span is always
+  centred on it), while an amber needle sweeps live with signal strength
+  off the same pivot — a classic combined dial/S-meter layout.
+- The 5 bottom-right glow blobs (driven by per-band spectrum energy, kept
+  from the old version) are now drawn as an actual row of vacuum tubes
+  across the top — glass envelope, glowing filament, socket base with
+  pins — instead of plain circles.
+- Verified with a Node-based Canvas2D mock harness (no headless browser
+  available in the build sandbox): ran the extracted function against
+  realistic bin/level data across two frames, checked all ~1,170 drawing
+  coordinates for NaN/Infinity, and confirmed panel/dial/tube bounds sit
+  sensibly within the canvas. Visual confirmation still needed live.
+
+### Added (2026-07-28) — Cinematic Mode now shows DAB now-playing info
+
+Cinematic Mode's station name, scrolling subtitle, and mode/rate HUD line
+were entirely unaware of DAB — they're all driven off the primary VFO
+(mode, freq, RDS), but DAB decodes a whole ensemble independently of VFO
+tuning. Result: with a DAB service actively playing, Cinematic Mode kept
+showing whatever the VFO last did (e.g. leftover WFM/RDS station info),
+never the DAB station.
+
+- `_cinGetStationName()`: now checks `_dabPlayingSid` first and returns the
+  playing DAB service's name (from the live ensemble message, falling back
+  to the player column's own label) — takes priority over RDS/EIBI/
+  bookmark since it's an explicit user pick, not passive tuning.
+- `_cinUpdateStation()`: the scrolling subtitle now shows the DAB Dynamic
+  Label (DLS) text in place of RDS RadioText while a DAB service plays.
+- New shared `_cinMetaLine()` helper replaces three copies of the same
+  "mode · rate · quality" string-building logic (VFO state-update handler,
+  Cinematic Mode entry, and the per-frame HUD refresh). For DAB it renders
+  `DAB/DAB+ · <ensemble> · CH <channel>` instead of `<mode> · <MSPS> · SNR`.
+
+### Fixed (2026-07-28) — FM RDS PI code now actually reaches the display
+
+PI was decoded by the backend (passthrough from SDRConnect's own RDS
+decoder) but never made it to screen. Two separate bugs:
+- Backend: `rds_ps`/`rds_radiotext` broadcast the consolidated state
+  immediately on change; `rds_pi`/`rds_pty` didn't — they only went out
+  whenever some other property happened to trigger a broadcast. Added the
+  missing `await broadcast_json({"type": "state", **state})` to both
+  branches (`w035_NEXUS.py`).
+- Frontend: the `#rds-pi` span existed and was already being written to
+  (`"PI:" + pi`) by `_rdsUpdate()`, but was hardcoded `style="display:none"`
+  — dead on arrival regardless of the backend fix. Un-hidden and given a
+  small muted style matching `#rds-pty`, positioned between PTY and
+  RadioText in the RDS strip (`DARKSKY_NEXUS_w035.html`).
+
+### Removed (2026-07-28) — DAB tab: "How this works" engineering-detail panel
+
+Removed the collapsible "How this works" panel from the DAB diagnostics
+drawer (the `dab_radio_nexus` ensemble-decode explainer with the amber/
+blue/green bullet lines). It rendered with hardcoded mid-sentence `<br>`
+breaks that didn't adapt to the panel's actual width, so on wide screens
+it stacked into a choppy single-phrase-per-line column instead of wrapping
+naturally. Rather than fix the wrapping, removed the panel outright per
+user call — it was optional engineering trivia, not something end users
+need. Removed the HTML block, its dedicated CSS rules (`.dab-info-card`,
+`.dab-details-toggle`, `.dab-details-panel`, etc.), and the
+`dabToggleDetails()` JS function; confirmed no other references remain.
+
+### Forked (2026-07-28) — w035 created from w034
+
+w035 forked directly from w034 (published release). All new work now
+happens here; w034 is frozen as the last published version. Known items
+carried over, not yet actioned:
+- FM RDS PI code display — fixed same day, see "Fixed (2026-07-28)" entry
+  above.
+- DAB MOT slideshow never appears for BBC Radio6Music — investigation
+  still open (see "Diagnostic (2026-07-27)" entry below, carried from w034).
+- w035 DRM/DREAM integration is the planned headline feature — see
+  `WRITING/` planning doc from the w034 research pass.
 
 w030 is forked directly from w026 — **not** from w029. w027/w028 were
 Jon's own dockable-window UI experiments (not wanted for NEXUS going
@@ -4509,3 +6537,7 @@ Nothing was removed or renumbered to make room — all additions use sub-letters
 **Fixed (2026-07-14):** Band plan strip, waterfall, and spectrum all went stale/blank together after changing bands — user-reported ("something strange happening with bandplan, waterfall and spectrum" when changing bands), live-diagnosed in Chrome. Root cause: `_zoomFreqRange()` (the single function every one of these — band plan strip, spectrum trace, waterfall, frequency axis — calls to work out what frequency span is currently visible) prefers `DS.zoomCenter` over `DS.liveCenter` whenever `zoomCenter` is set. `zoomCenter` gets set by the **CTR** button (or by zooming in past 1×) as a deliberate, documented "recenter the display on my signal" convenience — but nothing ever cleared it again on a genuine band change. Reproduced live: clicked **CTR** at 25.200 MHz (sets `zoomCenter = 25.2e6`), then changed band to 6m via the Bands panel — the VFO correctly retuned to 50.150 MHz (confirmed in the digit readout and status bar), but the band plan strip, frequency axis, spectrum trace, and waterfall all stayed frozen on the old ~25 MHz span, since `_zoomFreqRange()` kept returning a range centered on the stale `zoomCenter` instead of the new `liveCenter`. Fixed in `_tuneTo()`: added `DS.zoomCenter = null;` alongside the existing `DS.liveCenter = hz;` inside the `if (!inSpan)` block — this block already runs for exactly the right cases (every genuine LO-moving retune: band-plan strip clicks, the Bands panel, every quick-tune chip across the app, since they all call `_tuneTo(freq, mode, bw, true)`), so a deliberate band change now always drops back to centering the display on the real new frequency, while **CTR** remains available afterward to recenter on whatever's now being looked at. Live-verified after the fix: repeated the exact CTR→band-change repro at 500 kSPS (14 MHz→50.15 MHz) and again at 2 MSPS (14.2 MHz→156.8 MHz, VHF Marine) — band plan label, frequency axis, and spectrum trace all updated correctly and immediately in both cases, zero console errors either time.
 
 **Added (2026-07-14):** Automated DMG creation in `build/build_macOS.sh` — user asked how to turn the built `.app` into a DMG, then asked to have it automated. Noticed while looking into this that the current `build/dist/` output on this machine was a bare PyInstaller onedir folder (executable + `_internal/`), not the `.app` bundle the `.spec`'s `BUNDLE()` stage is supposed to produce — flagged to the user as worth re-running the build to confirm before relying on this, since a DMG step can't do anything with a missing `.app`. New Step 7/7 added after the existing post-processing step: builds `dist/DARKSKY_NEXUS_w030_macOS.dmg` from the `.app` automatically. Prefers `create-dmg` (Homebrew) for a real "drag to Applications" layout (app icon + Applications shortcut, positioned window) if installed; falls back to a plain `hdiutil create -format UDZO` DMG otherwise, so the script still completes on a machine without `create-dmg`. `create-dmg` is invoked with `|| true` since it's known to sometimes exit non-zero on harmless Finder/AppleScript timing warnings even when the DMG was produced correctly — the script checks for the actual output file afterward rather than trusting the exit code, and only falls back to `hdiutil` if the DMG genuinely wasn't created. Step numbering in the script's echo output updated from `[n/6]` to `[n/7]` throughout; final summary now reports the DMG path/size alongside the `.app`, and the old "here's the command to run yourself" echo block was replaced with real notarization instructions (unchanged from before, just no longer needed for the DMG step itself). `BUILD_NOTES.md` updated to match: manual `hdiutil`/`create-dmg` commands moved under a new "only needed if not using build_macOS.sh" heading rather than presented as the primary path. Verified via `bash -n` that the updated script is syntactically valid; not yet run end-to-end on an actual Mac (this session has no macOS/PyInstaller environment to test against) — flagged for a live run next time the app is actually built.
+
+**Fixed (2026-08-03):** DAB regression live-diagnosed end to end after a "no ensemble locked" report with a confirmed strong 12B signal. Two independent, unrelated causes stacked on top of each other: (1) `sudo cp`-ing the freshly rebuilt `dab_radio_nexus`/`libfftw3f.3.dylib` into `/usr/local/bin/` left the dylib at mode `700` (root-only) — `dab_radio_nexus` runs as the regular user, so dyld failed with `errno=13` (EACCES) on every launch, producing a tight crash-relaunch loop that looked like "no signal" from the UI. Fixed with `chmod 755`. (2) Even after that, SDRConnect never emitted a single type-2 (raw IQ) WebSocket frame despite `can_control`/`started` both reporting healthy and every `*_stream_enable` property write acking successfully — traced by adding up frame-type tallies already logged every 100 frames (`SDRConnect frame types: {3: N, 1: N}`, never a `2:` key) across a long elimination pass (SDRConnect config reset, `sdrplay_apiService` LaunchDaemon restart, RSPdx-via-USB vs nRSP-ST-via-WiFi) that ruled out corrupted config, a stuck daemon, and network bandwidth in turn. Actual root cause: the nRSP-ST's firmware had just been reflashed (deliberately, via SDRplay's own nRSP Updater) and left the SDRplay API service's raw-IQ streaming path stale against the new firmware, even though the lightweight property-control channel kept working throughout — hence audio/spectrum/control all looking perfectly healthy while raw IQ silently never flowed. Resolved by a plain SDRConnect + API-service restart after the firmware update settled. No code changes were needed for either cause — both were environment/permissions state on Jon's Mac, not application bugs — but see the startup-latency fix immediately below, prompted by the same live session.
+
+**Fixed (2026-08-03):** Local SDRConnect auto-launch (`local_launch_mode` != `'none'`) used to fire `sdr_bridge()`'s very first `websockets.connect()` attempt immediately after spawning the SDRConnect process — guaranteed to fail with `ConnectionRefusedError` (full traceback logged) on every single such startup, since SDRConnect's WebSocket API takes several seconds to initialise after launch. User feedback, prompted by today's long DAB live-debugging session where this fired on every restart: startup "feels clunky" compared to w034 (which had no auto-launch at all — the user started SDRConnect themselves first, so this race never existed). Comparing w034's and w035's frontend directly confirmed the actual startup *picker* (connection mode + headless/GUI choice) isn't the culprit — it only ever shows once and is remembered thereafter (`_handleConnectionModeState()`'s `_connModeResolved` guard) — the guaranteed-fail race was the real, reproducible source of startup noise. Added `_wait_for_sdrconnect_port()`: polls a raw `asyncio.open_connection()` against the target host/port (0.3s between attempts, 20s timeout) right after `_local_launch_sdrconnect()` returns a process, before entering the existing connect-retry loop. Falls through to the unchanged retry loop unchanged on timeout — pure latency/log-noise optimisation, not a new failure mode or a required gate. Only applies to the local-launch path; `local_launch_mode='none'` (start SDRConnect yourself, then run NEXUS) and the SSH/remote launcher are untouched. Verified via `python3 -m py_compile`; not yet live-restart-tested this session (verify next NEXUS restart that the `Connect call failed` traceback no longer appears on a local-launch startup).
