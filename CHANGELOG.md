@@ -15,6 +15,21 @@ DRM+ decoding is implemented against the published open DRM standard for
 personal, non-commercial use. See Appendix C in the User Manual for the
 full trademark and licensing notice.
 
+### Fixed: build_macOS.sh shipped zero bundled docs since the docs/pdf layout gained per-version subfolders (2026-08-05)
+
+Caught live running the first real build after the universal2 change
+above: `Copied docs: 0 PDF(s) into Resources/Docs`. `DOCS_SRC` pointed at
+`docs/pdf` directly; the real PDFs live at `docs/pdf/w035/` (a per-version
+subfolder added at some point after the original w031 fix for this exact
+"no docs got bundled" problem — see that fix's own comment, still in the
+script). So every build since that subfolder was introduced has silently
+shipped without the Quick Start/User Manual/Troubleshooting PDFs in either
+the app bundle's Resources or the DMG's top-level Docs folder — same
+symptom as the w031 bug, different cause. Fixed by pointing `DOCS_SRC` at
+`docs/pdf/$APP_VERSION_TAG` instead. Also fixed an unrelated cosmetic bug
+in the same section: an unquoted `$(basename $f)` on a path containing
+spaces ("Darksky Project") printed the filename split across two lines.
+
 ### macOS build is now universal2 (arm64 + x86_64), automatically (2026-08-05)
 
 `build_macOS.sh` now produces a genuine universal2 `.app` by building the
