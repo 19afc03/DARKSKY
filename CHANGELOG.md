@@ -15,6 +15,29 @@ DRM+ decoding is implemented against the published open DRM standard for
 personal, non-commercial use. See Appendix C in the User Manual for the
 full trademark and licensing notice.
 
+### Fixed: universal2 x86_64 build could pick up wrong-architecture packages from a shared site-packages directory (2026-08-05)
+
+Found live producing the first real universal2 `.dmg`: the x86_64 build
+pass kept failing PyInstaller's COLLECT stage with
+`IncompatibleBinaryArchError` on a different package each retry (first
+numpy/cryptography, then cryptography again via a source-build fallback,
+then markupsafe — a transitive import never even listed in
+requirements.txt). Root cause: the machine's x86_64 Python
+(`/usr/local/bin/python3`, a python.org universal2 framework install) has
+exactly ONE site-packages directory shared by both its arm64 and x86_64
+slices, so any package ever installed there under the native arm64 slice
+sits as a wrong-arch `.so` indefinitely — no per-package fix could close
+this off, since PyInstaller can surface a new offender from anywhere in
+the dependency graph. Fixed properly: `build_macOS.sh` now installs the
+x86_64 dependencies into a throwaway venv (`build/venv_x86_64`), wiped and
+recreated fresh on every run, instead of into that shared framework
+site-packages at all — nothing can leak in by construction. The
+PyInstaller x86_64 pass now also runs against that venv's Python.
+`--only-binary=:all:` (added earlier the same day) is kept alongside this,
+since it solves an independent problem: source builds of Rust-extension
+packages like `cryptography` not respecting the `arch -x86_64` wrapper.
+First confirmed successful universal2 `.dmg` build same day.
+
 ### Fixed: build_macOS.sh shipped zero bundled docs since the docs/pdf layout gained per-version subfolders (2026-08-05)
 
 Caught live running the first real build after the universal2 change
