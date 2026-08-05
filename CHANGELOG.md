@@ -15,6 +15,29 @@ DRM+ decoding is implemented against the published open DRM standard for
 personal, non-commercial use. See Appendix C in the User Manual for the
 full trademark and licensing notice.
 
+### Changed: macOS distribution model reverted from universal2 to two separate single-arch builds (2026-08-05)
+
+Same day universal2 shipped, reverted it. The main Python app merges into
+a universal2 binary cleanly — every C-extension dependency has prebuilt
+wheels for both arches — but the three bundled companion engines (DAB, HD
+Radio, DRM) are each a separately compiled C/C++ binary with its own
+native library chain (librtlsdr, libusb, libfftw3f, libnrsc5, Dream's own
+deps). There's no "pip install --only-binary" equivalent for those;
+cross-compiling and lipo-merging three more binaries — and every dylib
+each one links against — is a much bigger, more fragile undertaking than
+the Python side ever was, for a benefit (one download instead of two) that
+doesn't outweigh it. `build_macOS.sh` now produces two separate downloads
+— `DARKSKY_NEXUS_w035_macOS_AppleSilicon.dmg` and
+`DARKSKY_NEXUS_w035_macOS_Intel.dmg` — matching the existing Windows
+build's single-target model. Companion engines are now looked up
+per-architecture (`build/bundled/<arch>/<name>`); the DAB/HD Radio engines
+currently only have arm64 builds, so the Intel download ships without
+those two working until x86_64 versions are built and placed there — a
+known, explicitly-flagged gap, not a regression introduced by this change
+(they were never universal2 either, even during the one day universal2
+was live). See BUILD_NOTES.md's "Two Separate Builds" section for the
+full technical writeup.
+
 ### Fixed: universal2 x86_64 build could pick up wrong-architecture packages from a shared site-packages directory (2026-08-05)
 
 Found live producing the first real universal2 `.dmg`: the x86_64 build
