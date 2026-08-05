@@ -72,7 +72,8 @@ install needed.
 
 ### Install
 
-- **macOS:** `DARKSKY_NEXUS_w035_macOS.dmg` (attached below)
+- **macOS:** `DARKSKY_NEXUS_w035_macOS.dmg` (attached below) — now built as a
+  universal2 binary (native Apple Silicon + Intel, one download for both)
 - **Windows:** `DARKSKY_NEXUS_w035_Setup.exe` (attached below)
 - **From source:** `pip install -r requirements.txt && python3 w035_NEXUS.py`, then open `DARKSKY_NEXUS_w035.html`
 
