@@ -50,6 +50,16 @@ External decoder engines (dump1090, dumphfdl, dumpvdl2, rtl_433, DSD+, OP25) are
 - [Troubleshooting](docs/pdf/DARKSKY_NEXUS_w035_Troubleshooting.pdf)
 - [Full changelog](CHANGELOG.md)
 
+## Trademarks
+
+DARKSKY NEXUS is an independent, freeware personal and educational project. It is not affiliated with, endorsed by, or sponsored by SDRplay Limited, Xperi Inc., or the DRM Consortium.
+
+- **SDRplay®**, **RSPdx**, **nRSP-ST**, and **SDRconnect** are trademarks of SDRplay Limited. NEXUS interfaces with SDRplay hardware through SDRplay's own SDRconnect application — this is an independent third-party integration, not an SDRplay product.
+- **HD Radio™** and the HD Radio logo are trademarks of Xperi Inc. NEXUS's HD Radio decoding is an independent, non-commercial implementation for personal listening, not a licensed or Xperi-authorized HD Radio product. Anyone wishing to build a commercial HD Radio product should contact Xperi directly ([HDRCEManufacturer@xperi.com](mailto:HDRCEManufacturer@xperi.com)).
+- **DRM and DRM+** (Digital Radio Mondiale) decoding is implemented against the publicly published DRM standard for personal, non-commercial use. Commercial DRM products require a separate patent royalty license through [Via Licensing Alliance](https://www.via-la.com/) ([info@via-la.com](mailto:info@via-la.com)) and, where Journaline is used, Fraunhofer IIS.
+
+NEXUS is provided free of charge for personal and educational use only, with no warranty. It is not for sale or commercial distribution.
+
 ## License
 
 Creative Commons Attribution-NonCommercial 4.0 International — see [LICENSE](LICENSE).

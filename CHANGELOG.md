@@ -6,6 +6,75 @@ Also supports RTL-SDR USB dongles via rtl_tcp (direct, no SDRConnect needed).
 
 © 2025 Jon Nicol & Claude / Anthropic — Freeware, personal & educational use.
 
+DARKSKY NEXUS is not affiliated with, endorsed by, or sponsored by SDRplay
+Limited, Xperi Inc., or the DRM Consortium. SDRplay, RSPdx, nRSP-ST, and
+SDRconnect are trademarks of SDRplay Limited. HD Radio is a trademark of
+Xperi Inc.; NEXUS's HD Radio decoding is an independent, non-commercial
+implementation for personal listening, not a licensed Xperi product. DRM/
+DRM+ decoding is implemented against the published open DRM standard for
+personal, non-commercial use. See Appendix C in the User Manual for the
+full trademark and licensing notice.
+
+### macOS build is now universal2 (arm64 + x86_64), automatically (2026-08-05)
+
+`build_macOS.sh` now produces a genuine universal2 `.app` by building the
+whole PyInstaller pipeline twice — once under a native arm64 Python, once
+under a native x86_64 Python (Intel Homebrew running under Rosetta 2 on
+Apple Silicon, the normal case) — and merging the two resulting bundles
+file-by-file with `lipo -create` wherever a Mach-O file differs between
+them (main executable, every bundled `.so`/`.dylib`), then re-signing the
+merged app ad-hoc. Non-Mach-O files (Info.plist, bundled HTML/CSV/PDF
+data) are copied once, since they don't vary by architecture.
+
+Deliberately does NOT use PyInstaller's own `target_arch='universal2'`
+spec setting — that only produces a real universal2 binary if the Python
+interpreter itself is a universal2 framework build AND every C-extension
+dependency (numpy, scipy, sounddevice, paramiko's cryptography) ships a
+universal2 wheel, neither of which holds for a typical Homebrew Python
+install; it would silently produce a single-arch binary while claiming
+success. `DARKSKY_NEXUS_macOS.spec`'s `target_arch` now reads a
+`NEXUS_BUILD_ARCH` env var the script sets explicitly per invocation
+instead, so each single-arch build is unambiguous rather than relying on
+auto-detect.
+
+**Cross-arch Python requirement:** needs a second, opposite-architecture
+Python on the build machine (e.g. Intel Homebrew at `/usr/local` on an
+Apple Silicon Mac). The script detects whether this is present; if not,
+it prints the exact `softwareupdate`/`brew` setup commands and falls back
+to today's single-arch build with a clear warning in both the running log
+and the final summary — never fails, never silently claims a single-arch
+build is universal. Going the other direction (building arm64 from an
+Intel Mac) isn't possible via Rosetta, since Rosetta only translates
+x86_64 code to run on arm64 hardware, never the reverse — that direction
+needs actual Apple Silicon hardware.
+
+**Companion engines (DAB/HD Radio/DRM) made universal2-capable too, per
+explicit request** (not just the main app, which was the recommended
+default): each engine's own `NEXUS_*_build_macOS.md` gained a new
+"Universal2 build" section documenting the same build-twice-then-`lipo`
+pattern for the engine's own executable and its bundled Homebrew-sourced
+dylibs (`libfftw3f.3.dylib` for DAB; `libnrsc5.dylib` +
+`libfftw3f.3.dylib` + `librtlsdr.0.dylib` + `libusb-1.0.0.dylib` for HD
+Radio; `libspeexdsp.1.dylib` + `libfftw3.3.dylib` (double-precision —
+distinct file from DAB/HD Radio's float variant) + `libfdk-aac.2.dylib` +
+`libsndfile.1.dylib` + `libportaudio.2.dylib` for DRM). These are manual,
+by-hand build docs (companion engines are built outside this repo's own
+build scripts) — not yet verified end-to-end on a real build, unlike the
+rest of each doc's steps.
+
+`build_macOS.sh`'s companion-engine check (Step 4, renumbered from
+3b/3c/3d) now also reports each bundled engine's `lipo -archs` output and
+flags single-arch engines explicitly — a single-arch companion engine
+bundled inside an otherwise-universal2 app would silently fail to launch
+on whichever architecture it's missing, since the main app itself would
+still launch fine, masking the gap.
+
+`BUILD_NOTES.md`'s "Universal Binary" section rewritten to describe what
+the script now does automatically, replacing stale manual-lipo guidance
+that predated this work.
+
+### Trademark/affiliation notice added (2026-08-04) — see CHANGELOG entry above and UserManual.docx Appendix C
+
 ### Wired, not yet tested (2026-08-03) — dream_nexus Windows bundling plumbing + new build doc
 
 Following macOS's dream_nexus bundling being fully confirmed (see the
