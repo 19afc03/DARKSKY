@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DARKSKY NEXUS w035 — SDRConnect/RTLSDR Companion</title>
+<title>DARKSKY NEXUS w036 — SDRConnect/RTLSDR Companion</title>
 <link href="https://fonts.googleapis.com/css2?family=Radio+Canada:wght@300;400;500;600&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -186,6 +186,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--u
 #overload-msg{flex:1;letter-spacing:0.05em}
 #overload-reduce-btn{font-family:var(--mono);font-size:10px;padding:3px 10px;border-radius:3px;border:1px solid rgba(255,64,64,0.50);background:rgba(255,64,64,0.13);color:var(--red);cursor:pointer;white-space:nowrap;transition:all .15s}
 #overload-reduce-btn:hover{background:rgba(255,64,64,0.21);border-color:var(--red)}
+#overload-notch-btn{font-family:var(--mono);font-size:10px;padding:3px 10px;border-radius:3px;border:1px solid rgba(255,64,64,0.30);background:none;color:var(--red);cursor:pointer;white-space:nowrap;transition:all .15s}
+#overload-notch-btn:hover{background:rgba(255,64,64,0.13);border-color:var(--red)}
 #iq-banner.show{display:flex}
 #iq-banner .iq-ban-icon{font-size:13px;flex-shrink:0}
 #iq-banner .iq-ban-msg{flex:1}
@@ -546,6 +548,14 @@ input[type=range].wf-sl{width:70px;height:3px;accent-color:var(--accent);cursor:
 #bm-modal{display:none;position:fixed;inset:0;background:var(--scrim-67);z-index:800;align-items:center;justify-content:center}
 #bm-modal.show{display:flex}
 #bm-modal-box{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:20px;width:360px;max-width:90vw;display:flex;flex-direction:column;gap:12px}
+/* RF Gain step-by-step wizard (2026-08-11, Ch.8 parity) — same modal pattern as #bm-modal */
+#gain-wizard-modal{display:none;position:fixed;inset:0;background:var(--scrim-67);z-index:800;align-items:center;justify-content:center}
+#gain-wizard-box{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:20px;width:320px;max-width:90vw;display:flex;flex-direction:column;gap:10px}
+#gain-wizard-box .gw-header{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.1em}
+#gain-wizard-box .gw-actions{display:flex;justify-content:space-between;gap:8px;margin-top:6px}
+#gain-wizard-box .gw-btn{font-family:var(--mono);font-size:9px;padding:5px 12px;border-radius:3px;border:1px solid var(--border);background:none;color:var(--muted);cursor:pointer}
+#gain-wizard-box .gw-btn:hover{border-color:rgba(0,200,255,0.38);color:var(--accent)}
+#gain-wizard-box .gw-btn.primary{border-color:rgba(0,200,255,0.38);color:var(--accent)}
 .bm-field{display:flex;flex-direction:column;gap:4px}
 .bm-field label{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.1em}
 .bm-field input,.bm-field select,.bm-field textarea{background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:11px;padding:5px 8px;border-radius:4px;outline:none}
@@ -1327,7 +1337,7 @@ input[type=range].wf-sl{width:70px;height:3px;accent-color:var(--accent);cursor:
    anything's playing. */
 /* Widened 230px -> 290px (2026-07-26, live user request) -- room freed up
    by densifying the station card grid just above went here. */
-.dab-player{width:290px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px}
+.dab-player{width:340px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px}
 .dab-np-hero-top{display:flex;align-items:center;gap:12px}
 .dab-np-hero-avatar{flex-shrink:0;width:48px;height:48px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;font-size:17px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35);box-shadow:0 2px 10px rgba(0,0,0,.35)}
 .dab-np-hero-name{font-family:var(--mono);font-weight:700;font-size:13px;color:var(--text);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2005,6 +2015,15 @@ input[type=range].wf-sl{width:70px;height:3px;accent-color:var(--accent);cursor:
 /* Antenna selector — same trigger/panel pattern as SR */
 #ant-panel{display:none;position:fixed;z-index:600;background:var(--panel);border:1px solid rgba(0,200,255,0.25);border-radius:4px;box-shadow:0 8px 24px rgba(0,0,0,.75);padding:4px 0;min-width:130px}
 #ant-panel.open{display:block}
+/* RF Gain panel (2026-08-11, Ch.8 parity) — same trigger/panel pattern as SR/ANT */
+#gain-panel{display:none;position:fixed;z-index:600;background:var(--panel);border:1px solid rgba(0,200,255,0.25);border-radius:4px;box-shadow:0 8px 24px rgba(0,0,0,.75);padding:8px 12px 10px;min-width:210px}
+#gain-panel.open{display:block}
+#gain-panel .gp-row{display:flex;align-items:center;gap:6px;margin:6px 0}
+#gain-panel .gp-readout{font-family:var(--mono);font-size:9px;color:var(--muted);text-align:center;margin-top:2px}
+#gain-panel .gp-att-btn{width:100%;margin-top:8px;font-family:var(--mono);font-size:9px;padding:4px 0;background:rgba(255,64,64,0.10);border:1px solid rgba(255,64,64,0.35);color:var(--red);border-radius:3px;cursor:pointer}
+#gain-panel .gp-att-btn:hover{background:rgba(255,64,64,0.18)}
+#gain-panel .gp-guide-btn{width:100%;margin-top:5px;font-family:var(--mono);font-size:9px;padding:4px 0;background:none;border:1px solid var(--border);color:var(--muted);border-radius:3px;cursor:pointer}
+#gain-panel .gp-guide-btn:hover{border-color:rgba(0,200,255,0.38);color:var(--accent)}
 /* Toast */
 #toast-container{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:5px;pointer-events:none}
 .toast{font-family:var(--mono);font-size:10px;padding:7px 12px;border-radius:4px;border-left:3px solid;animation:toast-in .2s ease;pointer-events:none}
@@ -2077,6 +2096,9 @@ body.cinematic-mode #cin-overlay{pointer-events:all}
 #cin-overlay[data-scene=bars]{--cin-ac:#b266ff;--cin-dim:rgba(178,102,255,.45)}
 #cin-overlay[data-scene=phosphor]{--cin-ac:#00ff88;--cin-dim:rgba(0,255,136,.45)}
 #cin-overlay[data-scene=polar]{--cin-ac:#ff44dd;--cin-dim:rgba(255,68,221,.45)}
+#cin-overlay[data-scene=orbit]{--cin-ac:#ff9f43;--cin-dim:rgba(255,159,67,.45)}
+#cin-overlay[data-scene=grid]{--cin-ac:#00ffc8;--cin-dim:rgba(0,255,200,.45)}
+#cin-overlay[data-scene=topology]{--cin-ac:#3c82ff;--cin-dim:rgba(60,130,255,.45)}
 #cin-overlay[data-scene] #cin-freq-display{color:var(--cin-ac);text-shadow:0 0 30px var(--cin-ac),0 0 80px var(--cin-dim),0 0 120px var(--cin-dim)}
 #cin-overlay[data-scene] #cin-sw-panel div,#cin-overlay[data-scene] #cin-status-time{color:var(--cin-dim)!important}
 /* spectrum horizon canvas only used by NEXUS */
@@ -2107,6 +2129,129 @@ body.cinematic-mode #cin-overlay{pointer-events:all}
 #cin-overlay[data-scene=phosphor] #cin-vignette{background:radial-gradient(ellipse at 50% 50%,transparent 25%,rgba(0,8,3,.7) 75%,rgba(0,6,2,.95) 100%)}
 #cin-overlay[data-scene=retro] #cin-vignette{background:radial-gradient(ellipse at 50% 55%,transparent 25%,rgba(10,5,0,.7) 72%,rgba(8,4,0,.95) 100%)}
 #cin-overlay[data-scene=polar] #cin-vignette{background:radial-gradient(ellipse at 50% 42%,transparent 30%,rgba(6,0,8,.7) 72%,rgba(5,0,7,.95) 100%)}
+#cin-overlay[data-scene=orbit] #cin-vignette{background:radial-gradient(ellipse at 50% 58%,transparent 25%,rgba(8,3,0,.7) 72%,rgba(5,2,0,.95) 100%)}
+/* GRID — the perspective floor's horizon sits at H*0.62; the original
+   42% override still left the info block inside the streams' reachable
+   height range (0 to horizon*0.85), so mid-level bars routinely rose
+   behind the text. Paired with the maxH cap in _cinSceneGrid() below,
+   lifted to 70% for real clearance (2026-08-07 fix). */
+#cin-overlay[data-scene=grid] #cin-info{bottom:70%!important}
+#cin-overlay[data-scene=grid] #cin-vignette{background:radial-gradient(ellipse at 50% 55%,transparent 25%,rgba(0,8,7,.65) 72%,rgba(0,5,5,.92) 100%)}
+/* TOPOLOGY — the terrain stack fills roughly H*0.25 to H*0.85 (horizon
+   down to the newest/closest slice), so lift the info block above the
+   horizon rather than letting it sit inside the wireframe. */
+#cin-overlay[data-scene=topology] #cin-info{bottom:76%!important}
+#cin-overlay[data-scene=topology] #cin-vignette{background:radial-gradient(ellipse at 50% 55%,transparent 22%,rgba(2,6,14,.68) 74%,rgba(1,4,10,.94) 100%)}
+/* THEATER (2026-08-10) — "channel guide" framing: title card up top,
+   decoder-text captions at the bottom, real spectrum bins painted through
+   a scrolling teal→amber LUT waterfall (technique ported from Jon's
+   cinema-mode.html mockup, driven by real bins not its synthetic stations
+   — see NEXUS_cinema_theater_scene_plan.md). Freq/SNR/space-weather HUD
+   repositioned to stay clear of the title card (top) and captions
+   (bottom) bands. */
+#cin-overlay[data-scene=theater]{--cin-ac:#ff3b5c;--cin-dim:rgba(255,59,92,.45)}
+#cin-overlay[data-scene=theater] #cin-info{bottom:auto!important;top:34%!important}
+#cin-overlay[data-scene=theater] #cin-sw-panel{bottom:auto!important;top:8%!important}
+#cin-overlay[data-scene=theater] #cin-snr-bar-wrap{top:8%!important;bottom:38%!important}
+#cin-overlay[data-scene=theater] #cin-vignette{background:radial-gradient(ellipse at 50% 55%,transparent 25%,rgba(10,2,6,.68) 74%,rgba(8,1,5,.94) 100%)}
+#cin-theater-titlecard{position:absolute;top:6%;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;display:none;flex-direction:column;align-items:center}
+#cin-overlay[data-scene=theater] #cin-theater-titlecard{display:flex}
+.cin-theater-eyebrow{font-family:var(--mono);font-size:9px;letter-spacing:.5em;color:var(--cin-ac);margin-bottom:10px}
+.cin-theater-eyebrow::before,.cin-theater-eyebrow::after{content:'\25CF';font-size:6px;vertical-align:2px;animation:cinSplashBlink 1.6s infinite}
+.cin-theater-eyebrow::before{margin-right:12px}
+.cin-theater-eyebrow::after{margin-left:12px;animation-delay:.8s}
+#cin-theater-emblem{width:46px;height:46px;border:1px solid var(--cin-ac);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-family:var(--mono);font-size:12px;font-weight:800;letter-spacing:.1em;color:var(--cin-ac);box-shadow:0 0 26px var(--cin-dim)}
+#cin-theater-name{font-family:var(--mono);font-size:clamp(20px,3.2vw,36px);font-weight:800;letter-spacing:.12em;color:rgba(240,246,255,.94);text-shadow:0 0 30px rgba(0,0,0,.8);max-width:70vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#cin-theater-meta{margin-top:8px;font-family:var(--mono);font-size:10px;letter-spacing:.28em;color:rgba(200,212,228,.6)}
+#cin-theater-rating{display:flex;gap:4px;margin-top:10px;justify-content:center}
+#cin-theater-rating i{width:16px;height:3px;border-radius:2px;background:rgba(255,255,255,.14);display:block}
+#cin-theater-rating i.on{background:var(--cin-ac);box-shadow:0 0 8px var(--cin-dim)}
+#cin-theater-captions{position:absolute;left:40px;bottom:130px;max-width:56vw;pointer-events:none;display:none;align-items:flex-start;gap:10px;z-index:5}
+#cin-overlay[data-scene=theater] #cin-theater-captions.cin-cap-live{display:flex}
+#cin-theater-cap-tag{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:#020407;background:var(--cin-ac);padding:3px 7px;border-radius:3px;margin-top:2px;font-weight:700;white-space:nowrap}
+#cin-theater-cap-text{font-family:var(--mono);font-size:13px;line-height:1.5;color:rgba(240,246,255,.92);text-shadow:0 1px 6px rgba(0,0,0,.95),0 0 20px rgba(0,0,0,.6)}
+#cin-theater-cap-text .cin-caret{opacity:1;animation:cinSplashBlink 1s steps(1) infinite}
+
+/* ── Cinematic FX layer (2026-08-08, "Part B") — grain/scanlines/ambilight/
+   idle-fade/flash/splash. Ported from a standalone "cinema-mode.html"
+   mockup Jon shared: only its pure chrome/visual effects were taken, not
+   its fake station data or waterfall (real equivalents already exist —
+   see _cinGetStationName()/_cinMetaLine()/etc.). All additive over the
+   existing 8 scenes via the shared #cin-overlay layer, so no per-scene
+   code was needed. */
+#cin-grain{position:absolute;inset:-40px;pointer-events:none;z-index:3;opacity:.055;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation:cinGrain 700ms steps(4) infinite}
+#cin-overlay.cin-nograin #cin-grain{display:none}
+@keyframes cinGrain{
+  0%{transform:translate(0,0)}25%{transform:translate(-14px,9px)}
+  50%{transform:translate(9px,-12px)}75%{transform:translate(-7px,-8px)}100%{transform:translate(12px,6px)}}
+#cin-scanlines{position:absolute;inset:0;pointer-events:none;z-index:3;opacity:.28;display:none;
+  background:repeating-linear-gradient(to bottom,rgba(0,0,0,.5) 0 1px,transparent 1px 3px)}
+#cin-overlay.cin-scanlines-on #cin-scanlines{display:block}
+/* Ambilight — reads each scene's own --cin-dim (already defined per
+   data-scene= above), so it automatically matches whichever scene is
+   active with zero extra per-scene rules. */
+.cin-amb{position:absolute;pointer-events:none;z-index:1;transition:opacity .6s}
+#cin-amb-top{top:0;left:0;right:0;height:34%;background:radial-gradient(ellipse 90% 100% at 50% 0%,var(--cin-dim,rgba(0,200,255,.3)),transparent 72%)}
+#cin-amb-bottom{bottom:0;left:0;right:0;height:34%;background:radial-gradient(ellipse 90% 100% at 50% 100%,var(--cin-dim,rgba(0,200,255,.3)),transparent 72%)}
+#cin-amb-left{left:0;top:0;bottom:0;width:26%;background:radial-gradient(ellipse 100% 60% at 0% 50%,var(--cin-dim,rgba(0,200,255,.3)),transparent 72%)}
+#cin-amb-right{right:0;top:0;bottom:0;width:26%;background:radial-gradient(ellipse 100% 60% at 100% 50%,var(--cin-dim,rgba(0,200,255,.3)),transparent 72%)}
+/* Idle-fade chrome — controls dim out after a few seconds of no input;
+   the frequency/meta readout is informational (not a "control") and
+   deliberately stays put rather than fading with these. */
+#cin-scene-bar,#cin-exit-hint{transition:opacity .5s ease,transform .5s ease}
+#cin-overlay.cin-idle #cin-scene-bar{opacity:0;transform:translate(-50%,10px);pointer-events:none}
+#cin-overlay.cin-idle #cin-exit-hint{opacity:0;pointer-events:none}
+/* Flash pulse on scene change */
+#cin-flash{position:absolute;inset:0;pointer-events:none;z-index:9;opacity:0}
+#cin-flash.go{animation:cinFlash 700ms ease-out}
+@keyframes cinFlash{0%{opacity:.14}100%{opacity:0}}
+/* Boot splash on entering Cinematic Mode */
+#cin-splash{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:16px;background:#020408;opacity:1;transition:opacity 800ms ease 300ms;pointer-events:none}
+#cin-overlay.cin-ready #cin-splash{opacity:0}
+#cin-splash-logo{width:52px;height:52px;border-radius:50%;border:1px solid var(--cin-ac,#00c8ff);display:flex;
+  align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;font-weight:800;
+  color:var(--cin-ac,#00c8ff);letter-spacing:.08em;box-shadow:0 0 38px var(--cin-dim,rgba(0,200,255,.35));
+  animation:cinSplashBlink 1.7s infinite}
+@keyframes cinSplashBlink{0%,100%{opacity:1}50%{opacity:.25}}
+#cin-splash-name{font-family:var(--mono);font-size:clamp(16px,2.4vw,24px);font-weight:800;letter-spacing:.5em;
+  text-indent:.5em;color:rgba(230,237,246,.92)}
+#cin-splash-sub{font-family:var(--mono);font-size:9px;letter-spacing:.32em;color:rgba(190,205,225,.45);text-indent:.32em}
+
+/* ── Cinema colour palette (2026-08-08) ── live user request: "a button
+   that when pressed allows us to change the colour palette used". Recolors
+   both the animated artwork AND the shared chrome, per follow-up choice.
+   The artwork (canvas + the RETRO nixie SVG) bakes its colours in as
+   hardcoded hex/hsl per draw call, so there's no shared variable to just
+   repoint — instead a hue-rotate filter is applied to those three elements
+   only, with the rotation angle computed in JS as (target hue - this
+   scene's native accent hue). Deliberately scoped to just #cin-canvas/
+   #cin-spectrum-canvas/#cin-nixie rather than the whole #cin-overlay, so
+   the swatch picker itself stays true-colour and legible rather than being
+   rotated along with everything else. The chrome (accent glow/ambilight/
+   splash/status text) already reads --cin-ac/--cin-dim, so those get a
+   direct override to the swatch's own hex — more accurate than rotating
+   them, and no extra maths needed. */
+#cin-canvas,#cin-spectrum-canvas,#cin-nixie{filter:hue-rotate(var(--cin-hue,0deg))}
+#cin-palette-btn{display:flex;align-items:center;justify-content:center}
+#cin-palette-btn-dot{display:inline-block;width:9px;height:9px;border-radius:50%;
+  background:var(--cin-ac,#00c8ff);box-shadow:0 0 6px var(--cin-ac,#00c8ff)}
+#cin-palette-bar{position:absolute;bottom:56px;left:50%;transform:translateX(-50%);
+  display:flex;gap:7px;align-items:center;pointer-events:all;z-index:6;opacity:0;
+  max-height:0;overflow:hidden;transition:opacity .25s,max-height .25s}
+#cin-palette-bar.open{opacity:1;max-height:40px}
+#cin-overlay.cin-idle #cin-palette-bar{opacity:0;pointer-events:none}
+.cin-swatch{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25);
+  background:var(--sw,#888);cursor:pointer;padding:0;box-shadow:0 0 0 0 transparent;
+  transition:transform .15s,box-shadow .15s}
+.cin-swatch:hover{transform:scale(1.2)}
+.cin-swatch.active{box-shadow:0 0 0 2px #05070a,0 0 0 4px var(--sw,#fff)}
+.cin-swatch-reset{background:rgba(255,255,255,.08);color:rgba(200,216,232,.75);font-size:10px;
+  line-height:16px;display:flex;align-items:center;justify-content:center;
+  border-color:rgba(255,255,255,.2)}
+
 /* Nexus bands panel */
 #nexus-bands-panel{display:none;position:fixed;z-index:500;background:var(--panel);border:1px solid rgba(255,140,0,0.25);border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,.8);padding:10px 12px;width:500px;max-height:72vh;overflow-y:auto}
 #nexus-bands-panel.open{display:block}
@@ -5641,7 +5786,7 @@ exports.encodeFT8 = encode$1;
        padding:26px 30px;width:560px;max-width:96vw;box-shadow:0 16px 48px rgba(0,0,0,0.8)">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
       <span style="font-size:18px;letter-spacing:.12em;color:var(--accent)">DARK<span style="color:var(--text)">SKY</span> NEXUS</span>
-      <span style="font-family:var(--mono);font-size:8px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px">w035</span>
+      <span style="font-family:var(--mono);font-size:8px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px">w036</span>
     </div>
     <!-- STEP 1: which device/connection. Added 2026-07-31 (startup UX
          audit): for the two local modes below, picking one no longer
@@ -5754,7 +5899,7 @@ exports.encodeFT8 = encode$1;
     <!-- Header -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
       <span style="font-size:18px;letter-spacing:.12em;color:var(--accent)">DARK<span style="color:var(--text)">SKY</span> NEXUS</span>
-      <span style="font-family:var(--mono);font-size:8px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px">w035</span>
+      <span style="font-family:var(--mono);font-size:8px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px">w036</span>
       <span style="flex:1"></span>
       <span style="font-size:9px;color:var(--muted)">Connection Setup</span>
     </div>
@@ -6030,6 +6175,22 @@ exports.encodeFT8 = encode$1;
 <div id="cw-palette-panel"></div>
 <div id="sr-panel"><div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;padding:4px 10px 2px;border-bottom:1px solid var(--border);margin-bottom:2px">SAMPLE RATE</div></div>
 <div id="ant-panel"><div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;padding:4px 10px 2px;border-bottom:1px solid var(--border);margin-bottom:2px">ANTENNA</div></div>
+<div id="gain-panel"></div>
+
+<!-- RF Gain step-by-step wizard (2026-08-11, Ch.8 parity) -->
+<div id="gain-wizard-modal">
+  <div id="gain-wizard-box">
+    <div class="gw-header">
+      <span>GAIN SETUP GUIDE</span>
+      <button class="modal-x-btn" onclick="closeGainWizard()">✕</button>
+    </div>
+    <div id="gain-wizard-body"></div>
+    <div class="gw-actions">
+      <button class="gw-btn" id="gain-wizard-back" onclick="gainWizardBack()">◂ BACK</button>
+      <button class="gw-btn primary" id="gain-wizard-next" onclick="gainWizardNext()">NEXT ▸</button>
+    </div>
+  </div>
+</div>
 <div id="nexus-bands-panel"></div>
 <!-- Decoders panel (2026-07-19, w033-only) — floating category-tab +
      button-grid panel, same treatment as #nexus-bands-panel above.
@@ -6151,6 +6312,12 @@ exports.encodeFT8 = encode$1;
   <!-- Vignette -->
   <div id="cin-vignette"></div>
 
+  <!-- Ambilight edge bleed (Part B) — reads each scene's own --cin-dim -->
+  <div id="cin-amb-top" class="cin-amb"></div>
+  <div id="cin-amb-bottom" class="cin-amb"></div>
+  <div id="cin-amb-left" class="cin-amb"></div>
+  <div id="cin-amb-right" class="cin-amb"></div>
+
   <!-- Station identity — top centre -->
   <div id="cin-station" style="position:absolute;top:12%;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none">
     <div id="cin-station-name" style="font-family:var(--mono);font-size:13px;color:#ffb300;letter-spacing:.25em;text-transform:uppercase;text-shadow:0 0 20px rgba(255,183,0,.6);opacity:0;transition:opacity .8s"></div>
@@ -6203,7 +6370,25 @@ exports.encodeFT8 = encode$1;
   <div id="cin-info" style="position:absolute;bottom:38%;left:50%;transform:translateX(-50%);text-align:center;pointer-events:all;white-space:nowrap">
     <div id="cin-freq-display">—.—</div>
     <div id="cin-meta" style="font-family:var(--mono);font-size:11px;color:rgba(200,216,232,.55);margin-top:8px;letter-spacing:.18em"></div>
-    <div id="cin-exit-hint" onclick="toggleCinematic()" style="font-family:var(--mono);font-size:9px;color:rgba(74,90,106,.7);margin-top:18px;cursor:pointer;letter-spacing:.1em">[ C exit · V next scene · 1–5 select ]</div>
+    <div id="cin-exit-hint" onclick="toggleCinematic()" style="font-family:var(--mono);font-size:9px;color:rgba(74,90,106,.7);margin-top:18px;cursor:pointer;letter-spacing:.1em">[ C exit · V next scene · 1–9 select · G grain · S scanlines ]</div>
+  </div>
+
+  <!-- THEATER scene only — "now showing" title card + decoder-text
+       captions. Hidden by default via CSS; shown only when
+       data-scene=theater. All text is real NEXUS data — see
+       _cinUpdateTheaterCard()/_cinUpdateTheaterCaptions() — nothing here
+       is scripted/fake, unlike the cinema-mode.html mockup this scene's
+       framing was inspired by. -->
+  <div id="cin-theater-titlecard">
+    <div class="cin-theater-eyebrow">NOW SHOWING</div>
+    <div id="cin-theater-emblem"></div>
+    <div id="cin-theater-name"></div>
+    <div id="cin-theater-meta"></div>
+    <div id="cin-theater-rating"><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+  <div id="cin-theater-captions">
+    <div id="cin-theater-cap-tag"></div>
+    <div id="cin-theater-cap-text"></div>
   </div>
 
   <!-- SNR signal bar — right edge -->
@@ -6229,6 +6414,14 @@ exports.encodeFT8 = encode$1;
   <!-- CRT scanline overlay (PHOSPHOR scene) -->
   <div id="cin-crt"></div>
 
+  <!-- Film grain + optional scanlines (Part B) — shared across all scenes,
+       unlike #cin-crt above which is PHOSPHOR-only. Toggled with G/S. -->
+  <div id="cin-grain"></div>
+  <div id="cin-scanlines"></div>
+
+  <!-- Flash pulse on scene change (Part B) -->
+  <div id="cin-flash"></div>
+
   <!-- Scene selector -->
   <div id="cin-scene-bar">
     <button class="cin-scene-btn" data-scene="nexus"    onclick="setCinScene('nexus')">Nexus</button>
@@ -6236,6 +6429,33 @@ exports.encodeFT8 = encode$1;
     <button class="cin-scene-btn" data-scene="bars"     onclick="setCinScene('bars')">Bars</button>
     <button class="cin-scene-btn" data-scene="phosphor" onclick="setCinScene('phosphor')">Phosphor</button>
     <button class="cin-scene-btn" data-scene="polar"    onclick="setCinScene('polar')">Polar</button>
+    <button class="cin-scene-btn" data-scene="orbit"    onclick="setCinScene('orbit')">Orbit</button>
+    <button class="cin-scene-btn" data-scene="grid"     onclick="setCinScene('grid')">Grid</button>
+    <button class="cin-scene-btn" data-scene="topology" onclick="setCinScene('topology')">Topology</button>
+    <button class="cin-scene-btn" data-scene="theater"  onclick="setCinScene('theater')">Theater</button>
+    <button id="cin-palette-btn" class="cin-scene-btn" onclick="_cinTogglePalette()" title="Colour palette">
+      <span id="cin-palette-btn-dot"></span>
+    </button>
+  </div>
+
+  <!-- Colour palette swatch picker — toggled by the button above -->
+  <div id="cin-palette-bar">
+    <button class="cin-swatch" data-swatch="cyan"    style="--sw:#00c8ff" onclick="_cinSetPaletteSwatch('cyan')"    title="Cyan"></button>
+    <button class="cin-swatch" data-swatch="amber"   style="--sw:#ffb300" onclick="_cinSetPaletteSwatch('amber')"   title="Amber"></button>
+    <button class="cin-swatch" data-swatch="violet"  style="--sw:#b266ff" onclick="_cinSetPaletteSwatch('violet')"  title="Violet"></button>
+    <button class="cin-swatch" data-swatch="green"   style="--sw:#00ff88" onclick="_cinSetPaletteSwatch('green')"   title="Green"></button>
+    <button class="cin-swatch" data-swatch="magenta" style="--sw:#ff44dd" onclick="_cinSetPaletteSwatch('magenta')" title="Magenta"></button>
+    <button class="cin-swatch" data-swatch="orange"  style="--sw:#ff9f43" onclick="_cinSetPaletteSwatch('orange')"  title="Orange"></button>
+    <button class="cin-swatch" data-swatch="teal"    style="--sw:#00ffc8" onclick="_cinSetPaletteSwatch('teal')"    title="Teal"></button>
+    <button class="cin-swatch" data-swatch="blue"    style="--sw:#3c82ff" onclick="_cinSetPaletteSwatch('blue')"    title="Blue"></button>
+    <button class="cin-swatch cin-swatch-reset" data-swatch="" onclick="_cinSetPaletteSwatch('')" title="Reset to default">&#8635;</button>
+  </div>
+
+  <!-- Boot splash (Part B) — shown briefly on entering Cinematic Mode -->
+  <div id="cin-splash">
+    <div id="cin-splash-logo">◉</div>
+    <div id="cin-splash-name">DARKSKY</div>
+    <div id="cin-splash-sub">CINEMATIC MODE · TUNING IN…</div>
   </div>
 </div>
 
@@ -6247,7 +6467,7 @@ exports.encodeFT8 = encode$1;
       <div id="brand-name"><span class="bd">DARK</span><span style="color:var(--accent)">SKY</span> NEXUS</div>
       <div id="brand-sub">SDRConnect/RTLSDR Companion</div>
     </div>
-    <span id="brand-version" title="DARKSKY NEXUS is independent freeware, not affiliated with SDRplay, Xperi/HD Radio, or the DRM Consortium. Trademarks belong to their respective owners. Full notice: User Manual, Appendix C." style="font-family:var(--mono);font-size:9px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px;cursor:help">w035</span>
+    <span id="brand-version" title="DARKSKY NEXUS is independent freeware, not affiliated with SDRplay, Xperi/HD Radio, or the DRM Consortium. Trademarks belong to their respective owners. Full notice: User Manual, Appendix C." style="font-family:var(--mono);font-size:9px;color:var(--muted);border:1px solid var(--border);padding:1px 5px;border-radius:3px;cursor:help">w036</span>
     <div class="brand-sep"></div>
     <div id="conn-status">
       <div id="conn-dot"></div>
@@ -6279,6 +6499,26 @@ exports.encodeFT8 = encode$1;
     <div id="rspdx-strip" style="display:none;align-items:center;gap:4px;flex-shrink:0">
       <div class="brand-sep"></div>
       <span id="rspdx-badge" style="font-family:var(--mono);font-size:8px;color:var(--green);border:1px solid rgba(0,255,136,0.3);padding:1px 5px;border-radius:3px;white-space:nowrap" title="This SDRplay device has no Compact/IQ-Lite mode selector — SDRConnect always streams full hardware-rate IQ for it. That's independent of whether NEXUS is reaching SDRConnect locally or over a network/SSH (mode switching only exists for networked nRSP-ST units).">Full IQ (only mode)</span>
+    </div>
+    <!-- In-GUI Start/Stop stream control (added 2026-08-09, user request:
+         "Possible to add a start (green triangle)/stop (red square) within
+         nexus gui rather than hard close chrome?"). Deliberately scoped to
+         the SDRConnect stream only, not a full NEXUS process shutdown — a
+         browser button can't relaunch the Python server anyway, and this
+         gives a clean way to pause/resume the radio connection without
+         quitting NEXUS or force-closing the tab. Sends sdr_stream_stop /
+         sdr_stream_start; icon+label are kept in sync via _updateStreamToggleUI()
+         from both the immediate stream_paused_changed broadcast and the
+         periodic full 'state' snapshot (see applyState()). -->
+    <div id="topbar-stream-toggle-strip" style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+      <div class="brand-sep"></div>
+      <button id="topbar-stream-toggle" onclick="_toggleStreamRunning()"
+        style="font-family:var(--mono);font-size:8px;padding:1px 6px;background:var(--surface);
+               border:1px solid rgba(0,255,136,0.31);color:var(--green);border-radius:3px;cursor:pointer;
+               white-space:nowrap;display:flex;align-items:center;gap:3px"
+        title="Stop the SDRConnect stream without closing NEXUS">
+        <span id="topbar-stream-toggle-icon">&#9654;</span><span id="topbar-stream-toggle-label">Running</span>
+      </button>
     </div>
     <!-- Connection control (added 2026-07-29) — always visible, unlike the
          device-select strip below which only appears once SDRConnect's own
@@ -6363,10 +6603,19 @@ exports.encodeFT8 = encode$1;
     <span class="iq-ban-msg">SDRConnect is in <b>Compact mode</b> — IQ audio stream unavailable. Switch to <b>IQ Lite</b> or <b>Full IQ</b> mode using the mode selector in the header, or in SDRConnect settings.</span>
     <span class="iq-ban-close" onclick="this.parentElement.classList.remove('show')">✕</span>
   </div>
+  <!-- 2026-08-11, Ch.8 parity: now driven by the real overload property (was
+       dead HTML — nothing ever added .show). Reduce-gain button's delta was
+       also backwards (-2 raises gain on the LNA-state index, since higher
+       index = less gain) — fixed to +2. Notch-filter guidance added per the
+       manual's remediation order; no WS-controllable notch property exists
+       in SDRConnect's API AND no live "raise SDRConnect's window" command
+       exists either, so the second button shows guidance text instead of
+       faking a control that would do nothing. -->
   <div id="overload-banner">
     <span id="overload-icon">⚡</span>
-    <span id="overload-msg">RF OVERLOAD — reduce antenna or LNA gain</span>
-    <button id="overload-reduce-btn" onclick="sendCmd({cmd:'set_lna_gain',delta:-2})" title='Reduce LNA gain by 2 dB' title="Reduce LNA gain by 2 dB">Reduce gain −2</button>
+    <span id="overload-msg">RF OVERLOAD (ADC clipping) — try ATT first; if it persists on HF, a nearby broadcast station may need SDRConnect's own MW/FM notch</span>
+    <button id="overload-reduce-btn" onclick="_attGainStep()" title="Drop gain 2 rungs">ATT −2</button>
+    <button id="overload-notch-btn" onclick="_openSDRConnectForNotch()" title="No notch control exists in NEXUS — shows guidance instead">Notch help</button>
   </div>
 
   <!-- ── VFO + CONTROLS BAR ── -->
@@ -6438,7 +6687,17 @@ exports.encodeFT8 = encode$1;
         <span class="stat-lbl">SAMPLE RATE <span class="sr-caret">&#9662;</span></span>
         <span class="stat-val" id="stat-sr-val" style="color:var(--accent);font-weight:600">2 MSPS</span>
       </div>
-      <div class="stat-grp"><span class="stat-lbl">GAIN</span><span class="stat-val" id="stat-gain">0 dB</span></div>
+      <!-- RF Gain (2026-08-11, SDRcom Blue Ch.8 parity): was a static read-
+           only "0 dB" stat, mislabeled — the value is the raw LNA state
+           INDEX, not a real dB figure (SDRplay hardware exposes LNA state,
+           a gain-reduction index: 0 = max gain, higher = less gain — see
+           the manual's "RF GAIN — and why it looks backwards"). Now
+           clickable, opens a real gain control panel; label changed from
+           dB to LNA to stop implying a real decibel reading. -->
+      <div class="stat-grp sr-btn-grp" id="gain-btn-grp" onclick="toggleGainPanel(event)" title="Click to adjust RF gain">
+        <span class="stat-lbl">GAIN <span class="sr-caret">&#9662;</span></span>
+        <span class="stat-val" id="stat-gain">0 LNA</span>
+      </div>
       <!-- Antenna selector — hidden until valid_antennas arrives from SDRConnect (RSP1A etc. have none) -->
       <div class="stat-grp sr-btn-grp" id="ant-btn-grp" onclick="toggleAntPanel(event)" title="Click to select antenna port" style="display:none">
         <span class="stat-lbl">ANTENNA <span class="sr-caret">&#9662;</span></span>
@@ -6551,6 +6810,9 @@ exports.encodeFT8 = encode$1;
       <button onclick="setCinScene('bars')"     title="Classic analyser bars + peak caps" style="font-family:var(--mono);font-size:8px;padding:3px 7px;background:none;border:1px solid rgba(178,102,255,.4);color:#b266ff;border-radius:3px;cursor:pointer">BARS</button>
       <button onclick="setCinScene('phosphor')" title="CRT scope: persistence + scanlines" style="font-family:var(--mono);font-size:8px;padding:3px 7px;background:none;border:1px solid rgba(0,255,136,.4);color:#00ff88;border-radius:3px;cursor:pointer">PHOSPHOR</button>
       <button onclick="setCinScene('polar')"    title="Radial spectrum ring + radar sweep" style="font-family:var(--mono);font-size:8px;padding:3px 7px;background:none;border:1px solid rgba(255,68,221,.4);color:#ff44dd;border-radius:3px;cursor:pointer">POLAR</button>
+      <button onclick="setCinScene('orbit')"    title="Rotating planet + spectrum-lit orbital ring" style="font-family:var(--mono);font-size:8px;padding:3px 7px;background:none;border:1px solid rgba(255,159,67,.4);color:#ff9f43;border-radius:3px;cursor:pointer">ORBIT</button>
+      <button onclick="setCinScene('grid')"     title="Tactical HUD: data streams + lock cross-hairs" style="font-family:var(--mono);font-size:8px;padding:3px 7px;background:none;border:1px solid rgba(0,255,200,.4);color:#00ffc8;border-radius:3px;cursor:pointer">GRID</button>
+      <button onclick="setCinScene('topology')" title="3D depth-buffer waterfall terrain"           style="font-family:var(--mono);font-size:8px;padding:3px 7px;background:none;border:1px solid rgba(60,130,255,.4);color:#3c82ff;border-radius:3px;cursor:pointer">TOPOLOGY</button>
     </div>
     <div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;margin-bottom:5px">FILL SHADE <span id="spec-shade-val">30%</span></div>
     <input type="range" min="0" max="60" value="30" id="spec-shade-slider"
@@ -6585,10 +6847,15 @@ exports.encodeFT8 = encode$1;
 
       <div class="wf-sep"></div>
 
-      <!-- AGC -->
+      <!-- AGC (2026-08-11, Ch.8 parity: real dedicated enable cmd + threshold slider,
+           was proToggle's generic passthrough with no threshold control at all) -->
       <div style="display:flex;align-items:center;gap:5px">
         <span class="wf-ctrl-label" style="color:rgba(0,200,255,.6)">AGC</span>
-        <button class="toggle-btn" id="pro-agc-btn" onclick="proToggle('agc_enable','pro-agc-btn')" title="Automatic Gain Control">ON</button>
+        <button class="toggle-btn" id="pro-agc-btn" onclick="setAgcEnable('pro-agc-btn')" title="Automatic Gain Control">ON</button>
+        <span class="wf-ctrl-label" id="pro-agc-th-lbl" style="color:rgba(0,200,255,.6)">THR</span>
+        <input type="range" class="wf-sl" id="pro-agc-th-sl" min="0" max="100" step="1" value="30"
+          oninput="setAgcThreshold(this.value)" title="AGC threshold — manual's suggested starting point is ~30 for airband/scanning">
+        <span class="nudge-val" id="pro-agc-th-val">30</span>
       </div>
 
       <div class="wf-sep"></div>
@@ -9931,7 +10198,7 @@ exports.encodeFT8 = encode$1;
         <span style="font-family:var(--mono);font-size:8px;color:var(--amber);border:1px solid rgba(255,179,0,0.25);padding:1px 5px;border-radius:3px;margin-left:4px">● dumphfdl</span>
         <!-- UI/UX pass (2026-07-21): dumphfdl grabs the SDR hardware directly
              (see "SDRConnect must be closed first" in the info box) — same
-             independent-subprocess architecture as VDL2/rtl_433/Trunk below,
+             independent-subprocess architecture as VDL2/Trunk below,
              which already carried this badge. Added here for consistency
              so it's clear this doesn't share NEXUS's own IQ stream. -->
         <span style="font-family:var(--mono);font-size:8px;color:var(--orange);border:1px solid rgba(255,140,0,0.25);padding:1px 5px;border-radius:3px;margin-left:4px">&#9635; EXTERNAL</span>
@@ -10026,60 +10293,12 @@ exports.encodeFT8 = encode$1;
       </div>
     </div>
 
-    <!-- rtl_433 (w033 fork, 2026-07-19) -->
-    <div id="tab-rtl433" class="tab-panel">
-      <div class="panel-hdr" style="flex-shrink:0">
-        ISM Sensors — rtl_433
-        <span style="font-family:var(--mono);font-size:8px;color:var(--amber);border:1px solid rgba(255,179,0,0.25);padding:1px 5px;border-radius:3px;margin-left:4px">● rtl_433</span>
-        <span style="font-family:var(--mono);font-size:8px;color:var(--orange);border:1px solid rgba(255,140,0,0.25);padding:1px 5px;border-radius:3px;margin-left:4px">&#9635; EXTERNAL</span>
-        <span class="decoder-status-badge inactive" id="dec-badge-rtl433" style="margin-left:8px">&#9675; Idle</span>
-        <span id="rtl433-count-pill" style="font-family:var(--mono);font-size:8px;color:var(--accent);margin-left:8px">0 msgs</span>
-        <button id="dec-start-rtl433" onclick="rtl433Start()" title="Launch rtl_433 and connect to its UDP JSON output"
-          style="margin-left:auto;font-family:var(--mono);font-size:8px;padding:2px 8px;border-radius:3px;border:1px solid rgba(0,255,136,0.31);background:rgba(0,255,136,0.07);color:var(--green);cursor:pointer">&#9654; Start</button>
-        <button id="dec-stop-rtl433" onclick="rtl433Stop()" title="Stop rtl_433"
-          style="display:none;margin-left:auto;font-family:var(--mono);font-size:8px;padding:2px 8px;border-radius:3px;border:1px solid rgba(255,64,64,0.31);background:rgba(255,64,64,0.07);color:var(--red);cursor:pointer">&#9632; Stop</button>
-        <button onclick="rtl433Clear()" title="Clear all decoded readings"
-          style="font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:3px;border:1px solid var(--border);color:var(--muted);background:none;cursor:pointer;margin-left:4px">&#9003; Clear</button>
-      </div>
-      <div style="display:flex;gap:8px;flex:1;min-height:0;overflow:hidden;margin-top:6px">
-        <div style="width:220px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;overflow-y:auto">
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:var(--mono);font-size:9px;color:var(--muted);line-height:1.8">
-            <span style="color:var(--amber)">&#9679; ISM sensors via rtl_433</span><br>
-            <a href="https://github.com/merbanan/rtl_433" target="_blank" style="color:var(--accent)">github/merbanan/rtl_433</a><br>
-            <span style="color:var(--muted);font-size:8px">Decodes hundreds of 433/868/915MHz devices — TPMS, weather stations, smart meters, remote thermometers.</span><br>
-            <span style="color:var(--muted);font-size:8px">Install:</span><br>
-            <span style="color:var(--accent);font-size:8px">brew install rtl_433</span><br>
-            <span style="color:var(--green);font-size:8px">&#10003; Auto-launched by NEXUS if found</span><br>
-            <span style="color:var(--muted);font-size:8px">Device auto-detected (2026-07-20): uses a plugged-in RTL-SDR dongle if found, otherwise falls back to this NEXUS's own connected SDRplay via SoapySDR automatically.</span>
-          </div>
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px">
-            <div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;margin-bottom:5px">ISM FREQS (MHz)</div>
-            <div style="display:flex;flex-direction:column;gap:2px;font-family:var(--mono);font-size:8px">
-              <div onclick="rtl433SetFreq(433.92)" style="cursor:pointer;padding:2px 6px;border-radius:3px;color:var(--text);background:var(--panel);border:1px solid var(--border)">433.92 — EU/most sensors</div>
-              <div onclick="rtl433SetFreq(315.0)" style="cursor:pointer;padding:2px 6px;border-radius:3px;color:var(--text);background:var(--panel);border:1px solid var(--border)">315.0 — US TPMS/remotes</div>
-              <div onclick="rtl433SetFreq(915.0)" style="cursor:pointer;padding:2px 6px;border-radius:3px;color:var(--text);background:var(--panel);border:1px solid var(--border)">915.0 — US ISM</div>
-            </div>
-          </div>
-        </div>
-        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
-          <div style="flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:4px;overflow:hidden">
-            <div style="display:grid;grid-template-columns:110px 70px 50px 1fr;padding:3px 8px;background:var(--panel);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:8px;color:var(--muted)">
-              <span>MODEL</span><span>ID</span><span>BATT</span><span>READING</span>
-            </div>
-            <div id="rtl433-rows" style="max-height:280px;overflow-y:auto;font-family:var(--mono);font-size:9px">
-              <div style="padding:12px 8px;color:var(--muted);text-align:center">Awaiting rtl_433 readings…</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- DSD / DSD+ Digital Voice -->
     <div id="tab-dsd" class="tab-panel">
       <div class="panel-hdr" style="flex-shrink:0">
         Digital Voice
         <span style="font-family:var(--mono);font-size:8px;color:var(--amber);border:1px solid rgba(255,179,0,0.25);padding:1px 5px;border-radius:3px;margin-left:4px">● DSD+</span>
-        <!-- UI/UX pass (2026-07-21): unlike HFDL/VDL2/rtl_433/Trunk (which
+        <!-- UI/UX pass (2026-07-21): unlike HFDL/VDL2/Trunk (which
              grab the SDR hardware directly, badged EXTERNAL), DSD reads a
              *virtual audio* input (BlackHole/VB-Cable — see info box) —
              it never touches the SDR at all. Different architecture, so a
@@ -10538,8 +10757,8 @@ const freqCursor= document.getElementById('freq-cursor');
 /* canvas consts declared below at "Waterfall canvas" section */
 
 /* ═══════════════════════════════════════════════════════════
-   DARKSKY NEXUS w035 — JavaScript Core
-   Live WebSocket connection to w035_NEXUS.py bridge
+   DARKSKY NEXUS w036 — JavaScript Core
+   Live WebSocket connection to w036_NEXUS.py bridge
    Binary protocol: byte[0]=0x01 → 512 uint8 FFT bins
                     byte[0]=0x02 → mono PCM16LE audio (internal FT8 decode)
    JSON protocol:   {type:'state'|'cw_frame'|'ft8_results'|...}
@@ -10581,10 +10800,19 @@ const DS = {
   muted: false,       // audio mute state
   validAntennas: [],  // antenna names from SDRConnect's valid_antennas property
   activeAntenna: '',  // currently selected antenna port name
+  // RF gain / AGC / overload (2026-08-11, Ch.8 parity) — lnaStateMin/Max
+  // come from SDRConnect's read-only lna_state_min/lna_state_max
+  // properties (per-device — RSPdx and nRSP-ST have different ranges),
+  // fall back to a sane 0-27 guess until the real values arrive.
+  lnaStateMin: 0,
+  lnaStateMax: 27,
+  agcEnable: true,
+  agcThreshold: 30,   // manual's suggested starting point ("~30 for airband/scanning")
+  overload: false,
 };
 
 /* ═══════════════════════════════════════════════════════════
-   WEBSOCKET BRIDGE — connects to w035_NEXUS.py on :8889
+   WEBSOCKET BRIDGE — connects to w036_NEXUS.py on :8889
    The .py bridges SDRConnect on :5454 or RTL-SDR via rtl_tcp.
    Open via http://localhost:8888 (the .py serves the HTML).
 ════════════════════════════════════════════════════════════ */
@@ -10727,9 +10955,9 @@ function handleJSONFrame(msg) {
     case 'state':
       {
         // Version mismatch warning — old cached HTML connected to new bridge
-        if (msg.server_version && msg.server_version !== 'w035') {
+        if (msg.server_version && msg.server_version !== 'w036') {
           toast('Version mismatch: bridge is ' + msg.server_version +
-                ' but HTML is w035 — Cmd+Shift+R to reload', 'warn');
+                ' but HTML is w036 — Cmd+Shift+R to reload', 'warn');
         }
         applyState(msg);
       }
@@ -10737,6 +10965,14 @@ function handleJSONFrame(msg) {
 
     case 'conn':
       setConnected(msg.status === 'live' || msg.connected === true);
+      break;
+
+    /* ── In-GUI Start/Stop stream control (added 2026-08-09) ─────────
+       Fired immediately by sdr_stream_stop/sdr_stream_start so the button
+       flips right away — the 'state' broadcast that follows carries the
+       same flag for any other browser tab / a fresh reconnect. */
+    case 'stream_paused_changed':
+      _updateStreamToggleUI(msg.stream_paused);
       break;
 
     /* ── decoder_status — drives the badge ───────────────────────────
@@ -11136,33 +11372,6 @@ function handleJSONFrame(msg) {
 
     case 'vdl2_clear':
       { const r = document.getElementById('vdl2-rows'); if (r) r.innerHTML = ''; }
-      break;
-
-    /* ── rtl_433 (w033 fork, 2026-07-19) ────────────────────────────── */
-    case 'rtl433_status':
-      {
-        const b = document.getElementById('dec-badge-rtl433');
-        const s = document.getElementById('dec-start-rtl433');
-        const x = document.getElementById('dec-stop-rtl433');
-        if (msg.running) {
-          if (b) { b.textContent = '● Live'; b.className = 'decoder-status-badge active'; b.style.color = 'var(--green)'; }
-          if (s) s.style.display = 'none'; if (x) x.style.display = '';
-        } else {
-          if (b) { b.textContent = '○ Idle'; b.className = 'decoder-status-badge inactive'; b.style.color = ''; }
-          if (s) s.style.display = ''; if (x) x.style.display = 'none';
-          if (msg.error) toast('rtl_433: ' + msg.error, 'warn');
-        }
-        const cp = document.getElementById('rtl433-count-pill');
-        if (cp) cp.textContent = (msg.count || 0) + ' msgs';
-      }
-      break;
-
-    case 'rtl433_message':
-      rtl433AddRow(msg.msg);
-      break;
-
-    case 'rtl433_clear':
-      { const r = document.getElementById('rtl433-rows'); if (r) r.innerHTML = ''; }
       break;
 
     /* ── DSD / DSD+ ──────────────────────────────────────────────── */
@@ -11814,7 +12023,9 @@ function handleJSONFrame(msg) {
 
     /* ── Misc ────────────────────────────────────────────────────── */
     case 'overload':
-      toast('\u26a0 RF overload \u2014 reduce gain', 'warn');
+      // 2026-08-11, Ch.8 parity: was toast-only, banner never shown.
+      // msg.active mirrors SDRConnect's real overload property.
+      _setOverloadBanner(!!msg.active);
       break;
 
     case 'air_freqs':
@@ -11916,7 +12127,7 @@ function _anyDecoderActive() {
 
 /* ── Decoder control — one active at a time ─────────────────────── */
 // Slugs the bridge understands
-const DECODER_SLUGS = ['cw','rtty','psk31','psk63','psk125','navtex','olivia','olivia16','contestia','mfsk16','mfsk32','hell','dominoex','wefax','sstv','pocsag','acars','ais','adsb','hfdl','vdl2','rtl433','dsd','dab','drm','trunk'];
+const DECODER_SLUGS = ['cw','rtty','psk31','psk63','psk125','navtex','olivia','olivia16','contestia','mfsk16','mfsk32','hell','dominoex','wefax','sstv','pocsag','acars','ais','adsb','hfdl','vdl2','dsd','dab','drm','trunk'];
 
 let _activeDecoderSlug = null;  // currently running decoder (non-FT8)
 
@@ -11953,7 +12164,6 @@ const DECODERS_DB = {
     { slug: 'hdradio', name: 'HD Radio (NRSC-5)',        tagSym: '▣', tagText: 'nrsc5',       color: 'var(--orange)' },
     { slug: 'hfdl',   name: 'HFDL HF Data Link',         tagSym: '▣', tagText: 'dumphfdl',    color: 'var(--orange)' },
     { slug: 'vdl2',   name: 'VDL2 VHF Data Link',        tagSym: '▣', tagText: 'dumpvdl2',    color: 'var(--orange)' },
-    { slug: 'rtl433', name: 'ISM Sensors (rtl_433)',     tagSym: '▣', tagText: 'rtl_433',     color: 'var(--orange)' },
     { slug: 'dsd',    name: 'Digital Voice',             tagSym: '▣', tagText: 'DSD+',        color: 'var(--orange)' },
     { slug: 'trunk',  name: 'Trunked P25/DMR/NXDN',      tagSym: '▣', tagText: 'OP25',        color: 'var(--orange)' },
   ]},
@@ -12467,6 +12677,12 @@ function applyState(s) {
   // spectrum, etc.) even has a chance to render behind it.
   if (s.connection_mode !== undefined) _handleConnectionModeState(s.connection_mode);
 
+  // In-GUI Start/Stop stream control (added 2026-08-09) — sync the topbar
+  // button's icon/label to the backend's authoritative stream_paused flag
+  // whenever a full state snapshot arrives (initial connect, reconnect,
+  // or right after sdr_stream_stop/start broadcast their own updated state).
+  if (s.stream_paused !== undefined) _updateStreamToggleUI(s.stream_paused);
+
   // Process center_hz FIRST — liveCenter must be correct before VFO
   // and tune line calculations use it. vfo_hz and sample_rate both depend on it.
   if (s.center_hz !== undefined && !window._isDragging) {
@@ -12546,10 +12762,42 @@ function applyState(s) {
       setMode(s.mode, true);  // silent: update UI only, no sendCmd
     }
   }
-  // Gain
+  // Gain — on SDRplay/SDRConnect this is an LNA-state INDEX, not a dB
+  // figure (2026-08-11, Ch.8 parity — see the manual's "RF GAIN, and why
+  // it looks backwards"). Label changed from "N dB" to "N LNA" to stop
+  // implying a real dB reading. RTL-SDR's index genuinely does correspond
+  // to a real tenths-dB table (see the dedicated rtl_gain_info handler
+  // below, which sets the more precise real dB figure on that path) —
+  // this block's plain "LNA" label only applies when engine !== 'RTLSDR'.
   if (s.gain_lna !== undefined) {
+    DS.gainLna = s.gain_lna;
     var gainEl = document.getElementById('stat-gain');
-    if (gainEl) gainEl.textContent = s.gain_lna !== -1 ? s.gain_lna + ' dB' : 'Auto';
+    if (gainEl && DS._engine !== 'RTLSDR') {
+      gainEl.textContent = s.gain_lna !== -1 ? s.gain_lna + ' LNA' : 'Auto';
+    }
+    var gp = document.getElementById('gain-panel');
+    if (gp && gp.classList.contains('open')) _buildGainPanel();
+  }
+  if (s.lna_state_min !== undefined) DS.lnaStateMin = s.lna_state_min;
+  if (s.lna_state_max !== undefined) DS.lnaStateMax = s.lna_state_max;
+  // AGC — real enable + threshold sync (2026-08-11, Ch.8 parity)
+  if (s.agc_enable !== undefined) {
+    DS.agcEnable = !!s.agc_enable;
+    if (typeof _proState === 'object') _proState.agc_enable = DS.agcEnable;
+    var agcBtn = document.getElementById('pro-agc-btn');
+    if (agcBtn) agcBtn.textContent = DS.agcEnable ? 'ON' : 'OFF';
+    _updateAgcThresholdUI();
+  }
+  if (s.agc_threshold !== undefined) {
+    DS.agcThreshold = s.agc_threshold;
+    var agcThEl = document.getElementById('pro-agc-th-val');
+    if (agcThEl) agcThEl.textContent = DS.agcThreshold;
+    var agcThSl = document.getElementById('pro-agc-th-sl');
+    if (agcThSl && document.activeElement !== agcThSl) agcThSl.value = DS.agcThreshold;
+  }
+  // Overload — real ADC-clipping banner (2026-08-11, Ch.8 parity)
+  if (s.overload !== undefined) {
+    _setOverloadBanner(!!s.overload);
   }
 
   // Volume / mute — sync from SDRConnect's real state instead of trusting
@@ -12858,6 +13106,19 @@ function _cinEnter() {
   // Open the overlay
   const overlay = _elCinOverlay;
   if (overlay) overlay.classList.add('open');
+  // Boot splash (Part B) — brief "tuning in" card, then fade. Cancel/reset
+  // any leftover timer from a fast exit+re-enter so it always plays fresh.
+  if (overlay) {
+    overlay.classList.remove('cin-ready');
+    clearTimeout(_cinSplashTimer);
+    _cinSplashTimer = setTimeout(() => overlay.classList.add('cin-ready'), 2200);
+    // Restore persisted grain/scanlines preference (Part B toggles, G/S keys)
+    try {
+      overlay.classList.toggle('cin-nograin', localStorage.getItem('ds_cin_nograin') === '1');
+      overlay.classList.toggle('cin-scanlines-on', localStorage.getItem('ds_cin_scanlines') === '1');
+    } catch(_) {}
+  }
+  _cinIdleStart();
   // Apply persisted scene (silently)
   setCinScene(DS.cinScene || 'nexus', true);
   // Body click exits cinematic — defer so the button click doesn't immediately trigger it
@@ -12890,7 +13151,14 @@ function _cinBodyClick(e) {
   const overlay = _elCinOverlay;
   if (!overlay) return;
   // Ignore clicks on interactive elements within the overlay
-  if (e.target.closest('#cin-info') || e.target.closest('#cin-exit-hint') || e.target.closest('#cin-scene-bar')) return;
+  // (2026-08-08: added #cin-palette-bar -- live user report that picking a
+  // colour swatch closed Cinematic Mode. Root cause: the swatch bar is a
+  // sibling of #cin-scene-bar, not nested inside it, since it needed to sit
+  // outside the scene-bar's own flex row -- so a swatch click didn't match
+  // any of the existing .closest() guards and fell through to the same
+  // "click anywhere else exits" handler as clicking bare canvas.)
+  if (e.target.closest('#cin-info') || e.target.closest('#cin-exit-hint') ||
+      e.target.closest('#cin-scene-bar') || e.target.closest('#cin-palette-bar')) return;
   if (DS.cinematic) toggleCinematic();
 }
 
@@ -12906,28 +13174,211 @@ function _cinExit() {
   // Clear floating labels
   _cinSigLabels.forEach(el => el.remove());
   _cinSigLabels = [];
+  // Boot splash + idle-fade cleanup (Part B) — so re-entering plays fresh
+  clearTimeout(_cinSplashTimer);
+  if (overlay) overlay.classList.remove('cin-ready', 'cin-idle');
+  _cinIdleStop();
   // Restore canvas sizes
   setTimeout(() => { initCanvases(); updateTuneLine(); }, 80);
   toast('Cinematic off', 'info');
 }
 
+/* ── Part B chrome helpers: grain/scanlines toggle, idle-fade, flash ── */
+let _cinSplashTimer = null;
+let _cinIdleTimer   = null;
+const _cinIdleReset = () => {
+  const ov = _elCinOverlay;
+  if (!ov) return;
+  ov.classList.remove('cin-idle');
+  clearTimeout(_cinIdleTimer);
+  _cinIdleTimer = setTimeout(() => ov.classList.add('cin-idle'), 3500);
+};
+function _cinIdleStart() {
+  _cinIdleReset();
+  document.addEventListener('mousemove', _cinIdleReset);
+  document.addEventListener('keydown', _cinIdleReset);
+}
+function _cinIdleStop() {
+  document.removeEventListener('mousemove', _cinIdleReset);
+  document.removeEventListener('keydown', _cinIdleReset);
+  clearTimeout(_cinIdleTimer);
+  _cinIdleTimer = null;
+}
+function _cinToggleGrain() {
+  const ov = _elCinOverlay;
+  if (!ov) return;
+  const off = ov.classList.toggle('cin-nograin');
+  try { localStorage.setItem('ds_cin_nograin', off ? '1' : '0'); } catch(_) {}
+  toast(off ? 'Film grain off' : 'Film grain on', 'info');
+}
+function _cinToggleScanlines() {
+  const ov = _elCinOverlay;
+  if (!ov) return;
+  const on = ov.classList.toggle('cin-scanlines-on');
+  try { localStorage.setItem('ds_cin_scanlines', on ? '1' : '0'); } catch(_) {}
+  toast(on ? 'Scanlines on' : 'Scanlines off', 'info');
+}
+
 /* ── Cinematic scene engine ─────────────────────────────────────────
-   Five full-screen scenes, each a distinct renderer:
+   Eight full-screen scenes, each a distinct renderer:
      NEXUS    — aurora ribbons, drifting particles, live spectrum horizon
      RETRO    — valve receiver: tuning dial, VU needle, glowing valves
      BARS     — classic spectrum analyser with peak caps + reflection
      PHOSPHOR — CRT oscilloscope: persistence trace, graticule, scanlines
      POLAR    — radial spectrum ring with radar sweep
-   Keys while in cinematic: V cycles scenes, 1–5 select directly.    */
+     ORBIT    — rotating shaded planet, spectrum-lit orbital ring, satellites
+     GRID     — tactical perspective HUD: data streams + lock cross-hairs
+     TOPOLOGY — 3D depth-buffer waterfall: stacked spectrum history terrain
+     THEATER  — channel-guide framing: title card + live decoder captions
+                over a scrolling teal→amber LUT waterfall
+   THEATER (2026-08-10) is the 9th scene, built from a real scoping plan
+   (WRITING/NEXUS_cinema_theater_scene_plan.md) against a standalone
+   cinema-mode.html mockup Jon shared. Only the mockup's *framing* (a TV/
+   cinema channel-guide look) and its LUT-waterfall rendering technique
+   were kept — every data field is real: title/emblem via
+   _cinGetStationName(), meta via _cinMetaLine(), the rating bar from
+   real SNR banding, and the caption strip mirrors whichever text decoder
+   tab (CW/RTTY/PSK31/NAVTEX/Olivia/ACARS/HFDL/VDL2/DSD/Trunk) is
+   currently active — falling back to RDS/DAB DLS text, same source
+   _cinUpdateStation() already used, when no text decoder is active. The
+   mockup's fictional STATIONS database, program guide, and next/prev
+   channel-hop were explicitly NOT ported in this pass — next/prev would
+   actually retune the real receiver, which needs its own opt-in gate
+   (deferred, see the plan doc's open question).
+   ORBIT and GRID (2026-08-06) were designed externally against
+   NEXUS_Cinema_Scene_Developer_Guide.md by a friend of the project,
+   handed back as two self-contained *_Handoff.md specs, then wired in
+   here following their own §1 registration steps. Two small fixes were
+   made during wiring (both scenes passed a syntax + 300-frame mock-canvas
+   smoke test as handed off, so neither was a crash — these are polish):
+     ORBIT — the handoff's "slowly rotating" planet never actually
+       rotated (the terminator arc + shading gradient were drawn at fixed
+       angles every frame; only the ring segments and satellites moved).
+       Fixed by caching the shading gradient once (it's static — colours/
+       shape never change) and rotating the *canvas transform* around the
+       planet's centre each frame before filling it + the terminator arc,
+       so both rotate together at zero extra gradient-rebuild cost.
+     GRID — a background linear gradient (st.bg) was built and correctly
+       cached on resize per the guide's convention, but never actually
+       applied anywhere (the trail-fade used a flat rgba colour instead) —
+       dead code, likely a leftover from an earlier draft. Now painted as
+       a faint depth wash under the per-frame trail-fade so it's actually
+       used.
+   TOPOLOGY (2026-08-06) came in as a raw draft function (no handoff doc,
+   no accent colour chosen) rather than a full guide-compliant spec, and
+   unlike ORBIT/GRID it did NOT pass an as-handed-off smoke test — two
+   real bugs, confirmed by actually running it:
+     - `constcurrentFrame` / `consthorizonY` — missing spaces collapsed
+       `const currentFrame` / `const horizonY` into single undeclared
+       identifiers. In sloppy-mode JS that's not a parse error (assigning
+       to an undeclared name silently creates an implicit global), but the
+       very next line in each case *reads* the correctly-spelled variable,
+       which was never actually declared — confirmed via a Node smoke
+       test to throw `ReferenceError: currentFrame is not defined` on the
+       very first frame, every frame, the moment this scene was selected.
+       Fixed by restoring the missing spaces.
+     - Step 5 ("Responsive Signal Peak Bloom") set up glow/stroke state
+       but never actually drew anything — the comment "Dynamic peak sweep
+       path rendered here..." was a placeholder, not code. Implemented as
+       a bright retrace of the newest (closest) history slice on top of
+       the dimmer stack beneath it, glow radius scaling with lvl.peak —
+       same "soft-then-bright two-pass" idiom PHOSPHOR already uses.
+   Also: the draft's wireframe colour (`rgba(0,255,204,…)`, teal) was
+   visually almost identical to GRID's existing teal accent (`#00ffc8`) —
+   no accent had been specified, so picked a distinct blue (`#3c82ff`,
+   sitting in the one open hue gap between NEXUS's cyan and BARS' violet)
+   for both the CSS accent and the in-canvas wireframe/glow, keeping the
+   established convention that a scene's accent matches what it actually
+   looks like on screen.
+   Keys while in cinematic: V cycles scenes, 1–9 select directly.    */
 
-const CIN_SCENES = ['nexus', 'retro', 'bars', 'phosphor', 'polar'];
+const CIN_SCENES = ['nexus', 'retro', 'bars', 'phosphor', 'polar', 'orbit', 'grid', 'topology', 'theater'];
 const CIN_SCENE_NAMES = {
   nexus:    'NEXUS — Aurora Intelligence',
   retro:    'RETRO — Valve Receiver',
   bars:     'BARS — Spectrum Analyser',
   phosphor: 'PHOSPHOR — CRT Scope',
   polar:    'POLAR — Radial Sweep',
+  orbit:    'ORBIT — Planetary Sweep',
+  grid:     'GRID — Tactical HUD',
+  topology: 'TOPOLOGY — Signal Terrain',
+  theater:  'THEATER — Now Showing',
 };
+
+/* ── Cinema colour palette (2026-08-08) — see the matching CSS comment
+   above #cin-canvas,#cin-spectrum-canvas,#cin-nixie for the split
+   approach (hue-rotate for baked-in canvas/SVG colours, direct --cin-ac/
+   --cin-dim override for chrome that already reads those vars). Swatch
+   set is curated (not a free colour picker, per user preference) and
+   deliberately reuses each scene's own native accent as one of the
+   choices, so picking e.g. "Teal" on NEXUS gives it GRID's classic look. */
+const CIN_SCENE_ACCENT_HEX = {   // must mirror the #cin-overlay[data-scene=...] CSS block
+  nexus:'#00c8ff', retro:'#ffb300', bars:'#b266ff', phosphor:'#00ff88',
+  polar:'#ff44dd', orbit:'#ff9f43', grid:'#00ffc8', topology:'#3c82ff',
+  theater:'#ff3b5c',
+};
+const CIN_PALETTE_SWATCHES = [
+  {id:'cyan',    hex:'#00c8ff', label:'Cyan'},
+  {id:'amber',   hex:'#ffb300', label:'Amber'},
+  {id:'violet',  hex:'#b266ff', label:'Violet'},
+  {id:'green',   hex:'#00ff88', label:'Green'},
+  {id:'magenta', hex:'#ff44dd', label:'Magenta'},
+  {id:'orange',  hex:'#ff9f43', label:'Orange'},
+  {id:'teal',    hex:'#00ffc8', label:'Teal'},
+  {id:'blue',    hex:'#3c82ff', label:'Blue'},
+  {id:'red',     hex:'#ff3b5c', label:'Red'},
+];
+function _hexHue(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255,
+        g = parseInt(hex.slice(3, 5), 16) / 255,
+        b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (d === 0) return 0;
+  let h;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  h *= 60;
+  return h < 0 ? h + 360 : h;
+}
+function _hexToRgba(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function _cinApplyPalette(scene) {
+  const ov = _elCinOverlay;
+  if (!ov) return;
+  let swatchId = '';
+  try { swatchId = localStorage.getItem('ds_cin_hue_' + scene) || ''; } catch(_) {}
+  const swatch = CIN_PALETTE_SWATCHES.find(s => s.id === swatchId);
+  if (swatch) {
+    const nativeHex = CIN_SCENE_ACCENT_HEX[scene] || '#00c8ff';
+    const deg = ((_hexHue(swatch.hex) - _hexHue(nativeHex)) + 360) % 360;
+    ov.style.setProperty('--cin-hue', deg + 'deg');
+    ov.style.setProperty('--cin-ac', swatch.hex);
+    ov.style.setProperty('--cin-dim', _hexToRgba(swatch.hex, 0.45));
+  } else {
+    ov.style.removeProperty('--cin-hue');
+    ov.style.removeProperty('--cin-ac');
+    ov.style.removeProperty('--cin-dim');
+  }
+  document.querySelectorAll('#cin-palette-bar .cin-swatch').forEach(b =>
+    b.classList.toggle('active', (b.dataset.swatch || '') === swatchId));
+}
+function _cinSetPaletteSwatch(swatchId) {
+  const scene = DS.cinScene || 'nexus';
+  try {
+    if (swatchId) localStorage.setItem('ds_cin_hue_' + scene, swatchId);
+    else localStorage.removeItem('ds_cin_hue_' + scene);
+  } catch(_) {}
+  _cinApplyPalette(scene);
+  const swatch = CIN_PALETTE_SWATCHES.find(s => s.id === swatchId);
+  toast(swatch ? `${CIN_SCENE_NAMES[scene] || scene} — ${swatch.label}` : 'Colour reset to default', 'info');
+}
+function _cinTogglePalette() {
+  const bar = document.getElementById('cin-palette-bar');
+  if (bar) bar.classList.toggle('open');
+}
 
 let _cinSceneState  = {};   // per-scene scratch, reset on scene switch
 let _cinFrameNo     = 0;
@@ -12958,6 +13409,12 @@ function setCinScene(id, quiet) {
   if (ov) ov.dataset.scene = id;
   document.querySelectorAll('.cin-scene-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.scene === id));
+  // Colour palette (2026-08-08) — re-apply this scene's own saved swatch
+  // (or reset to its native colour if none saved), and close the picker
+  // popup so it doesn't sit open showing the previous scene's highlight.
+  _cinApplyPalette(id);
+  const _pbar = document.getElementById('cin-palette-bar');
+  if (_pbar) _pbar.classList.remove('open');
   // Clean slate — scenes with persistence trails must not inherit pixels
   _cinSceneState = {};
   ['cin-canvas', 'cin-spectrum-canvas'].forEach(cid => {
@@ -12973,7 +13430,13 @@ function setCinScene(id, quiet) {
   } else if (station) {
     station.style.top = ''; // restore default CSS (top:12%) for other scenes
   }
-  if (!quiet && DS.cinematic) toast(CIN_SCENE_NAMES[id], 'info');
+  if (!quiet && DS.cinematic) {
+    toast(CIN_SCENE_NAMES[id], 'info');
+    // Flash pulse (Part B) — skip on the silent initial-entry call so it
+    // doesn't double up with the boot splash fading out.
+    const fl = document.getElementById('cin-flash');
+    if (fl) { fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go'); }
+  }
 }
 
 function cycleCinScene(dir) {
@@ -13624,6 +14087,510 @@ function _cinScenePolar(ctx, W, H, phase, bins, lvl) {
   }
 }
 
+/* ── Scene: ORBIT — rotating shaded planet + spectrum-lit ring ──────
+   Designed externally (ORBIT_Planetary_Sweep_Handoff.md, 2026-08-06).
+   Fixed on wiring-in: the planet's shading gradient is cached (st.planetGrad
+   — it's static, colours/shape never change) and both it and the terminator
+   arc are drawn inside a canvas transform rotated by `phase` around the
+   planet's centre, so the "slowly rotating" concept is actually delivered
+   at zero extra per-frame gradient-rebuild cost. Everything else is as
+   handed off. */
+function _cinSceneOrbit(ctx, W, H, phase, bins, lvl) {
+  const st = _cinSceneState;
+
+  if (!st.sats) {
+    st.sats = Array.from({ length: 7 }, () => ({
+      angle: Math.random() * Math.PI * 2,
+      speed: 0.004 + Math.random() * 0.008,
+      r: 0.55 + Math.random() * 0.25,           // orbital radius factor
+      size: 1.5 + Math.random() * 2
+    }));
+    st.ring = new Float32Array(96);             // ring segments
+  }
+
+  // Trail fade
+  ctx.fillStyle = 'rgba(5, 2, 0, 0.12)';
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W * 0.5;
+  const cy = H * 0.58;
+  const planetR = Math.min(W, H) * 0.22;
+
+  // Soft atmosphere halo (breathes with peak) — genuinely needs a fresh
+  // gradient every frame since its colour-stop alphas track lvl.peak/avg.
+  const haloR = planetR * (1.55 + lvl.peak * 0.35);
+  const halo = ctx.createRadialGradient(cx, cy, planetR * 0.9, cx, cy, haloR);
+  halo.addColorStop(0, `rgba(255, 159, 67, ${0.18 + lvl.peak * 0.15})`);
+  halo.addColorStop(0.6, `rgba(255, 120, 40, ${0.06 + lvl.avg * 0.08})`);
+  halo.addColorStop(1, 'rgba(255, 80, 20, 0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Planet body — cached shading gradient (colours/shape never change,
+  // only its on-screen rotation does), rebuilt only if canvas size changes.
+  if (!st.planetGrad || st.planetGradKey !== W + 'x' + H) {
+    st.planetGrad = ctx.createRadialGradient(
+      cx - planetR * 0.35, cy - planetR * 0.25, 0,
+      cx, cy, planetR
+    );
+    st.planetGrad.addColorStop(0, '#5a3a1e');
+    st.planetGrad.addColorStop(0.55, '#2a180c');
+    st.planetGrad.addColorStop(1, '#0a0502');
+    st.planetGradKey = W + 'x' + H;
+  }
+
+  // Rotate the canvas transform around the planet's centre so the cached
+  // shading gradient + terminator line sweep together — this is what
+  // "slowly rotating" actually means; the fill/stroke calls themselves
+  // don't change frame to frame, only the space they're drawn into.
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(phase * 0.025);
+  ctx.translate(-cx, -cy);
+
+  ctx.fillStyle = st.planetGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, planetR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Subtle surface noise / terminator line
+  ctx.strokeStyle = 'rgba(255, 180, 100, 0.15)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy, planetR * 0.98, -Math.PI * 0.6, Math.PI * 0.4);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // Update + draw orbital ring (spectrum mapped to arc segments)
+  const ringR = planetR * 1.55;
+  const segs = st.ring.length;
+  for (let i = 0; i < segs; i++) {
+    const lo = Math.floor(i * bins.length / segs);
+    const hi = Math.floor((i + 1) * bins.length / segs);
+    let m = 0;
+    for (let j = lo; j < hi; j++) if (bins[j] > m) m = bins[j];
+    st.ring[i] += (m / 255 - st.ring[i]) * 0.18;
+  }
+
+  ctx.lineWidth = 3;
+  ctx.shadowColor = 'rgba(255, 159, 67, 0.8)';
+  ctx.shadowBlur = 12;
+  for (let i = 0; i < segs; i++) {
+    const a0 = (i / segs) * Math.PI * 2 + phase * 0.15;
+    const a1 = ((i + 1) / segs) * Math.PI * 2 + phase * 0.15;
+    const intensity = st.ring[i];
+    if (intensity < 0.04) continue;
+    ctx.strokeStyle = `rgba(255, 180, 90, ${0.25 + intensity * 0.75})`;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringR, a0, a1);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+
+  // Thin outer guide ring
+  ctx.strokeStyle = 'rgba(255, 159, 67, 0.18)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Satellites
+  for (const s of st.sats) {
+    s.angle += s.speed;
+    const sx = cx + Math.cos(s.angle) * ringR * s.r;
+    const sy = cy + Math.sin(s.angle) * ringR * s.r * 0.55; // slight ellipse
+    ctx.fillStyle = 'rgba(255, 220, 160, 0.9)';
+    ctx.shadowColor = 'rgba(255, 160, 60, 0.9)';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(sx, sy, s.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // Very faint stars
+  if (!st.stars) {
+    st.stars = Array.from({ length: 60 }, () => ({
+      x: Math.random(), y: Math.random() * 0.7, r: Math.random() * 1.1 + 0.3
+    }));
+  }
+  for (const s of st.stars) {
+    ctx.fillStyle = `rgba(255, 200, 150, ${0.15 + 0.1 * Math.sin(phase * 1.5 + s.x * 10)})`;
+    ctx.fillRect(s.x * W, s.y * H, s.r, s.r);
+  }
+}
+
+/* ── Scene: GRID — tactical perspective HUD ──────────────────────────
+   Designed externally (GRID_Tactical_HUD_Handoff.md, 2026-08-06).
+   Fixed on wiring-in: st.bg (a cached linear gradient) was built every
+   resize per the guide's caching convention but never actually painted
+   anywhere — the trail-fade used a flat rgba colour instead, so the
+   gradient was dead code. Now painted each frame as a faint depth wash
+   underneath the trail-fade, so it's the thing actually giving the scene
+   its top-to-bottom darkening rather than doing nothing. Everything else
+   is as handed off. */
+function _cinSceneGrid(ctx, W, H, phase, bins, lvl) {
+  const st = _cinSceneState;
+  const N = 64;                                   // number of vertical streams
+
+  // Lazy init
+  if (!st.vals) {
+    st.vals = new Float32Array(N);
+    st.peaks = new Float32Array(N);
+    st.locks = [];                                // active cross-hair flashes
+  }
+
+  // Cached background gradient (rebuild only on size change)
+  if (!st.bg || st.bgH !== H) {
+    st.bg = ctx.createLinearGradient(0, 0, 0, H);
+    st.bg.addColorStop(0, '#020808');
+    st.bg.addColorStop(0.7, '#031010');
+    st.bg.addColorStop(1, '#000000');
+    st.bgH = H;
+  }
+
+  // Depth wash — the cached gradient, painted faint so it sits under the
+  // trail-fade below rather than fighting it.
+  ctx.globalAlpha = 0.06;
+  ctx.fillStyle = st.bg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1;
+
+  // Trail fade (never clearRect)
+  ctx.fillStyle = 'rgba(0, 8, 8, 0.14)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Perspective grid floor
+  const horizon = H * 0.62;
+  ctx.strokeStyle = 'rgba(0, 255, 200, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  // horizontal lines
+  for (let i = 0; i < 12; i++) {
+    const t = i / 11;
+    const y = horizon + (H - horizon) * (t * t);
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+  }
+  // vertical vanishing lines
+  const vanishX = W * 0.5;
+  for (let i = -8; i <= 8; i++) {
+    const x = vanishX + i * (W * 0.12);
+    ctx.moveTo(x, H);
+    ctx.lineTo(vanishX, horizon);
+  }
+  ctx.stroke();
+
+  // Downsample bins → N streams + damped follow
+  for (let i = 0; i < N; i++) {
+    const lo = Math.floor(i * bins.length / N);
+    const hi = Math.floor((i + 1) * bins.length / N);
+    let m = 0;
+    for (let j = lo; j < hi; j++) if (bins[j] > m) m = bins[j];
+    st.vals[i] += (m / 255 - st.vals[i]) * 0.22;
+    if (st.vals[i] > st.peaks[i]) st.peaks[i] = st.vals[i];
+    else st.peaks[i] = Math.max(0, st.peaks[i] - 0.006);
+  }
+
+  // Draw vertical data streams
+  const streamW = W / N;
+  // BUGFIX (2026-08-07): was horizon*0.85, which let mid-strength streams
+  // rise straight into the #cin-info text block (station name/frequency)
+  // sitting well within that reachable height, not just on rare peaks.
+  // Capped so worst-case stream top stays clear of the (also-raised) text
+  // position below.
+  const maxH = horizon * 0.4;
+  ctx.shadowColor = 'rgba(0, 255, 200, 0.7)';
+  ctx.shadowBlur = 10;
+
+  for (let i = 0; i < N; i++) {
+    const h = st.vals[i] * maxH;
+    const x = i * streamW + streamW * 0.35;
+    const w = streamW * 0.3;
+
+    // main stream
+    ctx.fillStyle = `rgba(0, 255, 200, ${0.35 + st.vals[i] * 0.5})`;
+    ctx.fillRect(x, horizon - h, w, h);
+
+    // peak tip
+    if (st.peaks[i] > 0.05) {
+      ctx.fillStyle = 'rgba(180, 255, 240, 0.9)';
+      ctx.fillRect(x, horizon - st.peaks[i] * maxH - 2, w, 2);
+    }
+  }
+  ctx.shadowBlur = 0;
+
+  // Occasional lock cross-hairs on strong peaks
+  if (Math.random() < 0.015 && lvl.peak > 0.55) {
+    const idx = Math.floor(Math.random() * N);
+    st.locks.push({ x: idx * streamW + streamW * 0.5, life: 18 });
+  }
+  st.locks = st.locks.filter(l => l.life-- > 0);
+  for (const l of st.locks) {
+    const alpha = l.life / 18;
+    ctx.strokeStyle = `rgba(0, 255, 200, ${alpha})`;
+    ctx.lineWidth = 1.5;
+    const s = 14;
+    ctx.beginPath();
+    ctx.moveTo(l.x - s, horizon - 40); ctx.lineTo(l.x + s, horizon - 40);
+    ctx.moveTo(l.x, horizon - 40 - s); ctx.lineTo(l.x, horizon - 40 + s);
+    ctx.stroke();
+  }
+
+  // Soft radial centre glow that breathes with signal
+  const glowR = 180 + lvl.avg * 120;
+  const g = ctx.createRadialGradient(W * 0.5, horizon, 0, W * 0.5, horizon, glowR);
+  g.addColorStop(0, `rgba(0, 255, 200, ${0.08 + lvl.avg * 0.12})`);
+  g.addColorStop(1, 'rgba(0, 255, 200, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ── Scene: TOPOLOGY — 3D depth-buffer waterfall terrain ─────────────
+   Came in as a raw draft (see the engine header comment above for the
+   two real bugs fixed and the accent-colour decision). Structure below
+   is otherwise exactly as drafted: a rolling stack of downsampled
+   spectrum frames rendered as receding wireframe slices, oldest/farthest
+   drawn first (dim, thin) and newest/closest drawn last (bright, thick)
+   so nearer terrain correctly overdraws farther terrain. */
+function _cinSceneTopology(ctx, W, H, phase, bins, lvl) {
+  const st = _cinSceneState;
+
+  // 1. Persistent state initialization (Depth Buffer & Interaction)
+  if (!st.history) {
+    st.history = [];
+    st.maxHistory = 40;
+    st.tilt = 0.55;      // Default 3D angle projection ratio
+    st.hoverBin = -1;
+  }
+
+  // 2. Motion blur fade — top-of-frame fill
+  ctx.fillStyle = 'rgba(3, 8, 12, 0.15)';
+  ctx.fillRect(0, 0, W, H);
+
+  // 3. Push downsampled current frame bins into history depth buffer
+  const N = 64;
+  const currentFrame = new Float32Array(N);
+  const step = Math.floor(bins.length / N);
+  for (let i = 0; i < N; i++) {
+    currentFrame[i] = bins[i * step] / 255;
+  }
+  st.history.unshift(currentFrame);
+  if (st.history.length > st.maxHistory) st.history.pop();
+
+  // 4. Render 3D topographic wireframe slices
+  const sliceHeight = (H * 0.6) / st.maxHistory;
+  const horizonY = H * 0.25;
+  for (let d = st.history.length - 1; d >= 0; d--) {
+    const frameData = st.history[d];
+    const depthRatio = 1 - d / st.maxHistory;
+    const yBase = horizonY + (st.maxHistory - d) * sliceHeight;
+    const lineWidth = 0.5 + depthRatio * 1.5;
+    ctx.beginPath();
+    ctx.lineWidth = lineWidth;
+    ctx.strokeStyle = `rgba(60, 130, 255, ${depthRatio * 0.7 + 0.1})`;
+    for (let i = 0; i < N; i++) {
+      const x = (i / (N - 1)) * W;
+      const amp = frameData[i] * (H * 0.25 * st.tilt);
+      const y = yBase - amp;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // 5. Responsive signal-peak bloom — retrace the newest (closest) slice
+  // with a bright glowing highlight on top of the dimmer stack beneath
+  // it, so the current instant reads clearly against the fading terrain
+  // behind it. Glow radius flares with lvl.peak.
+  if (st.history.length) {
+    const newest = st.history[0];
+    const yBaseNewest = horizonY + st.maxHistory * sliceHeight;
+    ctx.shadowColor = 'rgba(60, 130, 255, 0.8)';
+    ctx.shadowBlur = 15 * lvl.peak;
+    ctx.strokeStyle = '#e0ffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < N; i++) {
+      const x = (i / (N - 1)) * W;
+      const amp = newest[i] * (H * 0.25 * st.tilt);
+      const y = yBaseNewest - amp;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+}
+
+/* ── Scene: THEATER — scrolling teal→amber LUT waterfall ────────────
+   Technique ported from cinema-mode.html (Jon's mockup): a fixed colour
+   lookup table (teal shadows → amber highlights, "TV waterfall" look,
+   deliberately distinct from the shared cyan spectrum-horizon `nexus`
+   uses) plus a scroll-down-by-2px-then-paint-a-fresh-top-row loop. The
+   mockup generated its rows from a hardcoded fake station layout; here
+   the LUT is applied to real live `bins` instead, so what's on screen is
+   the actual tuned spectrum, just recoloured/scrolled TV-style. */
+const _THEATER_PAL_STOPS = [
+  [0.00, [3, 6, 14]],   [0.18, [8, 22, 44]],   [0.38, [14, 48, 86]],
+  [0.55, [24, 94, 116]],[0.70, [44, 140, 150]],[0.82, [120, 196, 170]],
+  [0.90, [236, 178, 92]],[0.97, [252, 236, 200]],[1.00, [255, 250, 235]],
+];
+let _theaterLUT = null;
+function _theaterBuildLUT() {
+  const lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const v = i / 255, stops = _THEATER_PAL_STOPS;
+    let a = stops[0], b = stops[stops.length - 1];
+    for (let j = 0; j < stops.length - 1; j++) {
+      if (v >= stops[j][0] && v <= stops[j + 1][0]) { a = stops[j]; b = stops[j + 1]; break; }
+    }
+    const k = (v - a[0]) / Math.max(1e-6, (b[0] - a[0]));
+    lut[i * 3]     = Math.round(a[1][0] + (b[1][0] - a[1][0]) * k);
+    lut[i * 3 + 1] = Math.round(a[1][1] + (b[1][1] - a[1][1]) * k);
+    lut[i * 3 + 2] = Math.round(a[1][2] + (b[1][2] - a[1][2]) * k);
+  }
+  return lut;
+}
+function _cinSceneTheater(ctx, W, H, phase, bins, lvl) {
+  if (!_theaterLUT) _theaterLUT = _theaterBuildLUT();
+  const st = _cinSceneState;
+  if (!st.tRow || st.tRow.length !== W * 4) st.tRow = new Uint8ClampedArray(W * 4);
+  // Scroll the existing frame down 2px (cheap: blit the canvas onto itself
+  // shifted), then paint two fresh rows from live bins at the top through
+  // the LUT — same idiom the mockup used for its per-frame waterfall.
+  ctx.drawImage(ctx.canvas, 0, 0, W, H - 2, 0, 2, W, H - 2);
+  const n = bins.length, out = st.tRow;
+  for (let x = 0; x < W; x++) {
+    const bi = Math.min(n - 1, Math.floor((x / W) * n));
+    let v = Math.max(0, Math.min(1, bins[bi] / 255));
+    v = Math.pow(v, 1.35);
+    const idx = (v * 255) | 0, o = x * 4;
+    out[o] = _theaterLUT[idx * 3]; out[o + 1] = _theaterLUT[idx * 3 + 1];
+    out[o + 2] = _theaterLUT[idx * 3 + 2]; out[o + 3] = 255;
+  }
+  const row = new ImageData(out, W, 1);
+  ctx.putImageData(row, 0, 0);
+  ctx.putImageData(row, 0, 1);
+}
+
+/* ── THEATER title card — reuses the same station/meta/SNR sources every
+   other scene's HUD already reads, just laid out as a "now showing" card
+   instead of a plain readout. Only re-renders the name/emblem when the
+   station actually changes (not every throttled tick) so it doesn't
+   flicker. */
+let _theaterLastName = null;
+function _cinTheaterEmblem(name, mode) {
+  if (name) {
+    const words = name.trim().split(/\s+/).filter(Boolean);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    return name.replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase() || '—';
+  }
+  return (mode || '—').slice(0, 3).toUpperCase();
+}
+function _cinUpdateTheaterCard() {
+  if (DS.cinScene !== 'theater') return;
+  const name = _cinGetStationName();
+  const display = name || (DS.vfos.a.mode + ' ' + (DS.vfos.a.freq / 1e6).toFixed(3) + ' MHz');
+  const nameEl = document.getElementById('cin-theater-name');
+  const metaEl = document.getElementById('cin-theater-meta');
+  const emblemEl = document.getElementById('cin-theater-emblem');
+  if (metaEl) metaEl.textContent = _cinMetaLine();
+  if (display !== _theaterLastName) {
+    _theaterLastName = display;
+    if (nameEl) nameEl.textContent = display;
+    if (emblemEl) emblemEl.textContent = _cinTheaterEmblem(name, DS.vfos.a.mode);
+    // Brief flash pulse on a real station change, same cue scene switches use
+    const fl = document.getElementById('cin-flash');
+    if (fl) { fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go'); }
+  }
+  const snr = DS.vfos.a.snr || 0;
+  const on = Math.max(1, Math.min(5, Math.round((snr + 10) / 10))); // -10..40dB -> 1..5 bars
+  document.querySelectorAll('#cin-theater-rating i').forEach((el, i) => el.classList.toggle('on', i < on));
+}
+
+/* ── THEATER captions — mirrors whichever text-producing decoder tab is
+   currently active into a typewriter-revealed caption line, falling back
+   to RDS/DAB DLS text (same source _cinUpdateStation() already reads)
+   when no text decoder tab is open. Each decoder's #<id>-decode-out div
+   already exists and is populated by its own tab (see _flowLive()/
+   appendFlowText() call sites) — this only reads it, no new backend
+   state. Idle-state notice children (#<id>-fldigi-notice) are excluded
+   so the placeholder copy never gets treated as a "caption". */
+const THEATER_DECODER_SOURCES = {
+  cw:     { out: 'cw-decode-out',     notice: 'cw-fldigi-notice',     tag: 'CW'     },
+  rtty:   { out: 'rtty-decode-out',   notice: 'rtty-fldigi-notice',   tag: 'RTTY'   },
+  psk31:  { out: 'psk31-decode-out',  notice: 'psk31-fldigi-notice',  tag: 'PSK31'  },
+  navtex: { out: 'navtex-decode-out', notice: 'navtex-fldigi-notice', tag: 'NAVTEX' },
+  olivia: { out: 'olivia-decode-out', notice: 'olivia-fldigi-notice', tag: 'OLIVIA' },
+  acars:  { out: 'acars-decode-out-full', notice: null, tag: 'ACARS' },
+  hfdl:   { out: 'hfdl-decode-out',   notice: null, tag: 'HFDL'  },
+  vdl2:   { out: 'vdl2-decode-out',   notice: null, tag: 'VDL2'  },
+  dsd:    { out: 'dsd-decode-out',    notice: null, tag: 'DSD'   },
+  trunk:  { out: 'trunk-decode-out',  notice: null, tag: 'TRUNK' },
+};
+function _theaterLastDecodeLine(outId, noticeId) {
+  const out = document.getElementById(outId);
+  if (!out) return '';
+  if (noticeId) {
+    const notice = document.getElementById(noticeId);
+    // Notice still present/visible inside the log div == no live text has
+    // arrived yet (_flowLive() hides/removes it once real decode starts).
+    if (notice && out.contains(notice) && notice.offsetParent !== null) return '';
+  }
+  const text = (out.innerText || out.textContent || '').trim();
+  if (!text) return '';
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return '';
+  return lines[lines.length - 1].slice(0, 170);
+}
+function _theaterCaptionSource() {
+  const activePanel = document.querySelector('.tab-panel.active');
+  const tabName = activePanel ? activePanel.id.replace(/^tab-/, '') : '';
+  const src = THEATER_DECODER_SOURCES[tabName];
+  if (src) {
+    const line = _theaterLastDecodeLine(src.out, src.notice);
+    if (line) return { tag: src.tag, text: line };
+  }
+  // Fall back to RDS/DAB DLS — same priority _cinUpdateStation() uses
+  if (typeof _dabPlayingSid !== 'undefined' && _dabPlayingSid) {
+    const dls = (document.getElementById('dab-np-dls-track') || {}).textContent || '';
+    if (dls && dls !== '—') return { tag: 'DAB', text: dls };
+  }
+  const rt = (document.getElementById('rds-rt') || {}).textContent || '';
+  if (rt) return { tag: 'RDS', text: rt };
+  return { tag: '', text: '' };
+}
+let _theaterCap = { text: '', tag: '', shown: '', charIdx: 0, holdTicks: 0 };
+function _cinUpdateTheaterCaptions() {
+  const wrap = document.getElementById('cin-theater-captions');
+  if (DS.cinScene !== 'theater') { if (wrap) wrap.classList.remove('cin-cap-live'); return; }
+  const src = _theaterCaptionSource();
+  if (!src.text) { if (wrap) wrap.classList.remove('cin-cap-live'); return; }
+  if (src.text !== _theaterCap.text) {
+    _theaterCap = { text: src.text, tag: src.tag, shown: '', charIdx: 0, holdTicks: 0 };
+    const tagEl = document.getElementById('cin-theater-cap-tag');
+    if (tagEl) tagEl.textContent = src.tag;
+  }
+  if (wrap) wrap.classList.add('cin-cap-live');
+  const textEl = document.getElementById('cin-theater-cap-text');
+  if (!textEl) return;
+  if (_theaterCap.holdTicks > 0) { _theaterCap.holdTicks--; return; }
+  if (_theaterCap.charIdx < _theaterCap.text.length) {
+    // Reveal ~1 char every 3 frames (~50ms at 60fps) — matches the
+    // mockup's typewriter pace without a separate setInterval; lifecycle
+    // is tied to this same rAF loop so it stops automatically on exit.
+    if (_cinFrameNo % 3 === 0) {
+      _theaterCap.shown += _theaterCap.text[_theaterCap.charIdx++];
+      textEl.innerHTML = _theaterCap.shown + '<span class="cin-caret">▌</span>';
+    }
+  } else {
+    textEl.innerHTML = _theaterCap.shown;
+    _theaterCap.holdTicks = 90; // ~1.5s hold before the next real line, if any, retypes
+  }
+}
+
 /* Cinematic canvas — scene dispatcher + shared HUD updates */
 function _cinStartCanvas() {
   const canvas = document.getElementById('cin-canvas');
@@ -13656,8 +14623,16 @@ function _cinStartCanvas() {
       case 'bars':     _cinSceneBars(ctx, W, H, phase, bins, lvl);     break;
       case 'phosphor': _cinScenePhosphor(ctx, W, H, phase, bins, lvl); break;
       case 'polar':    _cinScenePolar(ctx, W, H, phase, bins, lvl);    break;
+      case 'orbit':    _cinSceneOrbit(ctx, W, H, phase, bins, lvl);    break;
+      case 'grid':     _cinSceneGrid(ctx, W, H, phase, bins, lvl);     break;
+      case 'topology': _cinSceneTopology(ctx, W, H, phase, bins, lvl); break;
+      case 'theater':  _cinSceneTheater(ctx, W, H, phase, bins, lvl);  break;
       default:         _cinSceneNexus(ctx, W, H, phase, bins, lvl);
     }
+    // THEATER caption typewriter needs per-frame granularity (character
+    // reveal), unlike the throttled HUD block below — no-ops instantly
+    // when the scene isn't theater.
+    _cinUpdateTheaterCaptions();
 
     // Shared HUD — freq / meta / clock
     const fd = document.getElementById('cin-freq-display');
@@ -13673,7 +14648,7 @@ function _cinStartCanvas() {
         nw.getUTCSeconds().toString().padStart(2,'0') + 'Z';
     }
     // Enhanced HUD — throttled (these were previously defined but never called)
-    if (_cinFrameNo % 20 === 0)  { _cinUpdateSNR(); _cinUpdateStation(); }
+    if (_cinFrameNo % 20 === 0)  { _cinUpdateSNR(); _cinUpdateStation(); _cinUpdateTheaterCard(); }
     if (_cinFrameNo % 240 === 0) _cinUpdateSW();
   }
 
@@ -14157,6 +15132,50 @@ function _zoomFreqRange() {
   const center = DS.zoomCenter || DS.liveCenter;
   const half   = DS.liveSR / 2 / DS.zoom;
   return { lo: center - half, hi: center + half };
+}
+
+/* ── Spectrum/waterfall trace ↔ frequency-axis alignment correction ─────
+   BUG (found 2026-08-10, live: tuned to 693kHz/R5Live on the MW/NDB band
+   at 2 MSPS): when the visible span's lower edge would go below 0 Hz —
+   i.e. DS.liveCenter < half the sample rate, common near the bottom of
+   the LW/MF/NDB bands with a wide sample rate — _zoomFreqRange() clamps
+   lo to 0 (Math.max(0, ...)) for the zoom<=1 branch. The frequency axis
+   (updateLiveFreqAxis) and the tune line (vfoToFrac) both read that
+   clamped {lo,hi} and are therefore self-consistent with each other and
+   with click-to-tune (xToFreqHz(), which also calls _zoomFreqRange()).
+   But drawSpectrumFromBins()'s binVal() and _wfRenderFromBuf()'s per-
+   pixel loop each independently assumed the FULL, UNCLAMPED symmetric
+   span (liveCenter ± sr/2) maps linearly across the canvas — they never
+   consulted the clamp. Since hi is identical in both (never clamped),
+   the two mappings only diverge on the low end, growing from 0 error at
+   the right edge to full error at the left edge — so the actual spectrum
+   trace / waterfall columns were drawn well to the right of the axis
+   tick / tune-line position they truly correspond to whenever tuned near
+   DC, exactly as reported ("tuned to 693, but the peak and tune line
+   don't line up"). Clicking on the visible peak wouldn't have re-tuned
+   to that peak either, since click-to-tune uses the (correct) clamped
+   mapping while the peak itself was drawn using the (wrong) unclamped
+   one.
+   Fix: derive a per-pixel correction (clipOffset, clipRatio) that maps
+   the displayed/clamped fraction back onto the true/unclamped bin
+   fraction. Reduces to a no-op (clipOffset=0, clipRatio=1) whenever no
+   clamping actually occurred (zoom>1 never clamps; zoom<=1 only clamps
+   when liveCenter < sr/2), so this is safe to apply unconditionally. */
+function _specClipCorrection() {
+  const sr   = DS.liveSR || 2e6;
+  const zoom = DS.zoom || 1;
+  if (zoom > 1) return { clipOffset: 0, clipRatio: 1 };  // this branch never clamps
+  const center   = DS.zoomCenter || DS.liveCenter;
+  const half     = sr / 2;
+  const trueLo   = center - half;
+  const dispLo   = Math.max(0, trueLo);
+  const trueSpan = 2 * half;
+  if (trueSpan <= 0) return { clipOffset: 0, clipRatio: 1 };
+  const dispSpan = (center + half) - dispLo;
+  return {
+    clipOffset: (dispLo - trueLo) / trueSpan,  // 0 when unclamped
+    clipRatio:  dispSpan / trueSpan,            // 1 when unclamped
+  };
 }
 
 /* ── Center waterfall/spectrum view on the tuned VFO (w0.2.6) ───────────
@@ -14728,6 +15747,7 @@ function setMode(mode, silent) {
   if (mb) mb.classList.add('active');
   const badge = document.getElementById('vfo-a-mode');
   if (badge) badge.textContent = mode;
+  if (typeof _updateAgcThresholdUI === 'function') _updateAgcThresholdUI();
   if (!silent && typeof MODE_BW !== 'undefined') {
     // Only reset BW to mode default when user explicitly changes mode (not silent echo from SDRConnect)
     const defaultBw = MODE_BW[mode] || 3000;
@@ -15188,6 +16208,45 @@ const _CONN_MODE_LABELS = {
   rtlsdr:        '📻 RTL-SDR',
 };
 
+/* ══════════════════════════════════════════════════════════════════
+   In-GUI Start/Stop stream control (added 2026-08-09)
+   ══════════════════════════════════════════════════════════════════ */
+let _streamPaused = false;
+
+function _toggleStreamRunning() {
+  if (_streamPaused) {
+    sendCmd({ cmd: 'sdr_stream_start' });
+  } else {
+    sendCmd({ cmd: 'sdr_stream_stop' });
+  }
+  // Don't flip _streamPaused/the icon here — wait for the backend's
+  // stream_paused_changed/state broadcast so the button reflects what
+  // SDRConnect actually did, not what was merely requested (same
+  // pattern as every other toggle button in NEXUS, e.g. decoder
+  // start/stop buttons).
+}
+
+function _updateStreamToggleUI(paused) {
+  _streamPaused = !!paused;
+  const btn   = document.getElementById('topbar-stream-toggle');
+  const icon  = document.getElementById('topbar-stream-toggle-icon');
+  const label = document.getElementById('topbar-stream-toggle-label');
+  if (!btn || !icon || !label) return;
+  if (_streamPaused) {
+    icon.innerHTML   = '&#9632;';           // ■ red square
+    label.textContent = 'Stopped';
+    btn.style.borderColor = 'rgba(255,64,64,0.31)';
+    btn.style.color       = 'var(--red)';
+    btn.title = 'Start the SDRConnect stream again';
+  } else {
+    icon.innerHTML   = '&#9654;';           // ▶ green triangle
+    label.textContent = 'Running';
+    btn.style.borderColor = 'rgba(0,255,136,0.31)';
+    btn.style.color       = 'var(--green)';
+    btn.title = 'Stop the SDRConnect stream without closing NEXUS';
+  }
+}
+
 function _showConnectionPicker() {
   const m = document.getElementById('connection-picker-modal');
   if (m) m.style.display = 'flex';
@@ -15631,13 +16690,19 @@ function drawSpectrumFromBins(bins) {
   const smoothRange = Math.max(1, dispRange);
 
   const zoom = DS.zoom || 1;
+  // 2026-08-10 axis-alignment fix — see _specClipCorrection() for why this
+  // is needed: without it, the spectrum trace is drawn using the full
+  // unclamped span while the axis/tune-line use the DC-clamped span,
+  // making the trace visibly diverge from the axis near the low end.
+  const _clip = _specClipCorrection();
 
   function binVal(x) {
     const vizFrac = zoom > 1
       ? (0.5 - 1 / (2 * zoom)) + (x / w) / zoom
       : (x + 0.5) / w;   // bin-centre sampling — was x/(w+1) which shifted spectrum left
+    const correctedFrac = _clip.clipOffset + vizFrac * _clip.clipRatio;
     const panFrac = window._isDragging ? (DS.liveCenter - DS.vfos.b.freq) / (DS.liveSR || 2e6) : 0;
-    const pos = Math.max(0, Math.min(1, vizFrac - panFrac)) * (bins.length - 1);
+    const pos = Math.max(0, Math.min(1, correctedFrac - panFrac)) * (bins.length - 1);
     const raw = cubicInterp(bins, pos);
     return Math.max(0, Math.min(1, (raw - smoothFloor) / smoothRange));
   }
@@ -15691,8 +16756,9 @@ function drawSpectrumFromBins(bins) {
     spCtx.shadowBlur  = 4;
     for (let x = 0; x < w; x++) {
       const vizFrac = zoom > 1 ? (0.5 - 1/(2*zoom)) + (x/w)/zoom : (x + 0.5) / w;
+      const correctedFrac = _clip.clipOffset + vizFrac * _clip.clipRatio;
       const panFrac = window._isDragging ? (DS.liveCenter - DS.vfos.b.freq) / (DS.liveSR || 2e6) : 0;
-      const binPos  = Math.max(0, Math.min(0.9999, vizFrac - panFrac)) * (bins.length - 1);
+      const binPos  = Math.max(0, Math.min(0.9999, correctedFrac - panFrac)) * (bins.length - 1);
       const bi      = Math.round(binPos);
       const pv      = Math.max(0, Math.min(1, _peakBins[bi] || 0));
       const py      = h - pv * (h - 6) - 4;
@@ -15803,6 +16869,11 @@ function _wfRenderFromBuf() {
   const zoom  = DS.zoom || 1;
   const N     = _wfBufCols;
   const { skip, multi } = _wfRowStride();
+  // 2026-08-10 axis-alignment fix — same bug/fix as drawSpectrumFromBins()'s
+  // binVal(), see _specClipCorrection(). Folded into zBase/zScale below
+  // (computed once, not per-row loop iteration) so there's no extra
+  // per-pixel cost.
+  const _clip = _specClipCorrection();
 
   // Build full canvas image in one ImageData call — much faster than row-by-row putImageData
   const imgData = wfCtx.createImageData(W, H);
@@ -15825,8 +16896,13 @@ function _wfRenderFromBuf() {
     // JS-01/JS-08/JS-09: LUT lookup replaces specToRGB per pixel;
     // _wfBufInterp inlined; Math.pow skipped when wfGamma===1.
     const panFrac  = window._isDragging ? (DS.liveCenter - DS.vfos.b.freq) / (DS.liveSR || 2e6) : 0;
-    const zBase    = zoom > 1 ? (0.5 - 1 / (2 * zoom)) : 0;
-    const zScale   = zoom > 1 ? 1 / (zoom * W) : 1 / W;
+    const _zBaseRaw  = zoom > 1 ? (0.5 - 1 / (2 * zoom)) : 0;
+    const _zScaleRaw = zoom > 1 ? 1 / (zoom * W) : 1 / W;
+    // Axis-alignment fix folded in: zBase/zScale now express the corrected
+    // (true bin) fraction directly, so the per-pixel formula below is
+    // unchanged and costs nothing extra.
+    const zBase    = _clip.clipOffset + _zBaseRaw * _clip.clipRatio;
+    const zScale   = _zScaleRaw * _clip.clipRatio;
     const zOff     = zoom > 1 ? 0 : 0.5;            // bin-centre offset
     const useGamma = wfGamma !== 1.0;
     const cm       = wfColormap;                     // Uint8ClampedArray[1024]
@@ -16139,9 +17215,11 @@ window.addEventListener('keydown', e => {
   // Cinematic mode owns the keyboard while active
   if (DS.cinematic) {
     const k = e.key.toLowerCase();
-    if (k >= '1' && k <= '5' && k.length === 1) { setCinScene(CIN_SCENES[+k - 1]); return; }
+    if (k >= '1' && k <= '9' && k.length === 1) { setCinScene(CIN_SCENES[+k - 1]); return; }
     if (k === 'v')                   { cycleCinScene(1); return; }
     if (k === 'c' || k === 'escape') { toggleCinematic(); return; }
+    if (k === 'g') { _cinToggleGrain(); return; }
+    if (k === 's') { _cinToggleScanlines(); return; }
     if (k === 'arrowup')   { _stepFreq(DS.jogStepIdx||4, +1); return; }
     if (k === 'arrowdown') { _stepFreq(DS.jogStepIdx||4, -1); return; }
     return;
@@ -16208,6 +17286,16 @@ function animLoop() {
   if (window._bpDirty !== false) {
     try { if (typeof _BP !== 'undefined') _drawBandplan(); } catch(e) {}
     window._bpDirty = false;
+  }
+
+  // Freq-axis drag (2026-08-10): tune-line + axis redraw during a freq-axis
+  // pan drag is deferred here — see the mousemove handler in initSpectrumInteraction
+  // for why (was running synchronously on every native mousemove, far more
+  // often than the display can paint).
+  if (window._axisDragDirty) {
+    updateTuneLine();
+    updateLiveFreqAxis();
+    window._axisDragDirty = false;
   }
 
   // Lerp displayVfoHz toward actual VFO — 15% per frame = ~8 frames to settle
@@ -16292,7 +17380,7 @@ function showTab(name) {
     }
   });
   // Light up Decoders toggle when any decoder sub-tab is selected
-  const decoderTabs = ['ft8', 'wspr', 'cw', 'rtty', 'psk31', 'navtex', 'wefax', 'sstv', 'pocsag', 'acars', 'ais', 'adsb', 'hfdl', 'vdl2', 'rtl433', 'dsd', 'dab', 'drm', 'hdradio', 'trunk', 'marine', 'multimon', 'rivet', 'freedv'];
+  const decoderTabs = ['ft8', 'wspr', 'cw', 'rtty', 'psk31', 'navtex', 'wefax', 'sstv', 'pocsag', 'acars', 'ais', 'adsb', 'hfdl', 'vdl2', 'dsd', 'dab', 'drm', 'hdradio', 'trunk', 'marine', 'multimon', 'rivet', 'freedv'];
   const decBtn = document.getElementById('tab-dec-btn');
   if (decBtn) decBtn.classList.toggle('selected', decoderTabs.includes(name));
   if (name === 'ft8')    { try { ft8InitMap(); } catch(e) {} }
@@ -17611,7 +18699,12 @@ function hfRegionMatch(region){
   // matches a location string containing "Colorado").
   if(loc.includes(tag) || tag.includes(loc) ||
      tag.split(/[\s,/]+/).some(part=>part.length>1 && loc.includes(part))){
-    return {cls:'good', label:'🟢 In range'};
+    // 2026-08-10: was '🟢 In range' — read as an RF/distance claim because
+    // hfReach()/hfReachBadge() (real propagation calc, below) shows its
+    // good state as an actual km distance using this same 'reach' CSS
+    // class. This badge is a pure region-tag text match, not distance —
+    // show the literal tag instead, same convention as the warn branch.
+    return {cls:'good', label:'🟢 ' + region.trim()};
   }
   return {cls:'warn', label:'🟡 ' + region.trim()};
 }
@@ -17661,11 +18754,31 @@ function hfImportFile(file){
   if(ext==='xlsx'||ext==='xls'){_hfImportXLSX(file);}
   else{const r=new FileReader();r.onload=e=>_hfParseCSVTXT(e.target.result,file.name);r.readAsText(file);}
 }
+// Mode default helper (2026-08-10) -- see call site in _hfParseCSVTXT()
+// for why this exists. Only the international FM broadcast band gets a
+// non-'AM' guess; every other band keeps the original 'AM' default
+// rather than guessing at bands where mode can't be inferred from
+// frequency alone (VHF air is AM, VHF marine/ham is FM, UHF varies...).
+function _hfGuessModeFromFreq(freqMhz){
+  if(freqMhz>=87.0&&freqMhz<=108.0)return'FM';
+  return'AM';
+}
 function _hfParseCSVTXT(text,filename){
   const lines=text.split(/\r?\n/).filter(l=>l.trim());
   if(!lines.length){toast('File appears empty','warn');return;}
   const sample=lines[0];
-  const delim=sample.includes(';')?';':sample.includes('\t')?'\t':',';
+  // Delimiter sniffing (2026-08-10 fix): previously picked the first of
+  // ';'/'\t'/',' found ANYWHERE in the header, so a comma-delimited file
+  // whose station-name field happened to contain a stray tab (seen in a
+  // real UK-FM export where multi-word names had spaces corrupted to
+  // tabs, e.g. "Station\tName") got the WHOLE file mis-split on tab
+  // instead of comma -- collapsing multiple real columns into one and
+  // corrupting both the name and frequency parsing. Counting occurrences
+  // and picking whichever delimiter appears most in the header is the
+  // standard, far more robust CSV-sniffing approach; comma wins ties.
+  const delimCounts={',':0,';':0,'\t':0};
+  for(const ch of sample) if(ch in delimCounts) delimCounts[ch]++;
+  const delim=Object.keys(delimCounts).reduce((best,d)=>delimCounts[d]>delimCounts[best]?d:best,',');
   const headers=lines[0].split(delim).map(h=>h.trim().toLowerCase().replace(/"/g,''));
   let freqCol=headers.findIndex(h=>h.includes('freq')||h.includes('khz')||h.includes('mhz'));
   let nameCol=headers.findIndex(h=>h.includes('name')||h.includes('station'));
@@ -17681,14 +18794,27 @@ function _hfParseCSVTXT(text,filename){
   let siteCol=headers.findIndex(h=>h.includes('site')||h.includes('tx'));
   if(freqCol===-1)freqCol=0;
   const isKhz=headers[freqCol]&&headers[freqCol].includes('khz');
+  const isMhz=headers[freqCol]&&headers[freqCol].includes('mhz');
   const entries=[];
   for(let i=1;i<lines.length;i++){
-    const cols=lines[i].split(delim).map(c=>c.trim().replace(/^"|"$/g,''));
+    // Trailing .replace(/\s+/g,' ') (2026-08-10) normalizes any run of
+    // whitespace -- including stray tabs -- down to a single space. Real
+    // export seen in the wild: a UK-FM list where multi-word station
+    // names had their spaces corrupted to tabs (e.g. "Heart\tNorth\t
+    // and\tMid\tWales"); a field value should never legitimately contain
+    // a raw tab, so this is a safe, generic cleanup for any list.
+    const cols=lines[i].split(delim).map(c=>c.trim().replace(/^"|"$/g,'').replace(/\s+/g,' '));
     const rawFreq=parseFloat(cols[freqCol]);
     if(isNaN(rawFreq)||rawFreq<=0)continue;
     let freqMhz=rawFreq;
     if(rawFreq>1e6)freqMhz=rawFreq/1e6;             // Hz → MHz (ListBuilder/StationFinder format)
-    else if(isKhz||rawFreq>100)freqMhz=rawFreq/1000; // kHz → MHz
+    else if(isKhz)freqMhz=rawFreq/1000;              // header explicitly says kHz
+    // (2026-08-10 fix) previously "rawFreq>100" alone was enough to guess
+    // kHz, which silently wrecked any EXPLICITLY MHz-labelled column once
+    // a frequency reached 100+ MHz -- the entire top half of the UK FM
+    // band (100-108 MHz) plus VHF/UHF bands generally. Only fall back to
+    // the magnitude guess when the header didn't already say "MHz".
+    else if(!isMhz&&rawFreq>100)freqMhz=rawFreq/1000; // ambiguous unit, guess kHz
     let timeStr='';
     if(timeCol>=0){timeStr=cols[timeCol]||'';}
     else if(timeOnCol>=0||timeOffCol>=0){
@@ -17696,8 +18822,18 @@ function _hfParseCSVTXT(text,filename){
       const toff=(timeOffCol>=0?(cols[timeOffCol]||''):'').replace(/\D/g,'');
       if(ton||toff)timeStr=ton.padStart(4,'0')+'-'+toff.padStart(4,'0');
     }
+    // Mode default (2026-08-10 fix): a hardcoded 'AM' fallback made sense
+    // for HF/shortwave broadcast lists (this importer's original use
+    // case) but was applied unconditionally to ANY list lacking a mode
+    // column -- including this file, real FM broadcast stations 87-108
+    // MHz, all reported as AM. _hfGuessModeFromFreq() only special-cases
+    // the international FM broadcast band, where the convention is
+    // unambiguous; everything else keeps the previous 'AM' default
+    // rather than guessing at bands (VHF air/marine/ham, UHF, etc.)
+    // where mode genuinely can't be inferred from frequency alone.
+    const guessedMode = modeCol>=0 ? (cols[modeCol]||'') : '';
     entries.push({freq:parseFloat(freqMhz.toFixed(3)),name:nameCol>=0?(cols[nameCol]||''):'',
-      mode:modeCol>=0?(cols[modeCol]||'AM'):'AM',language:langCol>=0?(cols[langCol]||''):'',
+      mode:guessedMode||_hfGuessModeFromFreq(freqMhz),language:langCol>=0?(cols[langCol]||''):'',
       time:timeStr,site:siteCol>=0?(cols[siteCol]||''):'',source:filename});
   }
   if(!entries.length){toast('No valid frequency entries in '+filename,'warn');return;}
@@ -18525,17 +19661,25 @@ function _flAllRows(){
   HF_CUSTOM_LISTS.forEach((list, li) => {
     if (list.visible === false) return;
     (list.entries||[]).forEach((e, ei) => {
-      // Defensive normalisation — handles three legacy storage artefacts:
+      // Defensive normalisation — handles legacy storage artefacts:
       //  1. freq stored as string (e.g. '11.770') by an older import path
-      //  2. freq stored in kHz (> 100) before the /1000 conversion was in place
-      //  3. freq undefined / NaN — silently skip
+      //  2. freq undefined / NaN — silently skip
+      // REMOVED (2026-08-10) a third "guard" that re-divided any freq > 100
+      // by 1000, on the theory it must still be un-converted kHz. That was
+      // exactly the same flawed magnitude-only heuristic already fixed in
+      // _hfParseCSVTXT() (see that fix's comment) — it silently re-broke
+      // already-correct FM-band entries (100-108 MHz) on every single
+      // table render, dividing e.g. 102.0 MHz down to 0.102. There is no
+      // magnitude cutoff that's safe here: NEXUS's own custom-list lookup
+      // spans HF through UHF (FM 88-108, Air 118-137, VHF 144-174, UHF
+      // 400-470+...), so ">100 ⇒ must be kHz" can't distinguish a genuine
+      // high-band MHz value from a real legacy kHz mistake. The importer
+      // is now the single source of truth for units; trust its stored
+      // value instead of re-guessing it at render time.
       let freq = typeof e.freq === 'number' ? e.freq
                : typeof e.freq === 'string' ? parseFloat(e.freq)
                : NaN;
       if (isNaN(freq) || freq <= 0) return;
-      // kHz guard: HF range is 3–30 MHz (3 000–30 000 kHz); anything > 100 that
-      // came in without unit conversion is still in kHz — divide it down now.
-      if (freq > 100 && freq < 30000) freq = parseFloat((freq / 1000).toFixed(3));
       rows.push({ freq, name:e.name||'Unnamed', mode:e.mode||'AM', language:e.language||'', time:e.time||'', listName:list.name, listColor:list.color, listRegion:list.region||'', listIdx:li, entryIdx:ei, editable: !!list.myList });
     });
   });
@@ -18600,16 +19744,25 @@ function flRenderTable(){
     body.innerHTML = '<tr><td colspan="5" class="si-empty">' + emptyMsg + '</td></tr>';
     return;
   }
-  body.innerHTML = rows.map(r => `
+  body.innerHTML = rows.map(r => {
+    // Bandwidth per mode (2026-08-10): was hardcoded 12500 Hz for every
+    // row regardless of mode, so FM broadcast entries (mode WFM, e.g.
+    // imported FM lists) got tuned with a narrowband demod bandwidth
+    // instead of proper wideband FM. WFM rows now use 192000 Hz, matching
+    // the 192 kHz bandwidth already used by other WFM quick-tune buttons
+    // elsewhere in NEXUS; every other mode keeps the prior 12500 Hz.
+    const tuneBw = r.mode === 'WFM' ? 192000 : 12500;
+    return `
     <tr style="border-bottom:1px solid rgba(30,37,48,0.19)">
-      <td style="padding:3px 6px;cursor:pointer" onclick="_tuneTo(${r.freq},'${r.mode}',12500,true)" title="Click to tune"><span style="color:var(--accent)">${r.freq.toFixed(4)}</span></td>
-      <td style="padding:3px 6px;cursor:pointer;color:var(--text)" onclick="_tuneTo(${r.freq},'${r.mode}',12500,true)">${r.name}</td>
+      <td style="padding:3px 6px;cursor:pointer" onclick="_tuneTo(${r.freq},'${r.mode}',${tuneBw},true)" title="Click to tune"><span style="color:var(--accent)">${r.freq.toFixed(4)}</span></td>
+      <td style="padding:3px 6px;cursor:pointer;color:var(--text)" onclick="_tuneTo(${r.freq},'${r.mode}',${tuneBw},true)">${r.name}</td>
       <td style="padding:3px 6px;color:var(--muted)">${r.mode}</td>
       <td style="padding:3px 6px"><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:${r.listColor};display:inline-block"></span><span style="color:var(--muted);font-size:8px">${r.listName}</span>${hfRegionBadge(r.listRegion)}</span></td>
       <td style="padding:3px 6px;text-align:right">${r.editable ?
         `<button onclick="flEditEntry(${r.listIdx},${r.entryIdx})" title="Edit" style="font-family:var(--mono);font-size:9px;padding:1px 5px;background:none;border:1px solid var(--border);color:var(--muted);border-radius:2px;cursor:pointer">✎</button>
          <button onclick="flDeleteEntry(${r.listIdx},${r.entryIdx})" title="Delete" style="font-family:var(--mono);font-size:9px;padding:1px 5px;background:none;border:1px solid var(--border);color:var(--red);border-radius:2px;cursor:pointer">✕</button>` : ''}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 function flAddEntry(){
@@ -19060,6 +20213,252 @@ function _applyAntennaState(s) {
   if (panel && panel.classList.contains('open')) _buildAntPanel();
 }
 
+/* ── RF Gain panel (2026-08-11, SDRcom Blue Ch.8 parity) ───────────────
+   SDRplay hardware reports gain as an LNA-state INDEX, not a dB value:
+   0 = max gain, higher index = less gain — see the manual's "RF GAIN,
+   and why it looks backwards." Per the manual's UI-orientation guidance,
+   the slider itself is drawn so dragging RIGHT = MORE gain, which means
+   the slider's own value and the real lna_state index move in opposite
+   directions. The readout always shows the true raw index underneath so
+   that inversion is never hidden — matches the manual's explicit "always
+   show the real hardware value" instruction. Range comes from
+   DS.lnaStateMin/Max (SDRConnect's real per-device lna_state_min/max,
+   queried on connect — falls back to a 0-27 guess until they arrive). */
+function toggleGainPanel(e) {
+  e.stopPropagation();
+  const panel = document.getElementById('gain-panel');
+  if (!panel) return;
+  if (panel.classList.contains('open')) { closeGainPanel(); return; }
+
+  _buildGainPanel();
+  const trigger = e.currentTarget || e.target;
+  const rect    = trigger.getBoundingClientRect();
+  const panelW  = 210;
+  panel.style.top  = (rect.bottom + 4) + 'px';
+  panel.style.left = Math.max(4, Math.min(rect.right - panelW, window.innerWidth - panelW - 4)) + 'px';
+  panel.classList.add('open');
+  setTimeout(() => document.addEventListener('click', closeGainPanel, { once: true }), 0);
+}
+
+// Gain-index semantics are OPPOSITE between engines: SDRplay/SDRConnect's
+// lna_state is 0=max gain/higher=less gain (inverted), but the RTL-SDR
+// engine path's RTL_GAINS table is ascending tenths-dB (0=min gain/
+// higher=more gain, NOT inverted). A single hardcoded mapping would get
+// the slider direction AND the ATT button's sign backwards on whichever
+// engine it wasn't written for — this helper is the one place that knows
+// which convention applies, so every gain control reads from it instead
+// of assuming SDRplay's convention everywhere.
+function _gainRangeInfo() {
+  if (DS._engine === 'RTLSDR') {
+    return { lo: 0, hi: 28, inverted: false, unitLabel: 'gain idx', zeroLabel: '0 = min gain' };
+  }
+  return { lo: DS.lnaStateMin, hi: DS.lnaStateMax, inverted: true, unitLabel: 'LNA state', zeroLabel: '0 = max gain' };
+}
+
+function _buildGainPanel() {
+  const panel = document.getElementById('gain-panel');
+  if (!panel) return;
+  const gr   = _gainRangeInfo();
+  const lo   = gr.lo, hi = gr.hi;
+  const idx  = (DS.gainLna !== undefined && DS.gainLna >= 0) ? DS.gainLna : lo;
+  const span = Math.max(1, hi - lo);
+  // Slider is always drawn right=more gain regardless of engine; only the
+  // idx<->pct mapping direction (gr.inverted) differs underneath it.
+  const pct  = gr.inverted ? Math.round(100 * (hi - idx) / span) : Math.round(100 * (idx - lo) / span);
+
+  const header = `<div style="font-family:var(--mono);font-size:7px;color:var(--muted);letter-spacing:.1em;padding:4px 10px 2px;border-bottom:1px solid var(--border);margin-bottom:2px">RF GAIN</div>`;
+
+  panel.innerHTML = header + `
+    <div class="gp-row">
+      <span class="wf-ctrl-label" style="color:rgba(0,200,255,.6);width:30px">GAIN</span>
+      <input type="range" class="wf-sl" style="flex:1;width:auto" min="0" max="100" step="1" value="${pct}"
+        oninput="setGainFromPanel(this.value)" title="Drag right for more gain">
+    </div>
+    <div class="gp-readout" id="gp-readout">${gr.unitLabel} ${idx} (range ${lo}-${hi}, ${gr.zeroLabel})</div>
+    <button class="gp-att-btn" onclick="_attGainStep()" title="Drop gain 2 rungs — same as SDRcom Blue's ATT button">ATT &minus;2 RUNGS</button>
+    <button class="gp-guide-btn" onclick="openGainWizard()">GAIN GUIDE &#9656;</button>
+  `;
+}
+
+function closeGainPanel() {
+  const p = document.getElementById('gain-panel');
+  if (p) p.classList.remove('open');
+}
+
+function setGainFromPanel(pctStr) {
+  const gr   = _gainRangeInfo();
+  const lo   = gr.lo, hi = gr.hi;
+  const pct  = Math.max(0, Math.min(100, +pctStr));
+  const span = Math.max(1, hi - lo);
+  const idx  = gr.inverted
+    ? Math.round(hi - (pct / 100) * span)   // SDRplay: slider right → lower index → more gain
+    : Math.round(lo + (pct / 100) * span);  // RTL-SDR: slider right → higher index → more gain
+  sendCmd({ cmd: 'set_gain', lna: idx });
+  DS.gainLna = idx;
+  const gainEl = document.getElementById('stat-gain');
+  if (gainEl) gainEl.textContent = idx + (gr.inverted ? ' LNA' : ' dB idx');
+  const ro = document.getElementById('gp-readout');
+  if (ro) ro.textContent = `${gr.unitLabel} ${idx} (range ${lo}-${hi}, ${gr.zeroLabel})`;
+}
+
+// ATT button — "reduce gain by 2 rungs." On SDRplay/SDRConnect this means
+// the LNA-state INDEX goes UP by 2 (higher index = less gain) — the
+// opposite of what a naive -2 delta would suggest, and what the
+// pre-existing overload-banner button got wrong (it sent delta:-2 under
+// this same label, which would have RAISED gain on SDRplay/SDRConnect,
+// worsening an overload instead of fixing it — fixed here, see
+// CHANGELOG 2026-08-11). On the RTL-SDR engine path the RTL_GAINS table
+// is the opposite convention (ascending = more gain), so reducing gain
+// there means the index goes DOWN by 2 — _gainRangeInfo().inverted picks
+// the correct sign for whichever engine is actually connected.
+function _attGainStep() {
+  const gr = _gainRangeInfo();
+  sendCmd({ cmd: 'set_lna_gain', delta: gr.inverted ? +2 : -2 });
+  toast('ATT: gain reduced 2 rungs', 'info');
+}
+
+// AGC threshold slider — disabled + relabelled in WFM mode, matching
+// SDRconnect's own behaviour (the manual notes AGC threshold becomes
+// on/off-only, non-adjustable, once in WFM — shown here rather than
+// silently greyed out with no explanation).
+function _updateAgcThresholdUI() {
+  const sl  = document.getElementById('pro-agc-th-sl');
+  const lbl = document.getElementById('pro-agc-th-lbl');
+  if (!sl) return;
+  const isWFM = (DS.vfos && DS.vfos.a && DS.vfos.a.mode) === 'WFM';
+  sl.disabled = isWFM;
+  sl.style.opacity = isWFM ? 0.35 : 1;
+  sl.title = isWFM ? 'AGC threshold is on/off-only in WFM mode (SDRConnect limitation)' : 'AGC threshold';
+  if (lbl) lbl.textContent = isWFM ? 'THR (n/a in WFM)' : 'THR';
+}
+
+function setAgcThreshold(val) {
+  const thr = Math.max(0, Math.min(100, +val));
+  DS.agcThreshold = thr;
+  sendCmd({ cmd: 'set_agc_threshold', threshold: thr });
+  const el = document.getElementById('pro-agc-th-val');
+  if (el) el.textContent = thr;
+}
+
+// AGC ON/OFF — dedicated command (2026-08-11, Ch.8 parity). Previously
+// wired to proToggle('agc_enable', ...), which DOES reach SDRConnect via
+// the generic set_property passthrough, but that path sends the value as
+// Python's str(bool) ("True"/"False", capitalised) rather than the
+// lowercase "true"/"false" the SDRconnect API's own examples use — a
+// likely silent case-mismatch. set_agc_enable (backend) sends the correct
+// lowercase string AND tracks state['agc_enable'] for reconnect sync,
+// which the generic passthrough never did either.
+function setAgcEnable(btnId) {
+  const next = !DS.agcEnable;
+  DS.agcEnable = next;
+  _proState.agc_enable = next;
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.textContent = next ? 'ON' : 'OFF'; btn.classList.toggle('active', next); }
+  sendCmd({ cmd: 'set_agc_enable', enable: next });
+  _updateAgcThresholdUI();
+}
+
+/* ── OVERLOAD banner (2026-08-11, Ch.8 parity) ─────────────────────────
+   overload is SDRConnect's real read-only Boolean property (ADC clipping
+   status). Backend queries it on connect and broadcasts {"type":
+   "overload","active":bool} on every change (see w036_NEXUS.py). No
+   WS-controllable notch-filter property exists anywhere in SDRConnect's
+   API — the manual's step 2 ("enable MW/FM notch") can't be replicated as
+   a real remote NEXUS control, so this banner points to SDRConnect's own
+   window instead of faking a toggle that wouldn't do anything. */
+function _setOverloadBanner(active) {
+  DS.overload = active;
+  const banner = document.getElementById('overload-banner');
+  if (banner) banner.classList.toggle('show', active);
+  if (active) toast('⚠ RF overload — reduce gain', 'warn');
+}
+
+function _openSDRConnectForNotch() {
+  // No live "raise SDRConnect's window" command exists in NEXUS — the only
+  // related control is the Connection Setup wizard's one-time Headless/GUI
+  // launch-mode pick (set_local_launch_mode / set_remote_launch_mode),
+  // which decides whether a window exists at all, not whether it's shown
+  // right now. Faking a working button here would repeat exactly the
+  // mistake this whole banner rework is trying to avoid (a control that
+  // looks real but does nothing) — so this is guidance text, not a
+  // pretend action.
+  toast('No notch filter in NEXUS — if SDRConnect is running with its own window (GUI launch mode), switch to it and use its MW/FM notch. In Headless mode there is no window; ATT is the only remedy available here.', 'info');
+}
+
+/* ── RF Gain step-by-step wizard (2026-08-11, Ch.8 parity) ─────────────
+   Implements the manual's 5-step gain-setting recipe verbatim: AGC off
+   at a quiet spot, raise gain until the noise floor just lifts, back off
+   one rung, confirm the strongest signal in range doesn't overload, then
+   optionally re-enable AGC. Guided/human-in-the-loop — each step waits
+   for the user to click Next, it doesn't auto-drive gain on its own. */
+const _gainWizardSteps = [
+  {
+    title: 'Step 1 — AGC off, quiet spot',
+    body: 'Turn AGC off and tune to a quiet part of the band (no strong signal nearby). This gives a clean noise-floor reading to calibrate against.',
+    action: () => { if (DS.agcEnable) setAgcEnable('pro-agc-btn'); }
+  },
+  {
+    title: 'Step 2 — Raise gain',
+    body: 'Slide the RF GAIN control up (more gain) until the noise floor on the spectrum/waterfall just visibly lifts. Stop as soon as you see it move — don’t overshoot.',
+    action: null
+  },
+  {
+    title: 'Step 3 — Back off one rung',
+    body: 'Click ATT −2 once, then nudge gain back up 1 rung if needed — the goal is one rung below where the noise floor first lifted.',
+    action: null
+  },
+  {
+    title: 'Step 4 — Check the strongest signal',
+    body: 'Tune to the strongest signal you expect to receive. Watch the GAIN readout area — if OVERLOAD appears, click ATT −2 again and recheck.',
+    action: null
+  },
+  {
+    title: 'Step 5 — Re-enable AGC',
+    body: 'If you want AGC running day-to-day, turn it back on now. This gain setting becomes AGC’s working point.',
+    action: null
+  },
+];
+let _gainWizardIdx = 0;
+
+function openGainWizard() {
+  closeGainPanel();
+  _gainWizardIdx = 0;
+  _renderGainWizard();
+  const modal = document.getElementById('gain-wizard-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeGainWizard() {
+  const modal = document.getElementById('gain-wizard-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function _renderGainWizard() {
+  const step = _gainWizardSteps[_gainWizardIdx];
+  const body = document.getElementById('gain-wizard-body');
+  if (!body || !step) return;
+  body.innerHTML = `
+    <div style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:.05em;margin-bottom:8px">${step.title} (${_gainWizardIdx+1}/${_gainWizardSteps.length})</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text);line-height:1.6">${step.body}</div>
+  `;
+  const backBtn = document.getElementById('gain-wizard-back');
+  const nextBtn = document.getElementById('gain-wizard-next');
+  if (backBtn) backBtn.style.visibility = _gainWizardIdx === 0 ? 'hidden' : 'visible';
+  if (nextBtn) nextBtn.textContent = _gainWizardIdx === _gainWizardSteps.length - 1 ? 'DONE' : 'NEXT ▸';
+}
+
+function gainWizardNext() {
+  const step = _gainWizardSteps[_gainWizardIdx];
+  if (step && typeof step.action === 'function') step.action();
+  if (_gainWizardIdx >= _gainWizardSteps.length - 1) { closeGainWizard(); return; }
+  _gainWizardIdx++;
+  _renderGainWizard();
+}
+
+function gainWizardBack() {
+  if (_gainWizardIdx > 0) { _gainWizardIdx--; _renderGainWizard(); }
+}
+
 
 /* ── Waterfall / spectrum interaction ────────────────────────────── */
 (function initWFInteraction() {
@@ -19169,8 +20568,25 @@ function _applyAntennaState(s) {
 
     // Tune line glides: vfoToFrac = (vfos.a.freq - liveCenter) / span
     // vfos.a.freq is frozen at _committedLO, liveCenter moves → tune line drifts naturally
-    updateTuneLine();
-    updateLiveFreqAxis();
+    //
+    // PERF FIX (2026-08-10): this handler used to call updateTuneLine() +
+    // updateLiveFreqAxis() directly, synchronously, on every native
+    // mousemove event. Native mousemove can fire far faster than the
+    // display can paint (well over 60/sec on some mice/trackpads), and
+    // both functions do real work every call — updateTuneLine() forces a
+    // layout read (zone.clientWidth) plus several style writes,
+    // updateLiveFreqAxis() does a full 2D canvas redraw (its internal
+    // cache-key guard doesn't help here since liveCenter genuinely
+    // changes on every event). That's on top of the already-existing
+    // once-per-frame animLoop (which redraws the bandplan via the
+    // _bpDirty flag this same handler sets below) — so dragging the
+    // freq-axis was doing many times more layout/canvas work than any
+    // frame could actually display, and users reported the drag itself
+    // feeling slow/laggy as a result. Now just flags dirty; animLoop
+    // consumes the flag and does the real work at most once per rAF
+    // tick, matching the same dirty-flag pattern already used for the
+    // waterfall (_wfDirty) and bandplan (_bpDirty).
+    window._axisDragDirty = true;
 
     // Commit LO when pan exceeds 30% of visible span (user panned far)
     if (_dragTuneTimer === null &&
@@ -24512,8 +25928,20 @@ function _aisBuildVesselRow(v) {
   // live global feed rather than a decoded RF frame -- tag with 📡 so it's
   // distinguishable from this receiver's own RF decode.
   const STATION_LABELS = { base: 'Base Station', aton: 'Aid to Navigation' };
+  // HARDENING (2026-08-09, external review): mmsi_category (see
+  // _ais_mmsi_category() backend) covers the special-purpose MMSI shapes
+  // station_type never did (station_type is only ever set to 'base'/'aton'
+  // today, from message-type-4 broadcasts and AtoN reports specifically)
+  // -- used here only as a fallback label when there's no real vessel name
+  // AND no station_type, so an ordinary named ship's row is unaffected.
+  const CATEGORY_LABELS = {
+    coast_station: 'Coast Station', sar_aircraft: 'SAR Aircraft',
+    craft_of_parent_ship: 'Craft (Parent Ship)', group_ship: 'Group Call',
+    sart: 'SART', mob: 'MOB Device', epirb: 'EPIRB-AIS',
+  };
   const nameTxt = STATION_LABELS[v.station_type] ? STATION_LABELS[v.station_type]
-                  : v.name ? (v.name + (v.name_source === 'aisstream' ? ' 📡' : '')) : '—';
+                  : v.name ? (v.name + (v.name_source === 'aisstream' ? ' 📡' : ''))
+                  : (CATEGORY_LABELS[v.mmsi_category] || '—');
   const nameColor = v.name_source === 'aisstream' ? 'var(--accent2,#5af)' : 'var(--text)';
   // DIAG (2026-07-18, reference-decoder comparison): decoder_sources is a
   // list of every path that's ever produced this MMSI -- 'native' (NEXUS's
@@ -24587,6 +26015,16 @@ function updateAISDisplay(vessels) {
   _setBadge('AIS');
 }
 
+// HARDENING (2026-08-09, external review): human-readable "how old is
+// this" for the position/RF-provenance rows added to the detail modal —
+// unix-seconds timestamp in, "Ns"/"Nm"/"Nh" string out.
+function _aisAgeStr(unixSecs) {
+  const s = Math.max(0, Math.round(Date.now() / 1000 - unixSecs));
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.round(s / 60) + 'm';
+  return Math.round(s / 3600) + 'h';
+}
+
 function _aisPopupHtml(v) {
   if (v.station_type === 'base' || v.station_type === 'aton') {
     const isAton = v.station_type === 'aton';
@@ -24628,6 +26066,20 @@ function _aisShowDetail(v, e) {
   if (title) title.innerHTML = '<span style="color:' + col + '">' + titleTxt +
     '</span><button class="modal-x-btn" onclick="closeAisDetail()" title="Close">✕</button>';
 
+  // HARDENING (2026-08-09, external review): position/identity provenance
+  // + staleness. aisstream is a REMOTE feed (another receiver's decode,
+  // relayed over the network) -- a position it supplied should read
+  // visibly differently from one this receiver's own antenna decoded, and
+  // its age should be obvious rather than looking like a live local fix.
+  // See w036_NEXUS.py's _ais_stamp()/AIS_LOCAL_RF_SOURCES for the backend
+  // side of this (position_source/position_updated, last_local_rf_seen,
+  // last_remote_seen fields this reads).
+  const posSrc = vessel.position_source;
+  const posAge = vessel.position_updated ? _aisAgeStr(vessel.position_updated) : null;
+  const posLine = (vessel.lat !== undefined && vessel.lon !== undefined)
+    ? vessel.lat.toFixed(4) + ', ' + vessel.lon.toFixed(4)
+      + (posAge ? '  (' + posAge + (posSrc === 'aisstream' ? ', 📡 aisstream — remote, not RF-decoded here' : ', ' + (posSrc || 'RF')) + ')' : '')
+    : '—';
   const rows = [
     ['MMSI', vessel.mmsi || '—'],
     ['Name', (vessel.name || '—') + (vessel.name_source === 'aisstream' ? '  📡 (aisstream.io live feed, not RF-decoded here)' : '')],
@@ -24638,7 +26090,8 @@ function _aisShowDetail(v, e) {
     ['Course (COG)', vessel.course !== undefined ? Math.round(vessel.course) + '°' : '—'],
     ['Heading', vessel.heading !== undefined ? Math.round(vessel.heading) + '°' : '—'],
     ['Status', vessel.status !== undefined ? (AIS_NAV_STATUS[vessel.status] || '—') : '—'],
-    ['Position', (vessel.lat !== undefined && vessel.lon !== undefined) ? vessel.lat.toFixed(4) + ', ' + vessel.lon.toFixed(4) : '—'],
+    ['Position', posLine],
+    ['Last local RF', vessel.last_local_rf_seen ? _aisAgeStr(vessel.last_local_rf_seen) + ' ago' : 'never — MMSI only reached via aisstream.io'],
     ['Last seen', vessel.last_seen ? new Date(vessel.last_seen * 1000).toLocaleTimeString() : '—'],
   ];
   body.innerHTML = rows.map(([k, val]) =>
@@ -26319,60 +27772,6 @@ function vdl2AddRow(msg) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   rtl_433 (w033 fork, 2026-07-19) — ISM-band sensor decoder
-   ══════════════════════════════════════════════════════════════════ */
-let _rtl433Count = 0, _rtl433Freq = 433.92;
-
-function rtl433Start() { sendCmd({ cmd: 'rtl433_start', freq_mhz: _rtl433Freq }); }
-function rtl433Stop()  { sendCmd({ cmd: 'rtl433_stop' }); }
-function rtl433Clear() { sendCmd({ cmd: 'rtl433_clear' }); _rtl433Count = 0; const cp = document.getElementById('rtl433-count-pill'); if (cp) cp.textContent = '0 msgs'; }
-function rtl433SetFreq(mhz) {
-  _rtl433Freq = mhz;
-  // BUGFIX (2026-07-20, user report: "ism quick tune buttons do not tune
-  // vfo"). These buttons only ever set _rtl433Freq -- the frequency
-  // rtl_433's own separate subprocess/dongle will use next time it's
-  // (re)started -- and never touched the main NEXUS VFO/waterfall at all,
-  // unlike every other quick-tune control in NEXUS (band-plan strip,
-  // Bands panel, WSPR band buttons, etc.), which all call tuneVFO()/
-  // _tuneTo() to move the main receiver's LO so the clicked frequency is
-  // actually visible on screen. Same category of bug as the earlier FT8
-  // quick-tune-not-retuning-SDR-LO fix. rtl_433 itself still runs its own
-  // independent device (RTL-SDR dongle or its own SoapySDR device), so
-  // this doesn't change what rtl_433 decodes -- it just makes the main
-  // spectrum/waterfall actually jump to the clicked ISM frequency too, so
-  // you can see the raw RF activity NEXUS itself is receiving there.
-  if (typeof tuneVFO === 'function') tuneVFO(mhz);
-  toast('rtl_433 frequency set to ' + mhz + ' MHz' + (document.getElementById('dec-badge-rtl433')?.textContent.includes('Live') ? ' — restart to apply' : ''), 'info');
-}
-
-function rtl433AddRow(msg) {
-  if (!msg) return;
-  _rtl433Count++;
-  const cp = document.getElementById('rtl433-count-pill');
-  if (cp) cp.textContent = _rtl433Count + ' msgs';
-
-  const rows = document.getElementById('rtl433-rows');
-  if (rows) {
-    // rtl_433's JSON schema varies per device — surface whichever reading
-    // fields are present rather than assuming one canonical set.
-    const parts = [];
-    if (msg.temperature_C != null) parts.push(msg.temperature_C.toFixed(1) + '°C');
-    if (msg.humidity != null)      parts.push(msg.humidity + '%RH');
-    if (msg.pressure_kPa != null)  parts.push(msg.pressure_kPa.toFixed(1) + 'kPa');
-    if (msg.pressure_PSI != null)  parts.push(msg.pressure_PSI.toFixed(1) + 'PSI');
-    if (msg.wind_avg_km_h != null) parts.push(msg.wind_avg_km_h.toFixed(1) + 'km/h wind');
-    if (msg.rain_mm != null)       parts.push(msg.rain_mm.toFixed(1) + 'mm rain');
-    const reading = parts.length ? parts.join(', ') : JSON.stringify(msg.raw || {}).slice(0, 60);
-
-    const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:110px 70px 50px 1fr;padding:2px 8px;border-bottom:1px solid var(--border)';
-    row.innerHTML = `<span style="color:var(--amber)">${msg.model || '—'}</span><span style="color:var(--text)">${msg.id != null ? msg.id : '—'}</span><span style="color:${msg.battery_ok === 0 ? 'var(--red)' : 'var(--muted)'}">${msg.battery_ok != null ? (msg.battery_ok ? 'OK' : 'LOW') : '—'}</span><span style="color:var(--muted)">${reading}</span>`;
-    rows.insertBefore(row, rows.firstChild);
-    while (rows.children.length > 150) rows.removeChild(rows.lastChild);
-  }
-}
-
-/* ══════════════════════════════════════════════════════════════════
    DSD / DSD+ Digital Voice
    ══════════════════════════════════════════════════════════════════ */
 function dsdStart() { sendCmd({ cmd: 'dsd_start' }); }
@@ -27118,7 +28517,11 @@ function dabPlayService(sid, name) {
 
   if (nameEl) nameEl.textContent = name || sid;
   if (ensEl)  ensEl.textContent  = ensembleLabel;
-  if (avatar) { avatar.style.background = col.css; avatar.textContent = _dabInitials(name || sid); }
+  if (avatar) {
+    avatar.style.background = col.css;
+    avatar.style.backgroundImage = '';  // clear any previous station's slideshow thumbnail
+    avatar.textContent = _dabInitials(name || sid);
+  }
   if (badge)  badge.textContent = '';  // populated on next ensemble update from the real is_dab_plus flag
 
   // Switching stations means whatever DLS text/slideshow image was showing
@@ -27186,8 +28589,25 @@ function dabUpdateSlideshow(msg) {
   const img = document.getElementById('dab-np-slideshow-img');
   const ph  = document.getElementById('dab-np-slideshow-placeholder');
   const mime = msg.image_type === 2 ? 'image/png' : 'image/jpeg';
-  if (img) { img.src = 'data:' + mime + ';base64,' + msg.image_b64; img.style.display = ''; }
+  const dataUrl = 'data:' + mime + ';base64,' + msg.image_b64;
+  if (img) { img.src = dataUrl; img.style.display = ''; }
   if (ph)  ph.style.display = 'none';
+
+  // FEATURE (2026-08-07): the small hero avatar was permanently stuck on
+  // auto-generated initials, even after a real slideshow image arrived and
+  // started rendering in the big image area right below it -- looked
+  // stale/wrong next to real station art. Once a slideshow image shows up
+  // for the currently-playing station, use it as the avatar thumbnail too
+  // (dabPlayService()/dabStopPlayback() clear this back to initials/blank
+  // whenever the station changes, since a new station's own image hasn't
+  // arrived yet at that point).
+  const avatar = document.getElementById('dab-hero-avatar');
+  if (avatar) {
+    avatar.style.backgroundImage = 'url(' + dataUrl + ')';
+    avatar.style.backgroundSize = 'cover';
+    avatar.style.backgroundPosition = 'center';
+    avatar.textContent = '';
+  }
 }
 
 function dabStopPlayback() {
@@ -27202,7 +28622,7 @@ function dabStopPlayback() {
   const badge  = document.getElementById('dab-hero-badge');
   if (nameEl) nameEl.textContent = 'No station selected';
   if (ensEl)  ensEl.textContent  = '';
-  if (avatar) { avatar.style.background = ''; avatar.textContent = '—'; }
+  if (avatar) { avatar.style.background = ''; avatar.style.backgroundImage = ''; avatar.textContent = '—'; }
   if (badge)  badge.textContent = '';
   _dabResetDlsAndSlideshow();
   if (_dabLastEnsembleMsg) dabUpdateEnsemble(_dabLastEnsembleMsg);

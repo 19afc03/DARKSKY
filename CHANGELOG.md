@@ -1,4 +1,4 @@
-# DARKSKY NEXUS w035 — Build History
+# DARKSKY NEXUS w036 — Build History
 
 WebSocket bridge and signal intelligence companion for SDRplay RSPdx and
 compatible SDRplay receivers. Interfaces with SDRConnect via WebSocket.
@@ -15,126 +15,1337 @@ DRM+ decoding is implemented against the published open DRM standard for
 personal, non-commercial use. See Appendix C in the User Manual for the
 full trademark and licensing notice.
 
+### Added (2026-08-11) — Gain/AGC/overload parity with SDRcom Blue's owner's manual (Ch.8)
+
+User uploaded the SDRcom Blue owner's manual and asked for Chapter 8
+("Gain, AGC and overload") to be implemented in full.
+
+**RF Gain panel** — the GAIN top-bar stat is now clickable, opening a
+dropdown with a slider, a true gain-index readout, and an ATT button.
+SDRplay hardware exposes gain as an LNA-state INDEX, not a dB figure:
+0 = max gain, higher index = less gain (the manual calls this out
+explicitly as counterintuitive). The slider is drawn so RIGHT/UP = MORE
+gain per the manual's UI guidance, meaning the slider position and the
+real index move in opposite directions — the readout always shows the
+true raw index underneath so that inversion is never hidden. Range comes
+from SDRConnect's real per-device `lna_state_min`/`lna_state_max`
+(queried on connect), not a hardcoded guess.
+
+The RTL-SDR engine path uses the *opposite* convention (`RTL_GAINS` is an
+ascending tenths-dB table: higher index = more gain), so a single
+hardcoded mapping would have gotten the slider direction and the ATT
+button's sign backwards on whichever engine it wasn't written for. Added
+`_gainRangeInfo()` as the one place that knows which convention applies
+per-engine (`DS._engine === 'RTLSDR'` vs everything else); every gain
+control reads from it instead of assuming SDRplay's convention.
+
+**Bugfix, ATT/reduce-gain direction** — the pre-existing overload banner's
+"Reduce gain −2" button sent `delta:-2` under a label meaning "reduce
+gain." On SDRplay/SDRConnect that's backwards: decreasing the LNA-state
+index by 2 means *more* gain (index counts down from max), so the button
+would have made an overload worse, not better. Fixed to `+2` on that
+engine (and the correct `-2` on RTL-SDR's opposite convention).
+
+**Backend bugfix, gain-index tracking** — `set_lna_gain` (the delta-based
+handler both the old and new reduce-gain buttons use) was reading
+`state['rtl_gain_idx']`, a field only ever populated on the RTL-SDR
+engine path. On a normal SDRplay/SDRConnect connection it was never set,
+so the current-index lookup silently defaulted to a hardcoded 20
+regardless of the real gain — meaning the button could have raised gain
+instead of lowering it whenever the true index was below 20. Fixed to
+read `state['gain_lna']`, which is kept in sync on both engine paths.
+Also added real per-device clamping (`lna_state_min`/`lna_state_max`) to
+both `set_lna_gain` and `set_gain`'s SDRConnect branch — the latter
+previously sent whatever index it was given straight to SDRConnect
+unclamped.
+
+**AGC enable + threshold** — added a dedicated `set_agc_enable` /
+`set_agc_threshold` command pair (backend) and a threshold slider next to
+the existing AGC ON/OFF button (frontend, default ~30, the manual's
+suggested starting point for airband/scanning). The AGC ON/OFF button was
+rewired from the generic `proToggle('agc_enable', ...)` passthrough to
+the new dedicated command. Nuance worth recording accurately: the old
+passthrough *did* already reach SDRConnect (`agc_enable` is a real,
+documented, writable Boolean in the SDRconnect WebSocket API 1.0.3
+spec) — it wasn't dead. The likely real defect was that Python's
+`str(True)`/`str(False)` sends `"True"`/`"False"` (capitalised) rather
+than the lowercase `"true"`/`"false"` the SDRconnect API's own examples
+use, a silent case-mismatch that's easy to miss. The new dedicated
+handlers send the correct lowercase string and also track
+`state['agc_enable']`/`state['agc_threshold']` for reconnect sync, which
+the generic passthrough never did either way. `agc_threshold`'s
+units/range aren't stated in the spec — the frontend slider is 0-100 and
+passed straight through; the manual's "~30 for airband/scanning" is the
+only calibration reference available. Per the manual, SDRConnect makes
+AGC threshold on/off-only (non-adjustable) once in WFM mode — the slider
+now visibly disables and relabels itself in that mode instead of
+silently doing nothing.
+
+**Real OVERLOAD banner** — `overload` is SDRConnect's real read-only
+Boolean property (ADC clipping status), now queried on connect and
+broadcast on every change. The banner HTML/CSS existed already but
+nothing had ever added the `.show` class that makes it visible, and the
+WS handler only fired a toast — both wired up properly now. Per the
+manual's remediation order, added a "Notch help" button; no
+WS-controllable notch-filter property exists anywhere in SDRConnect's
+API, and no live "raise SDRConnect's window" command exists in NEXUS
+either (only a one-time startup Headless/GUI launch-mode pick) — rather
+than fake a control that would do nothing, the button shows guidance
+text pointing the user at SDRConnect's own window if one exists.
+
+**Gain-setting wizard** — added a guided, human-in-the-loop 5-step modal
+(`openGainWizard()`, reachable from the gain panel's "GAIN GUIDE" button)
+implementing the manual's recipe verbatim: AGC off at a quiet spot → raise
+gain until the noise floor just lifts → back off one rung → confirm the
+strongest expected signal doesn't overload → optionally re-enable AGC.
+Each step waits for the user to click Next; it doesn't auto-drive gain.
+
+### Fixed (2026-08-10) — Spectrum/waterfall trace misaligned with tune line near DC
+
+Live report, screenshot: tuned to 693 kHz (BBC Radio 5 Live) on the MW/NDB
+band at 2 MSPS, and the visible spectrum peaks + tune line didn't line up
+with each other or with the frequency axis at all — multiple unexplained
+peaks, tune line seemingly nowhere near where the readout said.
+
+Root cause: `_zoomFreqRange()` clamps the low edge of the visible span to
+0 Hz (`Math.max(0, DS.liveCenter - sr/2)`) whenever the tuned center is
+less than half the sample rate — routine near the bottom of the LW/MF/NDB
+bands with a wide sample rate (this case: center 691,859 Hz, 2 MSPS →
+unclamped low edge would be -308,141 Hz). The frequency axis
+(`updateLiveFreqAxis`), tune line (`vfoToFrac`), and click-to-tune
+(`xToFreqHz`) all read that clamped range and are mutually consistent.
+But `drawSpectrumFromBins()` (spectrum line + peak hold) and
+`_wfRenderFromBuf()` (waterfall) each had their own independent bin-to-
+pixel mapping that assumed the full *unclamped* symmetric span always
+maps linearly across the canvas — they never consulted the clamp. Since
+the high edge is identical in both cases (never clamped), the two
+mappings only diverge on the low end: 0 error at the right edge, growing
+to the full clamped amount at the left edge. Verified numerically against
+the exact reported case: the pixel where the tune line was drawn was
+actually plotting spectrum data for ~511 kHz, while the true 693 kHz
+signal was being drawn about 9% of the display width away, which the
+(correctly labeled) axis would read as ~864 kHz — matching the two
+unexplained peaks in the screenshot almost exactly.
+
+Fixed with a new shared `_specClipCorrection()` helper (returns
+`{clipOffset, clipRatio}`, a no-op when no clamping actually occurred —
+zoom>1 never clamps, zoom<=1 only clamps when `liveCenter < sr/2`) used
+by both `drawSpectrumFromBins()` and `_wfRenderFromBuf()` to correct
+their bin-to-pixel mapping to match what the axis/tune-line/click-to-tune
+already assumed. In the waterfall renderer the correction is folded into
+the existing `zBase`/`zScale` constants (computed once, not per pixel)
+so there's no added per-pixel cost.
+
+### Fixed (2026-08-10) — Freq-axis drag felt slow/laggy
+
+User reported dragging the frequency axis (the ruler strip under the
+spectrum/waterfall) to pan felt slow. Root cause: the pan mousemove
+handler called `updateTuneLine()` (forces a layout read via
+`zone.clientWidth`, plus several style writes) and `updateLiveFreqAxis()`
+(a full 2D canvas redraw — its internal cache-key guard doesn't help
+during a drag since `liveCenter` genuinely changes every event) directly
+and synchronously on every native `mousemove` event. Native mousemove can
+fire far more often than the display can actually paint, so the drag was
+doing many times more layout/canvas work per second than any frame could
+show — on top of the main render loop (`animLoop`) already redrawing the
+bandplan once per frame via the same `_bpDirty` dirty-flag pattern.
+Fixed by having the mousemove handler just set a `window._axisDragDirty`
+flag; `animLoop` now consumes it and does the real work at most once per
+rAF tick, matching the existing `_bpDirty`/`_wfDirty` convention already
+used for the bandplan and waterfall redraws.
+
+### Fixed (2026-08-10) — Frequency Lists quick-tune: FM entries used narrowband bandwidth
+
+Clicking a row in the Frequency Lists table (`flRenderTable()`) always
+called `_tuneTo(freq, mode, 12500, true)` — a hardcoded 12.5 kHz demod
+bandwidth regardless of the row's mode. For imported FM broadcast entries
+(mode WFM, e.g. the UK-FM list above) this meant clicking a station tuned
+the receiver with a narrowband bandwidth instead of proper wideband FM,
+even though the mode itself was correctly set to WFM. Now computes
+bandwidth per row: WFM rows use 192000 Hz (matching the 192 kHz bandwidth
+already used by other WFM quick-tune buttons elsewhere in NEXUS, e.g. the
+band-plan FM preset), every other mode keeps the prior 12500 Hz.
+
+### Fixed (2026-08-10) — "In range" region badge wording, misread as RF distance
+
+Follow-up to the Frequency Lists CSV import fix below. User asked how the
+green "In range" badge on each list row was calculated, since all 985
+rows in a list showed it identically — it's a per-LIST geographic tag
+match (`hfRegionMatch()`: does this list's free-text "region" field match
+your configured location name?), not a per-frequency or distance-based
+signal check. The wording read as an RF/propagation claim because a
+genuinely different, real distance-based feature — `hfReach()`/
+`hfReachBadge()`, used for HF/SWL schedule reachability — shows its good
+state as an actual km distance (e.g. "🟢 3200km") using the same `reach`
+CSS class and green-dot styling. Changed `hfRegionMatch()`'s matching
+branch from `'🟢 In range'` to `'🟢 ' + <the list's region tag>` (e.g.
+"🟢 UK"), matching the wording convention already used by its own
+non-matching branch (`'🟡 ' + region`), so the badge states the fact
+(this list is tagged X) rather than an interpretation that could be
+confused with real signal range.
+
+### Fixed (2026-08-10) — Frequency Lists CSV import: delimiter mis-sniff + kHz/MHz unit bug
+
+User imported a real UK-FM CSV (985 entries) into the Frequency Lists tab
+and every row showed FREQ 0.1000 MHz with the whole raw row crammed into
+NAME. Root cause was two compounding bugs in `_hfParseCSVTXT()` (the
+import parser shared by both HF-Utility custom lists and the Frequency
+Lists tab):
+
+- **Delimiter mis-sniff.** The old logic picked tab as the delimiter for
+  the *entire file* if a tab appeared ANYWHERE in the header line — this
+  particular export had some multi-word station names with spaces
+  corrupted to tabs (e.g. `Station\tName`), which was enough to trip the
+  check even though the file is genuinely comma-delimited (12 commas vs
+  7 tabs in the header). Splitting every row on tab instead of comma
+  collapsed real columns together and left literal commas inside each
+  "field", which is exactly why NAME showed the whole raw row. Fixed by
+  counting delimiter occurrences in the header and picking whichever
+  appears most (comma wins ties) — the standard CSV-sniffing approach,
+  instead of "first one found anywhere."
+- **kHz/MHz unit heuristic.** `rawFreq>100 ⇒ assume kHz` was meant as a
+  fallback guess for ambiguous headers, but it fired unconditionally —
+  even when the header explicitly said "MHz" (as this file's did). Any
+  station at or above 100 MHz (the entire top half of the UK FM band,
+  100–108 MHz) got divided by 1000, producing exactly the observed
+  "0.1000" readings. Fixed to only guess kHz when the header does NOT
+  already say MHz explicitly.
+- Also normalized whitespace runs (spaces AND stray tabs) down to a
+  single space when reading each field — cosmetic cleanup for the same
+  corrupted-source-file names (`Heart\tNorth\tand\tMid\tWales` → `Heart
+  North and Mid Wales`), safe for any list since a name field should
+  never legitimately contain a raw tab.
+
+**Follow-up (same day) — a second, independent copy of the same bug was
+found after the first fix didn't resolve the live symptom.** User
+re-imported and still saw a uniform wrong FREQ (0.1020 this time, not
+0.1000 — a different constant, meaning something was still misfiring)
+and MODE stuck on AM. Root cause: `_flAllRows()` (reads entries back out
+of `HF_CUSTOM_LISTS` on every table render) had its OWN "legacy" kHz
+guard — `if(freq>100 && freq<30000) freq/=1000` — meant to patch up old
+data saved before proper unit handling existed. It re-corrupted the
+now-correctly-imported FM values on every single render, regardless of
+the importer's fix, e.g. dividing a genuine 102.0 MHz entry down to
+0.102. There's no safe magnitude cutoff for this guard: NEXUS's own
+custom-list lookup spans HF through UHF, so ">100 ⇒ must be kHz" can't
+tell a real high-band MHz frequency from a genuine legacy mistake.
+Removed the guard entirely — the importer is now the single source of
+truth for units. Also fixed the MODE column, which had a hardcoded 'AM'
+fallback whenever a list has no explicit mode column (this file has
+none) — added `_hfGuessModeFromFreq()`, which only special-cases the
+unambiguous international FM broadcast band (87–108 MHz → 'FM'),
+leaving every other band's previous 'AM' default untouched rather than
+guessing modes it can't actually infer from frequency (VHF air, marine,
+ham, UHF, etc.).
+
+Re-verified against the real 985-row file end-to-end, simulating the
+full pipeline (import parser → `_flAllRows()` normalization) in Node
+against the exact production logic, not a reimplementation: all 985
+entries parse, frequency range 87.7–106.9 MHz, all correctly tagged FM,
+names clean. Also verified via a full inline-`<script>` extraction +
+`node --check` pass after every edit.
+
+**Note for anyone hitting this:** a list imported before this fix has
+the broken values already saved to `localStorage` — reloading the app
+alone won't fix it, since only a fresh import re-runs the parser. Delete
+the existing list (✕ next to it in the Frequency Lists panel) and
+re-import the CSV to get corrected values.
+
+### Added (2026-08-10) — THEATER: 9th Cinema Mode scene, "channel guide" framing
+
+Built from a real scoping plan (`WRITING/NEXUS_cinema_theater_scene_plan.md`)
+against a standalone `cinema-mode.html` mockup Jon shared. Only the mockup's
+*framing* (radio-as-TV-channel-guide) and its LUT-waterfall rendering
+technique were ported — every data field on screen is real NEXUS state, none
+of the mockup's fictional `STATIONS` database or scripted dialogue.
+
+**Title card** — "NOW SHOWING" card (emblem/name/meta/5-bar SNR rating)
+reusing `_cinGetStationName()` / `_cinMetaLine()`, the exact same sources
+every other scene's HUD already reads. Only re-renders on an actual station
+change (not every throttled tick) so it doesn't flicker, and fires the
+existing scene-change flash pulse as a cue when it does.
+
+**Live decoder captions** — mirrors whichever text-producing decoder tab is
+currently open (CW/RTTY/PSK31/NAVTEX/Olivia/ACARS/HFDL/VDL2/DSD/Trunk) into
+a typewriter-revealed caption line, reading straight from each decoder's own
+`#<id>-decode-out` div (already populated by `_flowLive()`/`appendFlowText()`
+for its own tab — no new backend state). Falls back to RDS/DAB DLS text when
+no text decoder tab is active, same priority `_cinUpdateStation()` already
+uses. Idle-state placeholder children (`#<id>-fldigi-notice`) are excluded
+so idle copy never gets mistaken for a live caption.
+
+**Waterfall** — real spectrum bins painted through a scrolling teal→amber
+LUT (palette + scroll-down-then-paint-new-row technique ported from the
+mockup), giving THEATER a genuinely distinct "TV waterfall" look rather
+than reusing the shared cyan spectrum horizon `nexus` already has.
+
+**Registered as the 9th scene**: `CIN_SCENES`/`CIN_SCENE_NAMES`/
+`CIN_SCENE_ACCENT_HEX` (`#ff3b5c`, a red not used by any other scene),
+scene-bar button, per-scene CSS vignette/HUD repositioning (title card up
+top, captions near the bottom, freq/SNR/space-weather HUD moved clear of
+both), a 9th colour-palette swatch to match the existing 1:1 scene↔swatch
+convention, and the `1`–`9` direct-select key range (was `1`–`8`).
+
+**Explicitly not built this pass**: the mockup's program drawer (bookmarks/
+EIBI list) and next/prev "channel" stepping. Unlike the mockup's fake
+channel-hop, real next/prev would retune the actual receiver — deferred
+pending a decision on how that should be gated (e.g. an opt-in "DX HUNT"
+toggle, off by default, per the scoping plan's recommendation). Verified via
+a full inline-`<script>` extraction + `node --check` pass (clean) after
+every edit; no live-hardware visual pass done yet, so exact pixel
+positioning of the title card/captions bands may need a follow-up tweak
+once seen on a real screen (same pattern TOPOLOGY/GRID needed after
+landing).
+
+### Hardened (2026-08-10) — AIS medium-term review tier: UDP hardening, raw-frame logging, synthetic regression suite
+
+Follow-up to the 2026-08-09 AIS hardening pass — the external review's
+"medium-term RF improvements" tier, minus tuner-offset+remix (explicitly
+skipped, user decision — see `AIS_DECODE_ARCHITECTURE.md`'s updated
+"Reviewer feedback" section for the full rationale).
+
+**UDP NMEA hardening (`ais_udp_server()`, `_ais_parse_nmea()`,
+`_ais_process_sentence()`):**
+- Real NMEA `*NN` checksum verification via new `_nmea_checksum_ok()` —
+  previously the checksum suffix was stripped and discarded, never
+  actually checked.
+- TTL-based stale-multipart-fragment expiry (`AIS_UDP_FRAGMENT_TTL_SECS =
+  10s`, via new `_ais_expire_stale_fragments()`), replacing the old
+  count-only (32-key FIFO) eviction that had no time bound.
+- `fragment_count` consistency check across a multipart sequence's parts
+  — a reused `msg_id` claiming a different total no longer silently mixes
+  two messages' payloads together.
+- `fragment_num` range validation (must be within `[1, fragment_count]`).
+- New `AIS_UDP_STATS` funnel-counter dict + periodic `[AIS-UDP]` log
+  line, mirroring the existing RF-path `AIS_FRAME_STATS`/`[AIS-FUNNEL]`
+  convention.
+- Verified via a self-contained bit-level test: real+corrupted+missing
+  checksums, multipart reassembly, fragment_count_mismatch,
+  fragment_num_invalid, and TTL expiry all confirmed correct against the
+  actual production functions (not a reimplementation).
+
+**Raw-frame/message logging (`_ais_log_raw_frame()`):**
+- One JSON line per decoded AIS frame, from every source (RF native/
+  direwolf, UDP, aisstream), written to `ais_raw_frames.jsonl` BEFORE
+  MMSI-plausibility filtering — independent of `ais_vessels`, which only
+  ever shows current merged per-MMSI state, not individual frame history.
+  Off by default (`AIS_RAW_FRAME_LOG_ENABLED = False`) — a diagnostic/
+  regression-testing tool, not something a normal user needs
+  accumulating on disk. Single-generation rotation at 20MB.
+- Verified via a standalone write/rotate test (50 records at a tiny
+  size cap → confirmed `.bak` rotation + correct record shape).
+
+**Capture-based regression suite (`ais_synth.py` + `ais_regression_suite.py`,
+both new, in this folder):**
+- Only one real AIS capture exists in this project
+  (`SAMPLE IQ FILES/ais/SDRuno_20200907_184926Z_161985kHz.wav`, a weak,
+  marginal real-world signal — one data point, not a strong/weak/DC-
+  spike/CFO spread). `ais_synth.py` builds synthetic ones instead: a
+  genuine, spec-correct ITU-R M.1371 type-1 payload, real FCS via the
+  decoder's own `_ais_crc16_x25`, real bit-stuffing matching
+  `_protodec_decode_bit()`'s exact ST_DATA state machine (confirmed via a
+  200-trial fuzz round-trip test before touching real IQ), real NRZI +
+  Gaussian-shaped (BT=0.4) GMSK synthesis into complex baseband IQ.
+  Confirmed to round-trip perfectly through the real production
+  `AisDecoder`/`AisDecoderDireWolf` classes (exact field match on the
+  first attempt) before being trusted as a test fixture.
+- `ais_regression_suite.py` layers channel impairments (noise, DC offset,
+  CFO) onto that known-good signal to build 5 controllable conditions —
+  strong, weak (calibrated via a 5-seed sweep to sit in the ~20-50%
+  marginal pass-rate band, matching what "weak real-world AIS" actually
+  means), dc_spike, cfo, and noise_only (false-positive control) — each
+  with a known-correct answer the one real capture can't provide.
+  Current result: **5/5 conditions pass on both `AisDecoder` and
+  `AisDecoderDireWolf`, 0/20 false positives on pure noise.** The real
+  weak WAV is included too, as a non-strict baseline (candidate/CRC
+  counts tracked, not required to decode).
+- Side effect: this is the first real validation of the 2026-07-20
+  DC-block filter fix beyond its original standalone bench test (which
+  was explicitly flagged as "not yet re-verified against a live DC-spike
+  capture"). Calibration sweep found it holds clean up to 2x carrier
+  amplitude DC offset (fails at 3x) and CFO up to ~800 Hz (well past
+  ITU-R M.1371's own ±500 Hz spec tolerance, fails at 1000 Hz) — this is
+  what justified skipping tuner-offset+remix as redundant (see above).
+
+**Docs:** `AIS_DECODE_ARCHITECTURE.md`'s "Reviewer feedback" section
+updated — medium-term tier marked done (except the explicitly-skipped
+tuner-offset item), with the DC-block validation result documented there
+too.
+
+**Live validation + second real capture (same day):** ran the hardened
+pipeline live for ~11 minutes against real AIS traffic on a real nRSP-ST
+(161.975/162.025 MHz) — zero exceptions across multiple retunes, a
+Compact→Full IQ mode switch, and 3 antenna switches; ended with 14 vessels
+tracked, msg types {1,2,4,8,10,12} seen, and `[AIS-FUNNEL]` showing
+`crc_ok_invalid_type=0` the whole session (the Aug 9 msg_type guard never
+had to reject real-world traffic) against `crc_ok_bad_mmsi=908` vs
+`crc_ok_accepted=238` (confirms the MMSI-plausibility gate is doing real
+work against real noise, not just theoretical). A ~22s Full-IQ recording
+made mid-session with NEXUS's own REC feature
+(`SAMPLE IQ FILES/ais/darksky_rec_iq_20260810_174003.cf32`, raw
+`complex64`, 500kHz sample rate confirmed by file-size/duration match and
+by clean decode with zero offset mixing) was added to the project as a
+second real capture and wired into `ais_regression_suite.py` as
+`run_real_cf32_baseline()` / `--cf32`. Unlike the marginal 2020 WAV (0-1
+CRC-ok frames), this one decodes real traffic out of the box: 6/6 CRC-ok
+on `AisDecoder`, 7/8 on `AisDecoderDireWolf`, msg types `{8, 12}` matching
+the live session's dominant traffic — a genuinely strong real-signal
+regression baseline, not just a tracked non-strict data point.
+
+### Hardened (2026-08-09) — AIS pipeline: validation, provenance, and diagnostic cleanup, per external review
+
+Follow-up to `AIS_DECODE_ARCHITECTURE.md` (written earlier the same day):
+an external review of that doc agreed the multi-source merge architecture
+is sound but flagged concrete correctness/provenance gaps in the
+implementation. Implemented the review's "immediate cleanup" and
+"short-term robustness" tiers; the "medium-term RF" and "long-term
+coherent-decoder" tiers were explicitly deferred — see the doc's own
+updated "Reviewer feedback" section.
+
+**Validation:**
+- `_ais_decode_payload()` now explicitly rejects any `msg_type` outside
+  ITU-R M.1371's 1-27 range before attempting to parse it (previously an
+  implicit side effect of the elif/else chain — same behaviour, now a
+  named, intentional guard with a clear reason for the new counters below
+  to hang off of).
+- New `AIS_FRAME_STATS` funnel counters (`crc_ok_total` →
+  `crc_ok_invalid_type` / `crc_ok_bad_length` / `crc_ok_valid_type` →
+  `crc_ok_bad_mmsi` / `crc_ok_accepted`), incremented in
+  `_protodec_getdata()` (RF path, shared by `AisDecoder` and every
+  `AisDecoderDireWolf` slice) and `_ais_update_vessel()`
+  (source-agnostic, all four sources). Surfaced every 5s in a new
+  `[AIS-FUNNEL]` log line alongside the existing `[AIS-DIAG]`/
+  `[AIS-DW-DIAG]` — makes "how much of what we CRC-accept is real" a
+  number you can read off the log instead of re-deriving from an offline
+  test each time (directly motivated by the 2026-08-09 SAMPLE IQ test,
+  where 1 real CRC-OK frame out of 17 candidates decoded as an
+  out-of-spec message type 42).
+
+**Provenance and staleness:**
+- `_ais_update_vessel()` and `_aisstream_apply_message()` now stamp
+  `position_source`/`position_updated`, `name_source`/`name_updated`, and
+  `callsign_source`/`callsign_updated` on every field group they touch,
+  plus vessel-level `last_local_rf_seen` (native/direwolf/udp) vs
+  `last_remote_seen` (aisstream). Previously only `name_source` was
+  tracked, and only in `_ais_update_vessel()` — `_aisstream_apply_message()`
+  set `name_source='aisstream'` on name fields but never added `'aisstream'`
+  to `decoder_sources` at all, so a vessel enriched purely via the live
+  feed could look like it had no confirmed source.
+- **aisstream (remote) can no longer silently overwrite a fresher local
+  RF/UDP position** — new `_ais_position_locked_local()` /
+  `AIS_POSITION_LOCAL_PRIORITY_SECS` (5 min): while a local position is
+  that recent, an incoming aisstream position update still updates
+  identity fields (name/callsign) but skips lat/lon/speed/course/heading/
+  status entirely, rather than replacing a genuine live local fix with a
+  possibly-stale relay from another receiver.
+- Frontend (`DARKSKY_NEXUS_w036.html`): the AIS detail modal's Position
+  row now shows age + source (`(2m, 📡 aisstream — remote, not RF-decoded
+  here)` vs `(12s, native)`), and a new "Last local RF" row makes it
+  explicit when a vessel has never actually been heard by this receiver's
+  own antenna at all ("never — MMSI only reached via aisstream.io").
+
+**MMSI classification:** `_ais_mmsi_plausible()`'s validation (originally
+2026-07-18, ship + AtoN shapes only, with its own docstring explicitly
+deferring the rest) is now backed by a new `_ais_mmsi_category()` that
+also recognises group ship call (0MIDxxxxx), coast station (00MIDxxxx),
+SAR aircraft (111MIDxxx), craft-of-parent-ship (98MIDxxxx), and
+SART/MOB/EPIRB-AIS (970/972/974xxxxxx). `_ais_update_vessel()` now tags
+every vessel with `mmsi_category`; the frontend uses it as a fallback
+label (Coast Station / SAR Aircraft / SART / etc.) for stations that
+have no name and aren't already covered by the existing `station_type`
+base/AtoN tags.
+
+**Cleanup:**
+- `AIS_AISSTREAM_DIAG_TEST_MMSI`, added 2026-07-18 as an unconditional
+  "TEMPORARY DIAGNOSTIC" and never removed despite its own comment saying
+  to, is now gated behind a new `AIS_AISSTREAM_DIAG_SUBSCRIPTION_ENABLED`
+  flag (default `False`) instead of always subscribing to it.
+- Confirmed (by grepping every call site) that `ais_vessels` is only ever
+  read/written from the single asyncio event-loop thread — the only
+  `run_in_executor()` calls near AIS are for blocking disk I/O on the
+  aisstream persistent-store file, and the dict itself is never touched
+  from inside an executor thread. Documented with a comment at the
+  `ais_vessels` declaration rather than added locking, since there's
+  nothing to lock against today.
+
+**Deferred (per the review's own tiering, not started this pass):**
+tuner-offset + digital remixing to avoid centering AIS exactly on DC;
+stricter UDP NMEA multipart/checksum diagnostics; a capture-based
+regression suite comparing native/Dire Wolf/merged output against a
+reference decoder across strong/weak/noise/DC-spike/CFO captures;
+raw-frame/message-level logging separate from the vessel table; and the
+long-term strategic question of whether to invest in a genuine coherent
+GMSK demodulator, which remains explicitly out of scope for a decoder
+front-end that started this session as "keep tightening the existing
+non-coherent family."
+
+**Verification:** both `w036_NEXUS.py` (`py_compile`) and
+`DARKSKY_NEXUS_w036.html`'s inline `<script>` (`node --check`) compile
+clean.
+
+### Improved (2026-08-09) — CW decoder DSP overhaul (MorseDecoder + Skimmer pool)
+
+Prompted by two independent technical reviews of the CW decode path
+(following up on the same-day CW finding in the entry below: real keying
+tracked correctly but garbled text on a QRM-dense 40m sample). Implemented
+the reviewers' consensus recommendations, sequenced cheapest/most-evidenced
+first; explicitly deferred the larger architectural items to a second pass
+(see bottom of this entry).
+
+**MorseDecoder (single-channel + every Skimmer pool channel, since both
+share this class):**
+
+- **Decimate after mixdown + 3-pole filter cascade** (was 1 pole): filtering
+  at the full hardware sample rate forced a single-pole IIR's alpha tiny to
+  reach a narrow corner, which settles slowly and rolls off at only
+  ~-6dB/octave — nearby QRM leaked through regardless. Now decimates to
+  ~1.5kHz after the existing offset mixdown (boxcar average, itself a cheap
+  anti-alias filter) and runs a 3-stage cascade of the same single-pole IIR
+  at the reduced rate — ~-18dB/octave, and far cheaper per block since the
+  filtered array is ~30x shorter on a typical 48kHz feed.
+- **Speed-aware filter bandwidth:** the corner now tracks live `dot_len`
+  (`2.5/dot_len`, clamped 50-300 Hz) instead of a fixed ~150 Hz for every
+  WPM. `cw_set_bandwidth` WS command pins a fixed value when auto-tracking
+  isn't wanted.
+- **Dot/dash + gap classifier boundary fixed:** was splitting at 2.5x
+  `dot_len`; the correct boundary between 1-unit and 3-unit elements is the
+  geometric mean, √3 ≈ 1.73x. The old boundary biased borderline dashes
+  toward being misread as dots.
+- **Schmitt-trigger hysteresis + proportional debounce:** key-up now
+  requires SNR to drop 3dB below `threshold_db` once already "down" (was a
+  bare single-threshold compare, prone to chatter right at the cutoff).
+  Debounce now scales with `dot_len` (floored 4ms, capped at the old 25ms)
+  instead of a fixed 25ms that left almost no margin for fast CW (a 40 WPM
+  dot is ~30ms) and risked eating real dits outright.
+- **Percentile floor/ceiling + spread gate:** noise floor/ceiling now use
+  the 15th/90th percentile of their trailing windows instead of true
+  min/max, so one glitch sample can't drag either around. Auto-threshold
+  only re-arms once the ceiling is genuinely ≥6dB above the floor (was
+  gated at just 1dB — within normal noise wobble, letting the cutoff
+  collapse toward ~0dB on a flat/no-signal band).
+- **Richer unmatched-pattern fallback:** an unmatched symbol buffer now
+  renders as `#<raw dit/dah pattern>#` instead of a bare `#`, so a run of
+  timing errors carries enough information to debug instead of just
+  flagging "something's wrong here."
+
+**CWSkimmerPool:**
+
+- **Integer-Hz channel keys** (was `round(freq_mhz, 4)`): two floats that
+  print identically can still differ in their last bit depending on how
+  each was computed upstream, risking a silently duplicated channel. Pool
+  now keys on whole Hz (`round(f * 1e6)`, exact int); wire format (MHz in
+  broadcasts/PSK Reporter) unchanged.
+- **`skimmer_snr` now broadcasts on a wall-clock ~1Hz cadence** (was every
+  10th `process_iq()` call — silently drifted with whatever cadence the
+  active stream mode happened to call in at).
+
+**Candidate scanner (`_cw_scan_candidates_from_mag`):**
+
+- **Rejects steady non-CW carriers:** a single spectral snapshot can't
+  distinguish real keyed CW from an unmodulated beacon spur, birdie, or
+  SSB/FM bleed — all look identical to a key-down dash in one frame. Now
+  tracks each candidate frequency's level across scans (~6s trailing
+  window) and excludes it if the level never dips — genuine keying should
+  visibly drop toward the floor between elements; a steady carrier never
+  does.
+
+**PSK Reporter auto-spotting (Skimmer channels only):**
+
+- **Blocklist** for procedural CW fragments (RST/Q-signal/prosign
+  spellouts) that can coincidentally match the callsign regex's shape.
+- **Corroboration required:** a callsign must be read out 2+ times on the
+  same channel before it's eligible to spot — a skimmer channel free-runs
+  unattended on noisy audio, so one regex match on one garbled decode isn't
+  strong evidence for a public database upload.
+- **New explicit opt-in, default OFF:** `cw_skimmer_autospot` WS command,
+  independent of (and in addition to) PSK Reporter's own
+  enabled/callsign-configured gate (`psk_reporter_config`).
+
+**Verification:** compiled clean; smoke-tested against the same real
+QRM-dense 40m WAV used in the original CW finding (denser/more legible
+output, no exceptions across all chunk sizes and both threshold modes);
+independently verified against synthetic clean on/off-keyed CW at several
+WPM/SNR combinations (correctly decodes full callsigns/text end-to-end,
+confirming the filter/classifier/hysteresis/debounce chain is functioning
+correctly — the real-WAV result stays QRM-limited, not decoder-limited).
+
+**Explicitly deferred (second wave, not started this pass):** a real
+polyphase/FFT channelizer for the Skimmer pool (current per-channel
+mixdown+decimate+filter doesn't share FFT work across channels);
+Viterbi/HMM probabilistic decoding for marginal-SNR signals; a full
+protocol rework (server-owned channel selection, delta-text sequence
+numbers, ack/reconcile on reconnect); moving decode work off the capture
+thread onto a bounded drop-oldest queue. Also unresolved: whether the
+SDRConnect/SDRplay IQ tap feeding these decoders is pre- or post-AGC —
+grepped the whole codebase for AGC state and found none tracked for that
+path (only the AIS decoder's own unrelated internal AGC, and RTL-TCP
+dongle AGC for a different signal path entirely). NEXUS has no visibility
+into SDRConnect's own AGC setting; this can only be resolved by checking
+SDRConnect's UI directly, not from this codebase.
+
+### Fixed (2026-08-09) — ACARS crash + preamble sync, WEFAX phasing-sync gap
+
+Found by running the native decoders offline against a folder of real
+captured SDRuno WAVs (`SAMPLE IQ FILES/`) and reference decodes, then
+reading the code behind the zero/garbled results — see
+`SAMPLE_IQ_DECODER_TEST_RESULTS.md` for the full test writeup.
+
+- **ACARS crash bug:** every real call site (`acars_dec.process_iq(iq_c,
+  sr=48000)` / `sr=DECODER_SR`, lines ~8851/9209) was passing a `sr=`
+  keyword `AcarsDecoder.process_iq()` didn't accept at all — `TypeError`
+  the moment ACARS is enabled, the same crash class already fixed for
+  WefaxDecoder/PocsagDecoder. Fixed by accepting `sr` and resampling to
+  48000 first, same pattern those decoders use.
+- **ACARS preamble sync never slid:** `_try_decode()` only ever checked
+  `bits[0:8]` — the first 8 bits currently in the buffer — for the SYN
+  preamble byte, and never advanced that check as new bits arrived. Real
+  off-air ACARS almost never lands on that one fixed bit alignment by
+  chance, so this effectively never found a real preamble. Rewrote the
+  scan to slide bit-by-bit while unsynced and only jump byte-aligned once
+  a genuine SYN has been found — verified against a synthetic bitstream
+  with the SYN preamble deliberately placed at a non-zero bit offset
+  (`acars_unit_test.py`), which now correctly extracts the frame.
+- **WEFAX had no phasing/start-of-line sync at all:** `process_iq()` used
+  to just slice the incoming pixel stream into fixed-length lines from
+  whenever `.active` was set, with no way to find the true start of a
+  scanline — any decode not started at the exact instant a real scanline
+  begins comes out horizontally skewed. Added `_try_phase_lock()`, which
+  looks for the WEFAX phasing pattern (a short white start-of-line pulse
+  repeating every line period against an otherwise-black line) before any
+  lines are sliced out. Verified against a synthetic buffer with the
+  pulse at a known non-zero offset (`wefax_unit_test.py`), which now
+  correctly locks onto that exact offset.
+- **`wefax_clear` WS handler was a no-op:** it assigned `fax_dec.buffer`,
+  an attribute that doesn't exist (the real ring buffer is `_buf`), so
+  Clear never actually cleared anything. Now calls `fax_dec.configure()`,
+  which resets both the buffer and the new phase-lock state.
+
+Both fixes are verified correct in isolation via unit tests (linked
+above). Note: the specific real ACARS/WEFAX sample WAVs used for testing
+still don't produce a full decode even with these fixes — that traces to
+a separate, deeper front-end/frequency-alignment issue in this offline
+test methodology (no live VFO context), not either of the two bugs fixed
+here. See the test writeup for detail.
+
+### Added (2026-08-09) — In-GUI Start/Stop stream control
+
+User: "Possible to add a start (green triangle)/stop (red square) within
+nexus gui rather than hard close chrome?" Scoped deliberately to the
+SDRConnect stream only, not a full NEXUS process shutdown — a browser
+button has no way to relaunch NEXUS's own Python server, so a "kill the
+whole app" button would be a dead end once pressed. This instead gives a
+clean way to pause/resume the radio connection without quitting NEXUS or
+force-closing the browser tab.
+
+**New WS commands (`w036_NEXUS.py`):** `sdr_stream_stop` disables the
+SDRConnect stream by sending `audio_stream_enable` / `iq_stream_enable`
+/ `device_stream_enable` / `set_primary_device_enable` = false, in that
+order — the exact same sequence and spacing `set_stream_mode`'s mode-
+switch path already uses, not a new one, since that sequence is the one
+already proven not to wedge SDRConnect's own state. `sdr_stream_start`
+replays the matching enable sequence (same one `set_stream_mode`'s
+2026-08-09 deadlock-fix re-enable path uses) to bring it back. Both are
+one-shot flag flips — device/mode selection is left completely alone,
+so Stop/Start doesn't reselect or reconfigure anything. New `state`
+field `stream_paused` (bool) is included in the state broadcast so a
+fresh/reconnecting browser tab picks up the right icon immediately.
+
+**Frontend (`DARKSKY_NEXUS_w036.html`):** new topbar button next to the
+Connection control — ▶ green "Running" / ■ red "Stopped", toggled via
+`_toggleStreamRunning()`. The icon only flips on the backend's
+`stream_paused_changed` broadcast (or the next full `state` snapshot),
+never optimistically on click, matching every other toggle control in
+NEXUS.
+
+Verified: `python3 -m py_compile w036_NEXUS.py` clean; `node --check` on
+the extracted inline `<script>` clean. Not yet live-tested against a
+running SDRConnect session.
+
+### Removed (2026-08-09) — rtl_433 (ISM-band sensor decoder) removed completely
+
+User: "remove rtl433 completely." This decoder had been effectively dead
+weight since 2026-08-07 (see [[nexus_w036_rtl433_networked_sdr_limitation]]
+memory / the "rtl_433 left in place, fully fixed and working... except it
+can't share Jon's networked nRSP-ST" entry below): the code was correct but
+structurally couldn't run alongside NEXUS's own SDRConnect connection to a
+networked SDRplay, which is Jon's actual hardware setup. Rather than keep
+carrying it "gracefully disabled," it's now fully deleted rather than left
+as dead code:
+
+**Backend (`w036_NEXUS.py`):** removed the `rtl433_active`/`rtl433_device`/
+`rtl433_freq_mhz` state keys, the `rtl433_start`/`rtl433_stop`/`rtl433_clear`
+WS command handlers, the entire rtl_433 ENGINE block (`_find_rtl433()`,
+`_detect_rtl433_device()`, `_launch_rtl433()`, `_rtl433_reader_thread()`,
+`_rtl433_handle()`, `rtl433_engine()`), its shutdown-wiring entry
+(`globals().get('_rtl433_proc')`), and its `asyncio.create_task(rtl433_
+engine())` registration. One descriptive comment mentioning rtl_433 as
+an architectural precedent (near the DRM engine header) was trimmed too.
+
+**Frontend (`DARKSKY_NEXUS_w036.html`):** removed the "ISM Sensors —
+rtl_433" DECODERS tab panel entirely, its `rtl433_status`/`rtl433_message`/
+`rtl433_clear` WS message-handler cases, its entry in `DECODER_SLUGS` and
+the category button-grid list, its entry in the `decoderTabs` highlight
+array, and the `rtl433Start()`/`rtl433Stop()`/`rtl433Clear()`/
+`rtl433SetFreq()`/`rtl433AddRow()` function block.
+
+**Docs (`docs/word/w036/*.docx`):** removed the rtl_433 QuickStart bullet,
+the "6.16b rtl_433 (ISM-Band Sensors)" User Manual section (heading, TOC
+entry, and body) and its EXTERNAL-decoders-list and credits mentions, and
+trimmed the Troubleshooting SSTV/rtl_433 heading down to SSTV-only.
+Rebuilt all 3 PDFs.
+
+While rebuilding the docs, also noticed and fixed an unrelated stale-
+version bug: all 3 docx files' page header/footer still read "DARKSKY
+NEXUS w035" (never updated when this doc set was copied over during the
+w035→w036 fork). Fixed to "w036" in the header and footer of all three
+documents and rebuilt the PDFs.
+
+Verified: `python3 -m py_compile w036_NEXUS.py` clean; `node --check` on
+the extracted inline `<script>` clean; `grep -i "rtl_433\|rtl433"` returns
+no matches in either source file or any of the 3 rebuilt PDFs;
+`validate.py` passed on all 3 docx after editing; PDF headers/footers now
+read "w036" throughout.
+
+### Fixed (2026-08-09) — DX Spots timeout error (switched to plain HTTP)
+
+Recurring live user report: `dx_spots: all endpoints failed:
+URLError(TimeoutError('timed out'))`. `dx_spots_poller()` polls
+`https://new.dxsummit.fi/api/v1/spots` and `https://www.dxsummit.fi/api/v1/
+spots` every 90s; both were failing with a plain socket-level
+`TimeoutError`, not an HTTP error status — consistent with a TLS/HTTPS
+handshake stall rather than the API itself rejecting the request. A
+known-working third-party dxsummit.fi client (`mbridak/dxsummit`, a PyQt
+desktop app) hits the same API over plain HTTP, not HTTPS.
+
+**Fix:** `_DX_SPOTS_URLS` now uses `http://` for both endpoints, matching
+the scheme a real working client uses rather than continuing to guess at
+HTTPS. Also added a per-URL debug log line in `dx_spots_poller()`'s
+exception handler so a future failure shows which endpoint and error, not
+just the final "all endpoints failed" summary. Not yet live-verified —
+needs a NEXUS restart to confirm DX spots populate without the timeout.
+
+### Fixed (2026-08-09) — Compact → Full IQ switch deadlocked SDRConnect's event channel entirely
+
+Live user report: connected Compact, switched to Full IQ from the NEXUS tab
+— the waterfall/spectrum went blank (audio sometimes kept working, sometimes
+not, depending on the session — see below for why).
+
+Added diagnostic logging first (previous entry) rather than guessing, then
+got a clean repro log. It showed something more serious than a missing
+spectrum broadcast: after the switch, SDRConnect went **completely silent —
+zero frames of any type** (no more `1:`/`2:`/`3:` at all), no `'Device: ...'`
+line, none of the `set_primary_device_enable`/`device_stream_enable`/
+`iq_stream_enable`/`audio_stream_enable` lines that fire on a normal
+connect. Only `SDRConnect 'started' property: False` and then nothing.
+
+Root cause: the stop→select→play cycle added earlier (2026-08-07, to fix
+zero type-2 frames on IQ Lite → Full IQ) disables `set_primary_device_enable`
+as the LAST step of its stop sequence, so it's `false` by the time the new
+device is selected. Per the WebSocket API spec this property gates "events
+and binary data from Primary Device" — not just IQ/spectrum frame data, but
+apparently the `active_device` property-changed events too. The entire
+recovery path (both the passive re-query added in the 08-07 fix, and the
+real enable handshake that only runs inside the `active_device` handler)
+depends on receiving exactly the kind of event that `set_primary_device_
+enable=false` blocks. A genuine deadlock: nothing could turn it back on,
+because the only thing that would has to be triggered by an event that's
+itself switched off. (The earlier report that "audio still works" was
+apparently a side effect of something else — e.g. tuning into a DRM
+quick-tune — incidentally re-kicking SDRConnect's pipe; this repro,
+switching modes alone with nothing else touched, shows the deadlock in
+isolation.)
+
+Fixed by not waiting on that indirect path at all: `set_stream_mode` now
+proactively replays the full enable sequence itself (`set_primary_device_
+enable` → `device_stream_enable` → `iq_stream_enable` → `audio_stream_
+enable` → unmute → volume) directly via `sdr_queue`, the same mechanism
+already used for the stop sequence — unconditionally, instead of depending
+on a response that structurally couldn't arrive while the channel was off.
+The `active_device` confirm re-query now runs after this, once the channel
+is actually open again, instead of racing it. Verified via
+`python3 -m py_compile`; not yet live-tested — please retry the same
+Compact → Full IQ switch and confirm the waterfall/spectrum comes back.
+
+### Fixed (2026-08-08) — Two live regressions from the same day's earlier fixes
+
+**nRSP-ST connected FULLIQ instead of Compact.** The Compact-default fix
+above only changes the *code's* fallback default — it has no effect once a
+config file already has the key present, since a present key always beats
+a function's fallback. `preferred_stream_mode` used to default to `Full IQ`
+in code, and any earlier save of `ssh_config.json` (e.g. the connection
+setup wizard writing back its full config) would have baked that literal
+value onto disk. There is still no UI anywhere that lets a user actually
+choose this setting, so a persisted `Full IQ` can only be that stale
+default, never a deliberate choice. `_ssh_load_config()` now migrates it
+away the first time it's seen — drops the stale key, lets the new
+`Compact` default apply, and re-saves the corrected config so this doesn't
+need to happen again.
+
+**Picking a colour swatch closed Cinematic Mode.** `_cinBodyClick()` (the
+handler that exits Cinematic Mode on any click outside its known UI
+regions) has an allow-list of elements to ignore — `#cin-info`,
+`#cin-exit-hint`, `#cin-scene-bar` — but the new `#cin-palette-bar` swatch
+row is a sibling of `#cin-scene-bar`, not nested inside it (it needed to
+sit in its own popup row), so it wasn't covered by any existing
+`.closest()` check. A swatch click fell through to the same "click
+anywhere else exits" path as clicking bare canvas. Added
+`#cin-palette-bar` to the allow-list.
+
+Verified via `python3 -m py_compile` and a full-file JS `node --check`
+pass; not yet live-tested.
+
+### Added (2026-08-08) — Cinematic Mode: per-scene colour palette picker
+
+Live user request: "a colour select for each cinema mode... a button that
+when pressed allows us to change the colour palette used." Adds a small
+swatch-preview button to the scene selector bar (a live-updating dot showing
+the current accent colour) that opens a row of 8 curated colour swatches —
+Cyan, Amber, Violet, Green, Magenta, Orange, Teal, Blue (each scene's own
+native accent is one of the choices, so e.g. picking Teal on NEXUS gives it
+GRID's classic look).
+
+Recolors both layers of a scene:
+- **The animated artwork** — every scene's canvas draw calls bake their
+  colours in as hardcoded hex/hsl per element (aurora ribbons, particles,
+  bars, the radar sweep, the planet shading, etc. — confirmed by reading
+  each `_cinScene*()` renderer; there was no shared colour variable to
+  repoint). Recoloring this without rewriting all 8 renderers uses a
+  `hue-rotate()` CSS filter, with the rotation angle computed in JS as
+  (target swatch hue − this scene's own native accent hue). Scoped to just
+  `#cin-canvas`, `#cin-spectrum-canvas`, and `#cin-nixie` (RETRO's SVG
+  readout, also hardcoded amber) rather than the whole `#cin-overlay` —
+  keeps the swatch picker itself true-colour and legible instead of being
+  rotated along with the scene.
+- **The shared chrome** (accent glow on the frequency readout, ambilight
+  edge bleed, boot splash, space-weather/status text) already reads
+  `--cin-ac`/`--cin-dim`, so these just get a direct override to the
+  swatch's own hex/rgba — more accurate than rotating them, no maths
+  needed.
+
+Persisted per scene in `localStorage` (`ds_cin_hue_<scene>`), same pattern
+as the existing scene/grain/scanlines prefs, so e.g. GRID stays red across
+sessions while NEXUS stays its default cyan. Re-applied automatically on
+every scene switch and on entering Cinematic Mode. A reset swatch (↺)
+clears back to the scene's designed colour. Verified via a full-file
+`node --check` JS syntax pass and a CSS brace-balance check (both clean);
+not yet live/visually tested.
+
+### Fixed (2026-08-08) — nRSP-ST connected in IQ Lite by default; switching to Compact broke waterfall/spectrum
+
+Live user report: NEXUS always connected to the nRSP-ST in IQ Lite, and
+manually switching to Compact mode in-app stopped the waterfall/spectrum
+from updating. Asked for the nRSP-ST to default to Compact instead.
+
+Root cause: `_evaluate_device_selection()` (the startup device-selection
+logic) picked whichever nRSP-ST mode variant happened to be listed FIRST in
+SDRConnect's own `valid_devices` string — empirically always `(IQ Lite)` —
+regardless of the existing `preferred_stream_mode` config key. That setting
+was already being read elsewhere, but only to decide whether to show a
+passive "mode mismatch" toast after the fact — it never actually influenced
+which device variant got selected in the first place.
+
+Fixed by having the selection logic actively choose the entry matching
+`preferred_stream_mode` when more than one nRSP-ST variant is on offer
+(`device_preference=nrsp`, and the auto-detect "only nRSP-ST present, no
+default_device pinned" path). This reuses the exact same `selected_device_
+name` mechanism already relied on for USB-vs-nRSP-ST selection — safe to do
+here because it fires before anything is streaming, unlike a live runtime
+mode switch (which still needs the stop→select→play cycle added earlier for
+`set_stream_mode`). `preferred_stream_mode`'s default changed from `Full IQ`
+to `Compact` (both the config default and the mismatch-toast fallback), so a
+fresh install now connects in Compact without any config editing. A user who
+already has `preferred_stream_mode` explicitly set in their `ssh_config.json`
+keeps that choice unchanged. Verified via `python3 -m py_compile`; not yet
+live-tested against a real nRSP-ST.
+
+### Added (2026-08-08) — Cinematic Mode "Part B": cross-scene visual FX layer
+
+Ported the purely visual/chrome effects from a standalone `cinema-mode.html`
+mockup Jon shared (its fake station data and synthetic waterfall were left
+out — real equivalents already exist via `_cinGetStationName()`,
+`_cinMetaLine()`, etc.). All additive over the shared `#cin-overlay` layer,
+so every one of the 8 existing scenes (NEXUS through TOPOLOGY) gets these
+at once with zero per-scene code:
+
+- **Film grain** — SVG `feTurbulence` noise texture, subtle step animation.
+  Toggle with **G**; on by default, preference persisted to `localStorage`.
+- **Scanlines** — shared `repeating-linear-gradient` overlay, available to
+  all scenes (previously PHOSPHOR-only, faked in-canvas). Toggle with **S**;
+  off by default, preference persisted.
+- **Ambilight edge bleed** — glow gradients bleeding off all four screen
+  edges, reading each scene's own existing `--cin-dim` CSS variable, so it
+  automatically matches whichever scene is active.
+- **Idle-fade chrome** — the scene picker and exit hint fade out after 3.5s
+  of no mouse/keyboard input and reappear on the next input, like a video
+  player's controls.
+- **Flash pulse** — a brief full-screen opacity flash on scene changes
+  (not on the initial silent scene restore when entering Cinematic Mode).
+- **Boot splash** — a "DARKSKY / CINEMATIC MODE · TUNING IN…" title card on
+  entering Cinematic Mode, fades out after ~2.2s. Replays fresh each time
+  Cinematic Mode is re-entered.
+
+Exit hint text updated: `[ C exit · V next scene · 1–8 select · G grain ·
+S scanlines ]`. Verified via a full-file `node --check` JS syntax pass and
+a CSS brace-balance check (both clean); no live/visual test yet.
+
+### Fixed (2026-08-07) — Switching to Full IQ on nRSP-ST produced zero type-2 frames
+
+Live user report + log capture: switching Compact → Full IQ via the stream-mode
+buttons completed every step SDRConnect's WebSocket API reports as success —
+`selected_device_name` accepted, `Device: ... mode: 'Full IQ'` confirmed,
+`'started': True` returned (twice, with no false→true transition in between —
+the tell), and the full `set_primary_device_enable`/`device_stream_enable`/
+`iq_stream_enable`/`audio_stream_enable` handshake re-ran. Yet the frame-type
+tally (`{3: N, 1: M}`) climbed normally for 30+ seconds post-switch and never
+once showed a `2:` key — zero real IQ frames, despite every API-level signal
+saying it worked.
+
+Root cause matches an already-documented finding from earlier live debugging
+(see the "Auto stream-mode DISABLED" comment on the `active_device` property
+handler): SDRConnect doesn't genuinely reconfigure a device that's already
+streaming when sent `selected_device_name` — only the reported label and
+`started` flag change, not the underlying pipeline. That earlier fix's
+workaround was "the user manually stops/selects/plays in SDRConnect's own
+UI" — but NEXUS auto-launches SDRConnect **headless**, so there's no UI to do
+that in.
+
+Fixed by replicating the stop → select → play cycle entirely over the
+WebSocket API instead of relying on SDRConnect's GUI: `set_stream_mode` now
+explicitly disables streaming first (`audio_stream_enable` → `iq_stream_enable`
+→ `device_stream_enable` → `set_primary_device_enable`, all `value: "false"`,
+reverse order of how they're brought back up), waits for SDRConnect to settle,
+*then* sends `selected_device_name` for the new mode. The existing
+`active_device` handler (reached via `_confirm_device_switch()`'s re-query,
+already in place from earlier work) still does the "play" half — bringing the
+enable sequence back up for the newly-selected mode. Live-testing this against
+a real Full IQ switch (does the type-2 tally actually start incrementing this
+time) is the next step before considering this fully confirmed rather than
+just theoretically sound.
+
+### Fixed (2026-08-07) — Startup status/badge stuck on "checking devices…" forever
+
+Live user report, screenshot: top bar permanently showed "Connected to
+SDRConnect — checking devices…" and the "Full IQ (only mode)" badge (meant
+only for a directly-USB RSPdx with no Compact/IQ-Lite selector) alongside a
+device dropdown correctly reading `nRSP-ST (...) (IQ Lite)` — a visible
+contradiction, since that badge is gated on `state.device_type !== 'nRSP-ST'`
+and should never show once an nRSP-ST is confirmed. Root cause: both symptoms
+trace to the same thing — `state['active_device']`/`['device_type']` never
+leaving their startup defaults (`''`/`'RSPdx'`) because SDRConnect never sent
+back a confirmation. `_evaluate_device_selection()` (the function that
+auto-selects the nRSP-ST at connect time) sends `selected_device_name` but
+never explicitly re-queries `active_device` afterward — it was relying on
+SDRConnect to proactively push a `property_changed` event as a side effect,
+which two other code paths (`set_stream_mode`, the `select_device` WS
+command) already learned isn't reliable, which is why both of *those* follow
+up with an explicit `get_property` re-request 0.5s later
+(`_confirm_device_switch`/`_confirm_device_choice`). The startup auto-select
+path never got the same fix. Fixed by adding the identical confirm-and-
+re-query step to `_evaluate_device_selection()`, gated on
+`not state.get('active_device')` so it only fires when genuinely still
+unconfirmed, not on every routine re-evaluation once things are working.
+
+### Fixed (2026-08-07) — rtl_433 never actually started (invalid `-F udp:` output format)
+
+Live user report: rtl_433 respawned every ~1 second forever, always `exited (rc=1)`,
+never producing a single decode, with SDRconnect otherwise streaming normally. The
+watchdog's own log gave no reason — `_launch_rtl433()` launched the subprocess with
+`stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL`, discarding rtl_433's actual
+error. Running the exact launch command by hand surfaced it immediately: `rtl_433
+-F udp:127.0.0.1:5558` — `Invalid output format: udp:127.0.0.1:5558`. Checking rtl_433's
+own `-F` usage list confirms there has never been a plain `udp` output format (`log |
+kv | json | csv | mqtt | influx | syslog | trigger | rtl_tcp | http | null`); this was
+wrong from the original w033 implementation, not a regression, and (per the lack of
+any prior live-test task for rtl_433 specifically, unlike the other decoders) may
+never have actually run end-to-end before.
+
+Root-cause fixed at the source rather than patched around: `_launch_rtl433()` now
+passes `-F json` (rtl_433's real newline-delimited JSON format, defaults to stdout)
+and reads the subprocess's own stdout pipe directly via a new background thread,
+`_rtl433_reader_thread()` — the same pattern `_trunk_reader_thread()` already uses
+for OP25/trunk-recorder. No network socket at all any more: `RTL433_UDP_PORT`,
+`_Rtl433UdpProtocol`, and the UDP transport lifecycle in the renamed
+`rtl433_udp_server()` → `rtl433_engine()` are all removed. stderr is merged into the
+same stream (`stderr=STDOUT`) and any non-JSON line is now logged as a warning, so a
+real launch error is visible in the NEXUS log immediately instead of only ever
+showing up as an unexplained `rc=1` — exactly the gap that made this bug take a live
+capture-and-diagnose session to find in the first place. Also added a 5-consecutive-
+failure backoff in `rtl433_engine()`: a permanently-broken launch used to retry at
+~1 Hz forever, burning CPU and flooding the log with the identical failure; it now
+gives up after 5 tries and surfaces a real error to the UI instead.
+
+**Update, same live session:** the `-F json` fix above worked exactly as intended —
+rtl_433 now failed differently (rc=2, not rc=1) and its real output finally reached
+the NEXUS log, but turned out to be only its version banner plus its own hint:
+*"Use -F log if you want any messages, warnings, and errors in the console."*
+rtl_433 suppresses its own diagnostic output by default unless a `-F log` sink is
+also requested — this is rtl_433 itself withholding the error, not NEXUS swallowing
+it again. Added `-F log` as a second, simultaneous `-F` sink alongside `-F json`
+(rtl_433 supports multiple output sinks at once); log-format lines aren't valid JSON
+so they fall straight through to the existing "non-JSON output" warning log with no
+other code changes needed. This should finally surface the real rc=2 cause (most
+likely the device-contention question — SDRconnect already holds the nRSP-ST open
+for everything else NEXUS does — or a SoapySDR/SDRplay driver problem) on the next
+live run.
+
+**Update #2, same live session:** the `-F log` fix surfaced the real rc=2 cause —
+`SDR: No supported devices found`, with rtl_433 launched as `-d 0` (a literal
+RTL-SDR dongle index), preceded by `_detect_rtl433_device()`'s own log line: *"no
+RTL-SDR dongle and no connected SDRplay detected -- falling back to default"* — even
+though SDRconnect/the nRSP-ST was fully connected and streaming throughout the same
+session. Root cause: `state['active_device']` is populated asynchronously from
+SDRConnect's `get_property_response`, which only arrives after `sdr_bridge()`'s ~3s
+post-connect settle (see ~line 8301/8315). rtl_433 was started (via the UI) before
+that response had come back, so `_detect_rtl433_device()`'s SDRplay-fallback check
+(`if state.get('active_device')`) saw an empty string and fell all the way through
+to the `rtlsdr`/`-d 0` default, which was never a real device on this system.
+Fixed by adding a third resolution step to `_detect_rtl433_device()`, checked before
+the final default: if `state['connection_mode']` is anything other than `'rtlsdr'`
+(i.e. NEXUS is configured to use SDRConnect at all, in any of its modes), prefer
+`driver=sdrplay` even if `active_device` hasn't reported back yet — `connection_mode`
+is resolved by `_connection_mode_ready` before `sdr_bridge()` even starts, so unlike
+`active_device` it's reliably set from the moment rtl_433 could plausibly be started.
+The `rtl_test` real-dongle check still takes precedence over this, and the case with
+no SDRplay involved at all (`connection_mode == 'rtlsdr'`) still falls through to the
+historical default correctly.
+
+**Update #3, same live session — final conclusion, no further code change:** with
+device autodetection now correct, live testing hit a real hardware/architecture wall
+rather than a bug. rtl_433 was rebuilt from source with SoapySDR support (`brew
+install soapysdr`, SoapySDRPlay3 built from source, `brew reinstall rtl_433
+--build-from-source`, plus a manual `libsdrplay_api.so.3` symlink into
+`soapysdr`'s Cellar lib dir to fix a dlopen failure) and it successfully loaded the
+SDRplay SoapySDR module — but `sdr_open_soapy` still failed to open the device.
+Root cause: this system's SDR is an **nRSP-ST**, SDRplay's *networked* receiver
+product, reachable only through SDRconnect's own connection to it. SoapySDRPlay3
+talks to the local SDRplay API service, which has no visibility into a device that
+only SDRconnect (via its own separate network client) knows how to reach — there is
+no independent local/USB handle for a second process to share. Confirmed a
+directly-USB-attached RSPdx wouldn't help either: SDRplay hardware allows only one
+exclusive owner at a time, so rtl_433 would just fail differently (device busy)
+while SDRconnect has it open for NEXUS, which is continuously the case whenever
+NEXUS is running. **Decision: rtl_433 is left in place, fully fixed and working
+correctly for its originally-intended case (a real, physically separate RTL-SDR
+dongle, or a directly-USB-attached SDRplay unit not simultaneously in use by
+SDRconnect) — it is just not usable concurrently with this system's networked
+nRSP-ST. Not started for now; no dedicated RTL-SDR dongle on hand.** If a dongle is
+added later, `_detect_rtl433_device()`'s `rtl_test` branch will pick it up with zero
+further configuration.
+
+### Changed (2026-08-07) — Per-OS build output folders
+
+`build_macOS.sh`, `build_Windows.bat`, and `build_Linux.sh` all wrote their
+final installers/app bundles to a folder literally named `dist` (the
+default PyInstaller `--distpath`), so builds produced on different
+machines/platforms were never actually filed apart from each other by
+name. Each script's `DIST_DIR` now nests under a platform subfolder:
+`build/dist/macos/`, `build/dist/windows/`, `build/dist/linux/` —
+matching the existing `build/bundled/{macos,windows,linux}/` convention.
+Updated the Windows `.iss` installer script's `Source`/`OutputDir` and all
+three `.spec` file header comments to match. macOS's per-arch intermediate
+`dist_arm64`/`dist_x86_64`/`work_*` staging dirs are unaffected — those
+stay flat siblings under `build/`, since they're PyInstaller's own
+transient staging, not release output.
+
+### Fixed (2026-08-07) — Cinematic Mode GRID scene: text overlapped bar streams
+
+Reported via screenshot: the station name/frequency/location text block
+(`#cin-info`) visually overlapped the teal vertical bar streams in the
+GRID scene. Root cause was two compounding issues in `_cinSceneGrid()`/
+its CSS: the streams' max height (`horizon * 0.85`) let ordinary
+mid-strength signal reach far up the canvas — not just rare peaks — into
+the exact height band `#cin-info` occupied, and that band's own CSS
+position (`bottom:42%!important`, set when GRID was first wired in) sat
+well inside the streams' reachable range instead of above it. Fixed both
+sides: capped the stream height to `horizon * 0.4` and raised `#cin-info`
+to `bottom:70%!important`, giving clear separation with margin at
+worst-case stream height. Verified via `node --check` on both extracted
+`<script>` blocks.
+
+### Fixed/Polish (2026-08-07) — DAB Now Playing hero avatar stuck on initials + player column widened
+
+Live-tested the slideshow SId fix above on BBC Radio5SX: the correct logo
+rendered in the big slideshow image, but the small "NOW PLAYING" hero
+avatar chip stayed on its auto-generated initials/colour (`dabPlayService()`
+only ever set that once, from the station name — `dabUpdateSlideshow()`
+never touched it). `dabUpdateSlideshow()` now also sets the avatar's
+background to the real slideshow image once one arrives for the currently
+-playing station; `dabPlayService()`/`dabStopPlayback()` clear that back
+to initials whenever the station changes (a new station's own image
+hasn't arrived yet at that point). Also widened `.dab-player` (the
+dedicated player column) from 290px to 340px per user request.
+
+### Fixed (2026-08-07) — non-BBC-Guide station logos never appeared on 12B/BBC National DAB (root cause + fix, confirmed live)
+
+`resolve_audio_subchannel_for_data_component()` in `dab_radio_nexus.cpp`
+re-tagged every MOT slideshow image from the shared "BBC Guide" data-packet
+carousel with the service that owns the physical data component (BBC
+Guide itself, subchannel 62) — so every image landed on subchannel 62 no
+matter which station it actually belonged to, and individual stations
+(BBC Radio1, Radio2, Radio5SX, etc.) never got a logo even though the
+carousel was broadcasting one for them the whole time.
+
+A live capture on 12B (2026-08-06) found the actual per-image station
+encoding: `slideshow_meta`'s `category_id`/`slide_id`/`category_title`/
+`transport_id` fields are all constant/empty on air, but `name` (the MOT
+ContentName) carries `si<4-hex-SId><2-digit index>.png`, e.g.
+`siC22802.png` = SId `C228` (BBC Radio5SX), slide 02 — confirmed against
+every entry in that session's `service_components_dump`, no exceptions.
+
+Added `try_resolve_subchannel_from_slideshow_name()` in
+`dab_radio_nexus.cpp`, which parses that SId out of the MOT ContentName
+and looks up the real audio subchannel from the already-known
+service/component table, falling back to the old owning-service logic
+only if a name doesn't match (covers other broadcasters/ensembles that
+may use a different convention). Wired into `attach_data_packet_channels()`'s
+`OnNewSlideshow` handler ahead of the old resolver.
+
+**Confirmed live (2026-08-07):** rebuilt `dab_radio_nexus`, reinstalled to
+`/usr/local/bin`, retuned to 12B — `packet_slideshow_complete` now logs
+`audio_subchannel_id:8` for `siC228*.png` slides, matching BBC Radio5SX's
+real subchannel (8) instead of the old constant 62.
+
+**Not yet done:** the fix is only installed to `/usr/local/bin` for local
+testing — `build/bundled/macos/arm64/dab_radio_nexus` (the copy the
+packaged installer ships) still needs re-bundling (repoint fftw dylib,
+re-sign) before this fix reaches an actual release build.
+
+### Fixed (2026-08-06) — dab_debug stderr logging silently dropped the exact fields the shared-carousel MOT investigation needs
+
+Found while prepping the live 12B/"BBC Guide" capture the 2026-08-01
+"instrumented shared-carousel MOT Slideshow data" diagnostic entry (above/
+below) explicitly calls out as its unfinished next step. `_dab_stderr_
+thread_fn()`'s `dab_debug` handler hand-picked only 4 fields (`event`,
+`subchannel_id`, `bytes`, `audio_subchannel_id`) into its log line — fine
+for `data_packet_channel_discovered`/`packet_slideshow_complete`, but
+`slideshow_meta` (the event that actually carries `name`/`category_id`/
+`slide_id`/`category_title`/`transport_id` — precisely the fields the
+planned live correlation needs) and `service_components_dump` (the
+services/components arrays to correlate them against) were silently
+dropped every time, since nothing in the old f-string referenced them.
+`msg` had the full parsed JSON the whole time; it just never made it into
+the log. Would have made the planned live capture come back useless.
+Fixed: logs the raw JSON line instead of hand-picked fields, so no future
+event type can lose data this way again.
+
+### New: third Cinematic Mode scene — TOPOLOGY (2026-08-06)
+
+A third externally-designed scene, same day as ORBIT/GRID above but
+handed over as a raw draft function rather than a full guide-compliant
+`*_Handoff.md` (no accent colour chosen, no registration steps written
+out). A 3D depth-buffer waterfall: each frame's downsampled spectrum is
+pushed into a 40-deep rolling history and rendered as a stack of
+wireframe slices receding toward a horizon, oldest/farthest drawn first
+(dim, thin) and newest/closest drawn last (bright, thick) so nearer
+terrain correctly overdraws farther terrain — a legitimately different
+look from any of the other seven scenes.
+
+Unlike ORBIT/GRID, this one did *not* pass an as-received smoke test —
+two real bugs, confirmed by actually running it in Node before touching
+the real file:
+- `constcurrentFrame` / `consthorizonY` — missing spaces collapsed
+  `const currentFrame` / `const horizonY` into single undeclared
+  identifiers. Not a parse error (sloppy-mode JS lets you assign to an
+  undeclared name, which silently creates an implicit global), but the
+  very next line in each case *reads* the correctly-spelled variable,
+  which was never actually declared — confirmed to throw
+  `ReferenceError: currentFrame is not defined` on the first frame,
+  every frame, the instant this scene was selected. Fixed by restoring
+  the missing spaces.
+- The "Responsive Signal Peak Bloom" step set up glow/stroke state but
+  never drew anything — `// Dynamic peak sweep path rendered here...`
+  was a placeholder comment, not code. Implemented as a bright retrace
+  of the newest (closest) history slice on top of the dimmer stack
+  beneath it, glow radius scaling with `lvl.peak` — the same
+  soft-then-bright two-pass idiom PHOSPHOR already uses.
+
+Also picked an accent colour since none was specified: the draft's
+wireframe colour (`rgba(0,255,204,…)`, teal) sat almost on top of GRID's
+existing teal accent (`#00ffc8`), so both the CSS accent and the
+in-canvas wireframe/glow were shifted to a distinct blue (`#3c82ff`) —
+the one open hue gap between NEXUS's cyan and BARS' violet — keeping the
+established convention that a scene's accent actually matches what it
+looks like on screen. Registered the same way as ORBIT/GRID: dispatcher
+case, both button locations (overlay scene bar + Spectrum Colour settings
+panel), CSS accent/vignette, `#cin-info` lifted above the horizon line.
+Cinematic Mode is now 8 scenes; keyboard 1–8 select directly (was 1–7).
+
+Not addressed (flagged to the user, not requested as part of this pass):
+the downsample uses a single nearest-neighbour sample per stride rather
+than the max-over-range that BARS/GRID/ORBIT all use, so it'll read
+noisier bin-to-bin than the rest of the app, and degenerates to a flat
+line if `bins.length` ever drops below 64 (`step` floors to 0); history
+also pushes a new slice every animation frame, so at 60fps the full
+40-deep stack cycles in well under a second — may be worth decimating to
+one push every few frames so the terrain reads as slowly evolving rather
+than scrolling past quickly. `st.hoverBin` and `st.tilt` are scaffolded
+but not yet wired to any interaction.
+
+### New: two Cinematic Mode scenes — ORBIT and GRID (2026-08-06)
+
+Designed externally by a friend of the project against
+`NEXUS_Cinema_Scene_Developer_Guide.md` (a standalone reference written
+this session so someone without access to the codebase — using AI if they
+wanted — could design a new scene from a single handoff file). Both came
+back as complete, self-contained `*_Handoff.md` specs following the
+guide's own 5-step registration recipe, and were wired in following those
+same steps: `CIN_SCENES`/`CIN_SCENE_NAMES`, dispatcher case, selector
+button (both the in-overlay scene bar and the duplicate picker in the
+Spectrum Colour settings panel — a second registration point the original
+guide missed), and a CSS accent colour. Cinematic Mode is now 7 scenes;
+keyboard 1–7 select directly (was 1–5), V still cycles.
+
+- **ORBIT — Planetary Sweep** — rotating shaded planet with a spectrum-lit
+  orbital ring (each ring segment's brightness tracks a slice of the live
+  FFT), atmosphere halo that breathes with peak signal, drifting
+  satellites, copper/amber accent (`#ff9f43`).
+- **GRID — Tactical HUD** — perspective floor with a vanishing point,
+  vertical data streams driven by downsampled spectrum bins, cross-hair
+  "lock" flashes on strong peaks, electric-teal accent (`#00ffc8`).
+
+Both handoffs passed a syntax check and a 300-frame mock-canvas smoke
+test as delivered — no crashes — but two things were fixed during
+wiring-in, both design-intent gaps rather than bugs that would have been
+visible as broken:
+- ORBIT's concept called the planet "slowly rotating," but nothing
+  actually rotated it — the terminator line and shading gradient were
+  drawn at fixed angles every frame; only the ring segments and
+  satellites moved. Fixed by caching the (fully static) shading gradient
+  once and rotating the *canvas transform* around the planet's centre
+  each frame before filling it, so the gradient and terminator line
+  sweep together at zero extra per-frame gradient-rebuild cost.
+- GRID built and correctly cached a background linear gradient (`st.bg`,
+  following the guide's own caching convention) but never actually
+  painted it anywhere — the trail-fade used a flat colour instead, so it
+  was dead code. Now painted as a faint depth wash under the trail-fade
+  each frame.
+
+### Changed: build/bundled/ reorganized by OS (and arch where it matters) (2026-08-06)
+
+Prompted by the user asking whether the folder should be reorganized
+after Linux joined the platform set the same day. Real reason it mattered,
+not just tidiness: Linux's companion-engine binaries use the exact same
+bare-filename convention as macOS (`dab_radio_nexus`, `nrsc5_nexus`,
+`dream_nexus`, no extension), so both platforms' binaries landing in the
+same flat `build/bundled/` folder under identical names meant whichever
+was built second would silently overwrite the first. Moved to
+`build/bundled/macos/<arch>/`, `build/bundled/windows/`, and
+`build/bundled/linux/<arch>/` — one consistent convention, generalizing
+the per-arch lookup that already existed for macOS's Apple Silicon/Intel
+split (added 2026-08-05) to also cover Linux's x86_64/aarch64 split.
+Updated: all three `.spec` files' engine-search logic, all three build
+scripts' "checking for bundled engines" steps, and all five
+`NEXUS_*_build_<platform>.md` docs' final bundling-step paths (which also
+picked up a fix for a pre-existing, unrelated staleness bug — several of
+these still pointed at `w035\` paths despite living in the w036 doc
+folder). Moved the 7 existing bundled files (all confirmed arm64 Mach-O /
+matching `.exe`) into their new `macos/arm64/` and `windows/` homes. See
+BUILD_NOTES.md's new "bundled/ layout" section for the full folder tree
+and reasoning.
+
+### New: Linux build support — build_Linux.sh + DARKSKY_NEXUS_linux.spec (2026-08-06)
+
+Investigated after the user asked whether a native Linux build was
+feasible. Turned out most of `w036_NEXUS.py` was already Linux-ready —
+its `sys.platform` branching was mostly 3-way (win32/darwin/else)
+throughout, with real Linux fallback paths already present for every
+subprocess launcher (fldigi, wsjtx, wsprd, multimon-ng, freedv_rx, DSD,
+Chrome, the DAB/HD Radio/DRM `_*_find_binary()` functions). Two real gaps
+found and fixed: `_get_data_dir()` and the module-level log-file setup
+were both 2-way (darwin/else), with the `else` branch dumping files
+straight into the home directory on Linux since `APPDATA` is unset there
+— both now properly 3-way, using the XDG Base Directory convention
+(`$XDG_DATA_HOME`/`~/.local/share` for config, `$XDG_STATE_HOME`/
+`~/.local/state` for logs) instead.
+
+Added `build/DARKSKY_NEXUS_linux.spec` (PyInstaller onedir build, no
+macOS-style `BUNDLE()` step, companion-engine bundling via bare filenames
++ `*.so` globbing) and `build/build_Linux.sh` (venv setup, a
+`libportaudio2` preflight check — see below, companion-engine detection,
+PyInstaller run, tarball + optional AppImage packaging). See
+`BUILD_NOTES.md`'s new "Linux Build" section for full detail, including:
+a real gotcha found while testing dependency resolution (the Linux
+`sounddevice` wheel doesn't bundle PortAudio the way macOS/Windows do, so
+`libportaudio2` is a genuine separate system-package requirement, now
+checked for explicitly before the build even starts); confirmation that
+`pip install -r requirements.txt` resolves cleanly for Linux with no
+platform-restricted packages; and what's still outstanding (Linux
+companion-engine build docs for DAB/HD Radio/DRM, a real end-to-end build
+on an actual machine with root, Quick Start doc updates).
+
+Not yet done, tracked for a follow-up session: `NEXUS_dab_radio_build_linux.md`
+/ `NEXUS_nrsc5_build_linux.md` / `NEXUS_dream_drm_build_linux.md` (DAB-
+Radio's own Linux path is confirmed simpler than its Windows/macOS ones —
+one `apt-get install` script + two `cmake` commands, no vcpkg/static-
+triplet/dylib-path-surgery dance); a real build + smoke test on an actual
+x86_64 or aarch64 Linux machine (this work was done in a rootless aarch64
+sandbox — syntax-verified and dependency-resolution-verified only, not a
+confirmed working end-to-end build); Linux install sections in the Quick
+Start/User Manual/Troubleshooting docs.
+
 ### Changed: macOS distribution model reverted from universal2 to two separate single-arch builds (2026-08-05)
 
-Same day universal2 shipped, reverted it. The main Python app merges into
-a universal2 binary cleanly — every C-extension dependency has prebuilt
-wheels for both arches — but the three bundled companion engines (DAB, HD
-Radio, DRM) are each a separately compiled C/C++ binary with its own
-native library chain (librtlsdr, libusb, libfftw3f, libnrsc5, Dream's own
-deps). There's no "pip install --only-binary" equivalent for those;
-cross-compiling and lipo-merging three more binaries — and every dylib
-each one links against — is a much bigger, more fragile undertaking than
-the Python side ever was, for a benefit (one download instead of two) that
-doesn't outweigh it. `build_macOS.sh` now produces two separate downloads
-— `DARKSKY_NEXUS_w035_macOS_AppleSilicon.dmg` and
-`DARKSKY_NEXUS_w035_macOS_Intel.dmg` — matching the existing Windows
-build's single-target model. Companion engines are now looked up
-per-architecture (`build/bundled/<arch>/<name>`); the DAB/HD Radio engines
+Ported from w035 (see w035's own CHANGELOG entry of the same date for the
+full writeup). `build_macOS.sh` now produces two separate downloads —
+`DARKSKY_NEXUS_w036_macOS_AppleSilicon.dmg` and
+`DARKSKY_NEXUS_w036_macOS_Intel.dmg` — instead of one merged universal2
+app, matching the existing Windows build's single-target model. Root
+reason: the three bundled companion engines (DAB, HD Radio, DRM) are each
+a separately compiled C/C++ binary with their own native library chains,
+and cross-compiling + lipo-merging those turned out to be much more
+fragile than the Python side ever was. Companion engines are now looked
+up per-architecture (`build/bundled/<arch>/<name>`); DAB/HD Radio
 currently only have arm64 builds, so the Intel download ships without
-those two working until x86_64 versions are built and placed there — a
-known, explicitly-flagged gap, not a regression introduced by this change
-(they were never universal2 either, even during the one day universal2
-was live). See BUILD_NOTES.md's "Two Separate Builds" section for the
-full technical writeup.
+those two working until x86_64 versions exist — a known gap, not a
+regression from this change.
 
 ### Fixed: universal2 x86_64 build could pick up wrong-architecture packages from a shared site-packages directory (2026-08-05)
 
-Found live producing the first real universal2 `.dmg`: the x86_64 build
-pass kept failing PyInstaller's COLLECT stage with
-`IncompatibleBinaryArchError` on a different package each retry (first
-numpy/cryptography, then cryptography again via a source-build fallback,
-then markupsafe — a transitive import never even listed in
-requirements.txt). Root cause: the machine's x86_64 Python
-(`/usr/local/bin/python3`, a python.org universal2 framework install) has
-exactly ONE site-packages directory shared by both its arm64 and x86_64
-slices, so any package ever installed there under the native arm64 slice
-sits as a wrong-arch `.so` indefinitely — no per-package fix could close
-this off, since PyInstaller can surface a new offender from anywhere in
-the dependency graph. Fixed properly: `build_macOS.sh` now installs the
-x86_64 dependencies into a throwaway venv (`build/venv_x86_64`), wiped and
-recreated fresh on every run, instead of into that shared framework
-site-packages at all — nothing can leak in by construction. The
-PyInstaller x86_64 pass now also runs against that venv's Python.
-`--only-binary=:all:` (added earlier the same day) is kept alongside this,
-since it solves an independent problem: source builds of Rust-extension
-packages like `cryptography` not respecting the `arch -x86_64` wrapper.
-First confirmed successful universal2 `.dmg` build same day.
+Ported from w035, found live producing that version's first real
+universal2 `.dmg` (see w035's own CHANGELOG entry of the same date for
+the full technical writeup). Root cause: the x86_64 Python used for the
+OTHER-arch build has one site-packages directory shared by both
+architecture slices, so wrong-arch leftovers could surface as a new
+PyInstaller `IncompatibleBinaryArchError` for any package in the
+dependency graph, not just ones listed in requirements.txt. Fixed by
+installing the x86_64 dependencies into a throwaway venv, wiped and
+recreated on every build, instead of into that shared directory.
 
 ### Fixed: build_macOS.sh shipped zero bundled docs since the docs/pdf layout gained per-version subfolders (2026-08-05)
 
-Caught live running the first real build after the universal2 change
-above: `Copied docs: 0 PDF(s) into Resources/Docs`. `DOCS_SRC` pointed at
-`docs/pdf` directly; the real PDFs live at `docs/pdf/w035/` (a per-version
-subfolder added at some point after the original w031 fix for this exact
-"no docs got bundled" problem — see that fix's own comment, still in the
-script). So every build since that subfolder was introduced has silently
-shipped without the Quick Start/User Manual/Troubleshooting PDFs in either
-the app bundle's Resources or the DMG's top-level Docs folder — same
-symptom as the w031 bug, different cause. Fixed by pointing `DOCS_SRC` at
-`docs/pdf/$APP_VERSION_TAG` instead. Also fixed an unrelated cosmetic bug
-in the same section: an unquoted `$(basename $f)` on a path containing
-spaces ("Darksky Project") printed the filename split across two lines.
+Ported from w035, found live on a real build run there. `DOCS_SRC` pointed
+at `docs/pdf` directly; the real PDFs live at `docs/pdf/w036/` (a
+per-version subfolder, same root cause as w035's — see w035's own
+CHANGELOG entry of the same date for the full story). Fixed by pointing
+`DOCS_SRC` at `docs/pdf/$APP_VERSION_TAG` instead, plus an unrelated
+cosmetic unquoted-`basename` bug in the same section.
 
 ### macOS build is now universal2 (arm64 + x86_64), automatically (2026-08-05)
 
-`build_macOS.sh` now produces a genuine universal2 `.app` by building the
-whole PyInstaller pipeline twice — once under a native arm64 Python, once
-under a native x86_64 Python (Intel Homebrew running under Rosetta 2 on
-Apple Silicon, the normal case) — and merging the two resulting bundles
-file-by-file with `lipo -create` wherever a Mach-O file differs between
-them (main executable, every bundled `.so`/`.dylib`), then re-signing the
-merged app ad-hoc. Non-Mach-O files (Info.plist, bundled HTML/CSV/PDF
-data) are copied once, since they don't vary by architecture.
+Ported forward from w035 (see w035's own CHANGELOG entry of the same date
+for the full technical writeup) — universal2 is now the standing
+convention for every future version's macOS build, not a one-off. Applies
+to `build_macOS.sh`, `DARKSKY_NEXUS_macOS.spec`, `BUILD_NOTES.md`, and the
+HD Radio (`NEXUS_nrsc5_build_macOS.md`) and DRM
+(`NEXUS_dream_drm_build_macOS.md`) companion-engine build docs' new
+"Universal2 build" sections (the DAB engine's equivalent doc lives in the
+shared `WRITING/` folder, not per-version, so it needed no port).
 
-Deliberately does NOT use PyInstaller's own `target_arch='universal2'`
-spec setting — that only produces a real universal2 binary if the Python
-interpreter itself is a universal2 framework build AND every C-extension
-dependency (numpy, scipy, sounddevice, paramiko's cryptography) ships a
-universal2 wheel, neither of which holds for a typical Homebrew Python
-install; it would silently produce a single-arch binary while claiming
-success. `DARKSKY_NEXUS_macOS.spec`'s `target_arch` now reads a
-`NEXUS_BUILD_ARCH` env var the script sets explicitly per invocation
-instead, so each single-arch build is unambiguous rather than relying on
-auto-detect.
+Summary: `build_macOS.sh` builds the whole PyInstaller pipeline twice
+(once under a native arm64 Python, once under a native x86_64 Python —
+Intel Homebrew running under Rosetta 2 on Apple Silicon, the normal case)
+and merges the two `.app` bundles with `lipo -create`, rather than relying
+on PyInstaller's own `target_arch='universal2'` setting (unreliable with a
+typical Homebrew Python — silently produces single-arch while claiming
+success). Falls back to a clearly-labeled single-arch build with setup
+instructions printed if no second-architecture Python is found — never
+fails, never silently claims a single-arch build is universal.
 
-**Cross-arch Python requirement:** needs a second, opposite-architecture
-Python on the build machine (e.g. Intel Homebrew at `/usr/local` on an
-Apple Silicon Mac). The script detects whether this is present; if not,
-it prints the exact `softwareupdate`/`brew` setup commands and falls back
-to today's single-arch build with a clear warning in both the running log
-and the final summary — never fails, never silently claims a single-arch
-build is universal. Going the other direction (building arm64 from an
-Intel Mac) isn't possible via Rosetta, since Rosetta only translates
-x86_64 code to run on arm64 hardware, never the reverse — that direction
-needs actual Apple Silicon hardware.
+### Forked (2026-08-04) — w036 created from w035
 
-**Companion engines (DAB/HD Radio/DRM) made universal2-capable too, per
-explicit request** (not just the main app, which was the recommended
-default): each engine's own `NEXUS_*_build_macOS.md` gained a new
-"Universal2 build" section documenting the same build-twice-then-`lipo`
-pattern for the engine's own executable and its bundled Homebrew-sourced
-dylibs (`libfftw3f.3.dylib` for DAB; `libnrsc5.dylib` +
-`libfftw3f.3.dylib` + `librtlsdr.0.dylib` + `libusb-1.0.0.dylib` for HD
-Radio; `libspeexdsp.1.dylib` + `libfftw3.3.dylib` (double-precision —
-distinct file from DAB/HD Radio's float variant) + `libfdk-aac.2.dylib` +
-`libsndfile.1.dylib` + `libportaudio.2.dylib` for DRM). These are manual,
-by-hand build docs (companion engines are built outside this repo's own
-build scripts) — not yet verified end-to-end on a real build, unlike the
-rest of each doc's steps.
-
-`build_macOS.sh`'s companion-engine check (Step 4, renumbered from
-3b/3c/3d) now also reports each bundled engine's `lipo -archs` output and
-flags single-arch engines explicitly — a single-arch companion engine
-bundled inside an otherwise-universal2 app would silently fail to launch
-on whichever architecture it's missing, since the main app itself would
-still launch fine, masking the gap.
-
-`BUILD_NOTES.md`'s "Universal Binary" section rewritten to describe what
-the script now does automatically, replacing stale manual-lipo guidance
-that predated this work.
-
-### Trademark/affiliation notice added (2026-08-04) — see CHANGELOG entry above and UserManual.docx Appendix C
+w036 forked directly from w035 (published release, synced to GitHub and
+the Base44 marketing site). All new work now happens here; w035 is
+frozen as the last published version.
 
 ### Wired, not yet tested (2026-08-03) — dream_nexus Windows bundling plumbing + new build doc
 

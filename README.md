@@ -4,11 +4,11 @@
 
 🌐 **Website:** [darksky-nexus.base44.app](https://darksky-nexus.base44.app)
 
-Current release: **w035**
+Current release: **w036**
 
 ## What it does
 
-NEXUS is a single Python backend (`w035_NEXUS.py`) plus a single browser frontend (`DARKSKY_NEXUS_w035.html`) — no build step, no framework, no install beyond Python + a browser. It bridges SDRConnect/RTL-SDR to a live spectrum/waterfall display and a wide catalog of built-in and external decoders, running entirely on your own machine.
+NEXUS is a single Python backend (`w036_NEXUS.py`) plus a single browser frontend (`DARKSKY_NEXUS_w036.html`) — no build step, no framework, no install beyond Python + a browser. It bridges SDRConnect/RTL-SDR to a live spectrum/waterfall display and a wide catalog of built-in and external decoders, running entirely on your own machine.
 
 ### Decoders
 
@@ -36,18 +36,18 @@ Or run from source:
 
 ```bash
 pip install -r requirements.txt
-python3 w035_NEXUS.py
+python3 w036_NEXUS.py
 ```
 
-Then open `DARKSKY_NEXUS_w035.html` in a browser (Chrome/Edge recommended). NEXUS connects to SDRConnect over WebSocket by default, or to a plain RTL-SDR dongle via `rtl_tcp` — see the Quick Start guide below.
+Then open `DARKSKY_NEXUS_w036.html` in a browser (Chrome/Edge recommended). NEXUS connects to SDRConnect over WebSocket by default, or to a plain RTL-SDR dongle via `rtl_tcp` — see the Quick Start guide below.
 
 External decoder engines (dump1090, dumphfdl, dumpvdl2, rtl_433, DSD+, OP25) are optional, auto-launched by NEXUS if found on `PATH`, and installable via Homebrew/apt/your package manager of choice — each decoder panel shows its own install hint. DAB/DAB+, HD Radio, and DRM/DRM+ are the exception: their engines are bundled directly into the prebuilt installers, so they work out of the box with no separate install — building them from source is only needed if you're running from source yourself (see the Quick Start guide).
 
 ## Docs
 
-- [Quick Start](docs/pdf/DARKSKY_NEXUS_w035_QuickStart.pdf)
-- [User Manual](docs/pdf/DARKSKY_NEXUS_w035_UserManual.pdf)
-- [Troubleshooting](docs/pdf/DARKSKY_NEXUS_w035_Troubleshooting.pdf)
+- [Quick Start](docs/pdf/DARKSKY_NEXUS_w036_QuickStart.pdf)
+- [User Manual](docs/pdf/DARKSKY_NEXUS_w036_UserManual.pdf)
+- [Troubleshooting](docs/pdf/DARKSKY_NEXUS_w036_Troubleshooting.pdf)
 - [Full changelog](CHANGELOG.md)
 
 ## Trademarks

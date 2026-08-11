@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DARKSKY w035 — SDRConnect Companion
+DARKSKY w036 — SDRConnect Companion
 ================================================================================
 WebSocket bridge and signal intelligence companion for SDRplay RSPdx and
 compatible SDRplay receivers. Interfaces with SDRConnect via WebSocket.
@@ -9,74 +9,10 @@ Also supports RTL-SDR USB dongles via rtl_tcp (direct, no SDRConnect needed).
 ================================================================================
 Full build history (w0.0.5 -> present): see CHANGELOG.md in this folder.
 
-CURRENT VERSION — w035:
-w035      Forked from w033 (2026-07-24) to replace the DAB/DAB+ engine.
-          w033's dab-cmdline engine opens the SDRplay API directly and can
-          only ever see a physically USB-attached RSPdx -- it can't read
-          from SDRConnect's network protocols or a networked nRSP-ST at
-          all. Replaced with `dab_radio_nexus`, a new headless tool built
-          on a clone of williamyang98/DAB-Radio (MIT) that owns no
-          hardware -- it reads raw IQ on stdin and writes decoded PCM on
-          stdout, so it works with any IQ source NEXUS can already reach.
-          NEXUS resamples its Full-IQ tap to 2.048 MSPS and pipes it in
-          continuously; every discovered service decodes simultaneously,
-          so switching stations is now an instant Python-side buffer
-          swap instead of a subprocess relaunch (only a channel change,
-          which retunes the hardware, restarts the subprocess). DAB tab
-          then went through several redesign/fix passes (card-grid service
-          list, dedicated player column with live DLS text + MOT slideshow,
-          background Band III scan, topbar polish) and a Cinematic Mode
-          "Retro" scene rebuild (vintage valve radio with a real nixie-tube
-          frequency display, brass panel, DAB now-playing info). See
-          NEXUS_dab_radio_build_macOS.md for the DAB build steps.
+CURRENT VERSION — w036:
+w036      Forked from w035 (2026-08-04). No changes yet.
 
-          DRM/DRM+ decoder added (2026-07-28), via `dream_nexus` -- a
-          headless tool on the open-source Dream DRM receiver engine,
-          same piped-IQ pattern as dab_radio_nexus. Confirmed decoding a
-          real off-air DRM station end to end; the quick-tune list was
-          reworked into a card grid in a 3-column tab layout, and a WAV-
-          header/sample-rate mismatch that made audio sound "slurred/
-          slowed" during live testing was fixed (the header is sent once
-          per stream but DRM's xHE-AAC/SBR codec can report a different
-          rate on later frames -- NEXUS now detects the drift and closes
-          the stream so the browser reconnects for a fresh header). See
-          NEXUS_dream_drm_build_macOS.md for the build steps.
-
-          SSH Launcher now defaults to SDRconnect Headless (2026-07-29)
-          instead of the old `--server` + local-GUI-client combination --
-          headless serves the WebSocket API directly from the remote box,
-          so no second local SDRconnect instance is needed. Added an
-          explicit device_preference setting (Auto / Force USB RSP / Force
-          nRSP-ST) so a user with both a USB-attached RSP and a networked
-          nRSP-ST reachable at once can pin which one NEXUS uses, instead
-          of an automatic USB-always-wins heuristic. Live user report: with
-          `device_preference=auto`, the nRSP-ST -- often already actively
-          streaming as SDRConnect's own remembered last device -- won every
-          time regardless, with no way to switch to USB. `_auto_select_
-          device()` now detects that specific ambiguity (a USB device AND a
-          networked nRSP-ST both visible in `valid_devices` at once) and
-          asks instead of guessing: broadcasts `device_choice_available`,
-          the frontend shows a picker, and a new `select_device` WS command
-          applies the choice with the same send + confirm-handshake pattern
-          already proven for live stream-mode switches. A general device
-          selector also now lives in the top bar itself (not just during an
-          SSH session) so switching stays available at any time afterward,
-          not just on first connect.
-
-          Other fixes: bookmark labels on the spectrum/waterfall and the BM
-          panel showed Notes instead of Name whenever Name was 4 characters
-          or shorter -- Name now always wins when present. Decoder
-          subprocesses (DAB, DRM, P25/DMR trunking) were left running as
-          orphans after quitting NEXUS because they were never added to the
-          shutdown-termination list -- fixed, closing the "audio persists
-          after quitting NEXUS" report. `_escHtml` was referenced
-          throughout the frontend but never actually defined (app-wide,
-          pre-existing bug, only surfaced once a code path finally hit it).
-          See CHANGELOG.md for the full itemised record, including the
-          Cinematic Retro scene's iterative redesign and the DAB tab's
-          several fix/polish passes not summarised above.
-
-Prior version history (w0.0.5 -- w034): see CHANGELOG.md in this folder
+Prior version history (w0.0.5 -- w035): see CHANGELOG.md in this folder
 for the full itemised record of every earlier fork's changes -- kept
 there rather than duplicated here so this docstring doesn't grow forever.
 ================================================================================
@@ -218,7 +154,7 @@ except Exception:
     DECODERS = []
 
 # --- MASTER CONFIG ---
-VERSION      = "w035"
+VERSION      = "w036"
 
 # --- BUILD HISTORY ---
 # w0.1.9 — nRSP-ST Full Support
@@ -320,7 +256,7 @@ def _find_html() -> Path:
         if candidates:
             return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
         # Final fallback path (will show "not found" page)
-        return meipass / 'DARKSKY_NEXUS_w035.html'
+        return meipass / 'DARKSKY_NEXUS_w036.html'
 
     here = Path(__file__).resolve().parent
 
@@ -330,13 +266,13 @@ def _find_html() -> Path:
         return same_stem
 
     # 2. Fallback: newest DARKSKY*w035*.html in the same folder
-    matches = glob.glob(str(here / "DARKSKY*w035*.html"))
+    matches = glob.glob(str(here / "DARKSKY*w036*.html"))
     if matches:
         matches.sort(key=lambda p: Path(p).stat().st_mtime, reverse=True)
         return Path(matches[0])
 
     # 3. Hard fallback — will trigger "not found" page with the correct path shown
-    return here / "DARKSKY_NEXUS_w035.html"
+    return here / "DARKSKY_NEXUS_w036.html"
 
 DARKSKY_HTML = _find_html()
 HTTP_PORT     = 8888
@@ -478,9 +414,14 @@ log.info(f"Startup: sounddevice {'available' if _HAVE_SOUNDDEVICE else 'NOT AVAI
 if getattr(sys, 'frozen', False):
     try:
         import logging.handlers as _lh
-        _log_dir = Path.home() / 'Library' / 'Logs' / 'DARKSKY NEXUS' \
-                   if sys.platform == 'darwin' \
-                   else Path(os.environ.get('APPDATA', Path.home())) / 'DARKSKY NEXUS' / 'logs'
+        if sys.platform == 'darwin':
+            _log_dir = Path.home() / 'Library' / 'Logs' / 'DARKSKY NEXUS'
+        elif sys.platform == 'win32':
+            _log_dir = Path(os.environ.get('APPDATA', Path.home())) / 'DARKSKY NEXUS' / 'logs'
+        else:
+            _xdg_state = os.environ.get('XDG_STATE_HOME')
+            _log_dir = (Path(_xdg_state) if _xdg_state else Path.home() / '.local' / 'state') \
+                       / 'DARKSKY NEXUS' / 'logs'
         _log_dir.mkdir(parents=True, exist_ok=True)
         _fh = _lh.RotatingFileHandler(
             _log_dir / 'darksky_nexus.log',
@@ -628,21 +569,6 @@ state        = {
     "vdl2_sample_rate": 2100000,
     "dsd_active":       False,
     "dsd_audio_device": "",
-    # rtl_433 (w033 fork, 2026-07-19) — ISM-band sensor decoder (TPMS,
-    # weather stations, smart meters, etc.), same subprocess+UDP-JSON
-    # pattern as HFDL/VDL2 above.
-    "rtl433_active":    False,
-    # "auto" (2026-07-20, user asked "can device be autodetected from
-    # nexus?"): _launch_rtl433() resolves this at launch time via
-    # _detect_rtl433_device() -- a real plugged-in RTL-SDR dongle wins if
-    # found (rtl_test), otherwise falls back to whatever SDRplay unit NEXUS
-    # itself is already connected to (state['active_device']), otherwise
-    # 'rtlsdr' (old hardcoded default). Still explicitly overridable via
-    # the 'device' field on the rtl433_start command ("rtlsdr" or a
-    # SoapySDR driver name like "sdrplay") -- 'auto' only applies when
-    # nothing more specific has been set.
-    "rtl433_device":    "auto",
-    "rtl433_freq_mhz":  433.92,     # common EU/US ISM band; 315/915 also common in the US
     # Startup connection picker (added 2026-07-29) — '' until resolved (see
     # _connection_mode_ready), then one of 'nrsp_ws' / 'usb_local_ws' /
     # 'usb_remote_ws' / 'rtlsdr'. Included in the initial state broadcast so
@@ -659,6 +585,15 @@ state        = {
     "hw_sample_rate":   0,         # hardware sample rate — preserved across mode switches
     "valid_antennas":   "",        # comma-delimited list from SDRConnect, e.g. "Antenna A,Antenna B,Antenna C"
     "active_antenna":   "",        # currently selected antenna name
+    # In-GUI Start/Stop stream control (added 2026-08-09, user request: "add
+    # a start/stop within nexus gui rather than hard close chrome"). Stop
+    # cleanly disables the SDRConnect stream (audio_stream_enable/
+    # iq_stream_enable/device_stream_enable/set_primary_device_enable, same
+    # sequence set_stream_mode already uses) without tearing down NEXUS's
+    # own Python process or the WS connection to SDRConnect itself — Start
+    # replays the matching enable sequence. See sdr_stream_stop/
+    # sdr_stream_start WS command handlers.
+    "stream_paused":    False,
 }
 
 # ── RECORDING (REC button: AUD/IQ modes) ────────────────────────────────
@@ -779,8 +714,137 @@ async def _rec_stop_and_report():
 AIS_UDP_PORT      = 10110
 AIS_EXPIRE_SECS   = 1800            # 30 minutes
 ais_vessels: dict = {}              # {mmsi_str: vessel_dict}
+# THREAD-SAFETY (2026-08-09, external review): confirmed by grepping every
+# call site -- all reads/writes to this dict (native RF, Dire Wolf RF, UDP
+# NMEA, aisstream.io) happen on the single asyncio event-loop thread. The
+# only run_in_executor() calls anywhere near AIS are for blocking disk I/O
+# (the aisstream persistent-store JSON file) -- ais_vessels itself is never
+# touched from inside an executor thread, only after the awaited result
+# comes back on the event loop. No lock needed as long as that stays true;
+# if a future change ever mutates ais_vessels from inside a
+# run_in_executor()/to_thread() callback directly, that invariant breaks.
 _ais_udp_server   = None            # asyncio DatagramTransport, or None
-_ais_fragments: dict = {}           # reassembly {(msg_id,channel): {seq:(payload,fill)}}
+_ais_fragments: dict = {}           # reassembly {(msg_id,channel): {'ts': float, 'count': int, 'parts': {seq:(payload,fill)}}}
+AIS_UDP_FRAGMENT_TTL_SECS = 10.0    # a real multipart AIVDM sequence's parts
+                                     # arrive within one UDP burst -- 10s is
+                                     # generous headroom, not a tight bound.
+                                     # See AIS_UDP_STATS comment below.
+
+# HARDENING (2026-08-09, external review "medium-term" tier): the UDP:10110
+# NMEA input previously had NO checksum verification at all (the '*NN'
+# suffix was stripped and discarded, never recomputed/compared) and no
+# visibility into how many incoming sentences were malformed, checksum-
+# failed, or dropped as stale incomplete multipart sequences -- unlike the
+# RF path's AIS_FRAME_STATS funnel, there was nothing to read here besides
+# "did ais_vessels grow." These counters mirror that funnel's convention
+# for the UDP source specifically:
+#   sentences_total       -- every non-empty line seen by datagram_received().
+#     -> not_ais_sentence     -- doesn't start with !AIVDM/!AIVDO (other
+#                                NMEA talker/sentence types on the same
+#                                feed, e.g. GPS $GPGGA -- not an error).
+#     -> checksum_missing     -- no '*NN' suffix present at all. Still
+#                                parsed (some real-world feeds omit it),
+#                                but tracked separately from a real failure.
+#     -> checksum_fail        -- '*NN' present but doesn't match the
+#                                recomputed XOR checksum -- sentence
+#                                REJECTED outright, not parsed further.
+#     -> parse_fail           -- checksum OK (or absent) but the comma-
+#                                delimited field structure itself is
+#                                malformed (too few fields, non-integer
+#                                fragment count/num/fill-bits).
+#     -> fragment_count_mismatch -- a later fragment of an in-flight
+#                                multipart sequence claims a different
+#                                total fragment_count than the first
+#                                fragment did -- the stale partial is
+#                                dropped and reassembly restarts clean.
+#     -> fragment_num_invalid -- fragment_num outside [1, fragment_count].
+#     -> multipart_stale_dropped -- an incomplete sequence aged out past
+#                                AIS_UDP_FRAGMENT_TTL_SECS without its
+#                                final part ever arriving.
+#     -> single_fragment_ok / multipart_complete -- structurally valid
+#                                sentence(s) handed to _ais_decode_payload().
+#     -> decode_failed         -- handed to _ais_decode_payload() but it
+#                                returned None (bad msg_type/length at the
+#                                AIS-payload level, same checks the RF path
+#                                uses).
+#     -> accepted              -- merged into ais_vessels via
+#                                _ais_update_vessel() (counted there too,
+#                                in AIS_FRAME_STATS['crc_ok_accepted'] --
+#                                this is the UDP-source-specific view of
+#                                the same event).
+AIS_UDP_STATS = {
+    'sentences_total':          0,
+    'not_ais_sentence':         0,
+    'checksum_missing':         0,
+    'checksum_fail':            0,
+    'parse_fail':               0,
+    'fragment_count_mismatch':  0,
+    'fragment_num_invalid':     0,
+    'multipart_stale_dropped':  0,
+    'single_fragment_ok':       0,
+    'multipart_complete':       0,
+    'decode_failed':            0,
+    'accepted':                 0,
+}
+
+# HARDENING (2026-08-09, external review of AIS_DECODE_ARCHITECTURE.md):
+# pipeline-wide funnel counters so the "how much of what we CRC-accept is
+# actually real" question (raised directly by the 2026-08-09 SAMPLE IQ
+# test, where a weak -113dBm capture produced exactly 1 CRC-OK frame out
+# of 17 candidates, decoding as an out-of-spec message type) is a number
+# you can read off the [AIS-DIAG] log line instead of re-deriving from a
+# one-off offline test each time. Funnel order:
+#   crc_ok_total        -- every frame whose HDLC CRC-16/X.25 passed
+#                           (RF decoders only -- AisDecoder + every
+#                           AisDecoderDireWolf slice, both funnel through
+#                           the shared _protodec_getdata()).
+#     -> crc_ok_invalid_type  -- msg_type outside the ITU-R M.1371 1-27
+#                                range (see _ais_decode_payload() guard --
+#                                almost certainly a CRC false-accept on
+#                                noise, not a real AIS frame).
+#     -> crc_ok_bad_length    -- msg_type in-range but _ais_decode_payload()
+#                                still returned None (payload shorter than
+#                                that type's minimum bit length, or a
+#                                valid-per-spec type NEXUS doesn't parse
+#                                fields for -- see that function's elif
+#                                chain).
+#     -> crc_ok_valid_type    -- successfully field-parsed, queued for the
+#                                merge.
+#   Downstream of the RF-only counters above, _ais_update_vessel() is the
+#   single merge point ALL FOUR sources (native RF, Dire Wolf RF, UDP
+#   NMEA, aisstream.io) funnel through, so these last two count across
+#   every source, not RF alone:
+#     -> crc_ok_bad_mmsi      -- rejected by _ais_mmsi_plausible().
+#     -> crc_ok_accepted      -- merged into ais_vessels.
+AIS_FRAME_STATS = {
+    'crc_ok_total':        0,
+    'crc_ok_invalid_type': 0,
+    'crc_ok_bad_length':   0,
+    'crc_ok_valid_type':   0,
+    'crc_ok_bad_mmsi':     0,
+    'crc_ok_accepted':     0,
+}
+
+# HARDENING (2026-08-09, external review "medium-term" tier): optional raw
+# decoded-frame logging, independent of ais_vessels. The vessel table only
+# ever shows the CURRENT merged state per MMSI -- it can't answer "what did
+# every individual frame actually say, in order, including the ones that
+# got rejected downstream" the way a capture-based regression suite needs
+# to. This writes one JSON line per decoded frame (from every source: RF
+# native/direwolf, UDP, aisstream), BEFORE any MMSI-plausibility filtering,
+# so both accepted and rejected frames are visible for later analysis.
+# OFF by default -- this is a diagnostic/regression-testing tool, not
+# something a normal user needs accumulating on disk. Flip
+# AIS_RAW_FRAME_LOG_ENABLED to True (or wire a WS command to toggle it, if
+# this becomes a routinely-used workflow) to capture a session's frames.
+AIS_RAW_FRAME_LOG_ENABLED   = False
+AIS_RAW_FRAME_LOG_FILENAME  = "ais_raw_frames.jsonl"   # resolved against
+                                                        # SCRIPT_DIR lazily
+                                                        # inside _ais_log_raw_frame()
+                                                        # -- SCRIPT_DIR isn't
+                                                        # defined yet this early
+                                                        # in the module.
+AIS_RAW_FRAME_LOG_MAX_BYTES = 20 * 1024 * 1024   # rotate (single .bak) past this size
 
 # ── AIS: aisstream.io live feed (added 2026-07-17, user request) ────────
 # NEXUS's own RF reception here mostly hearing types 8/10/12 (no name/
@@ -806,17 +870,26 @@ AIS_AISSTREAM_KEYFILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)
 AIS_AISSTREAM_MAX_MMSI  = 50    # aisstream.io's own FiltersShipMMSI hard limit
 AIS_AISSTREAM_RESUB_SECS = 30   # how often to refresh the subscribed MMSI list
 
-# TEMPORARY DIAGNOSTIC (2026-07-18, "40+ vessels tracked, still zero data
-# received/matched after connection+subscription both confirmed working") --
-# a known always-active real MMSI from aisstream.io's own documentation
-# example (a US-flagged vessel), added to every subscription purely to prove
-# whether the receive pipeline can get *any* real traffic through at all,
-# independent of whether the user's own RF-decoded MMSIs happen to be quiet
-# or non-standard. Logged distinctly in _aisstream_client()'s receive loop
-# (search 'AIS-DIAG-TEST') -- does NOT get added to ais_vessels or displayed,
-# since _aisstream_apply_message() already ignores any MMSI not already
-# tracked. Remove this constant and its one use-site once the pipeline is
-# confirmed (or refuted).
+# DEV DIAGNOSTIC, opt-in / default OFF (was an unconditional "TEMPORARY
+# DIAGNOSTIC" added 2026-07-18 during "40+ vessels tracked, still zero data
+# received/matched after connection+subscription both confirmed working" --
+# that investigation concluded and the constant should have been removed
+# then, per its own comment, but never was; hardened into an explicit
+# opt-in on 2026-08-09 external review instead of deleting outright, since
+# it's a genuinely useful tool the next time this exact "is the aisstream
+# pipeline actually receiving anything" question comes up).
+#
+# When enabled, subscribes to one known-always-active real MMSI from
+# aisstream.io's own documentation example on every subscription, purely to
+# prove whether the receive pipeline can get *any* real traffic through at
+# all, independent of whether the user's own RF-decoded MMSIs happen to be
+# quiet or non-standard. Logged distinctly in _aisstream_client()'s receive
+# loop (search 'AIS-DIAG-TEST') -- does NOT get added to ais_vessels or
+# displayed, since _aisstream_apply_message() already ignores any MMSI not
+# already tracked. Leave OFF for normal use -- it adds one extra MMSI to
+# every real subscription for no operational benefit once the pipeline is
+# already known-good.
+AIS_AISSTREAM_DIAG_SUBSCRIPTION_ENABLED = False
 AIS_AISSTREAM_DIAG_TEST_MMSI = '368207620'
 
 def _ais_aisstream_load_key():
@@ -970,6 +1043,20 @@ _CALLSIGN_RE = re.compile(
 
 # PY-13: compile hot-path regexes once at module level.
 _DE_CALL_RE     = re.compile(r'DE\s+([A-Z0-9]{1,3}[0-9][A-Z]{1,4}(?:/[A-Z0-9]{1,4})?)\b')
+
+# CW DSP overhaul (2026-08-09, review item A5): procedural CW fragments
+# that happen to satisfy _CALLSIGN_RE's shape (1-3 alnum, a digit, 1-4
+# letters) but are not callsigns — RST reports, common Q-signals/prosign
+# spellouts, and contest exchange tokens. A skimmer channel decodes noisy,
+# QRM-adjacent audio unattended, so a false positive here doesn't just
+# render wrong on screen, it can get uploaded to a public database (PSK
+# Reporter) as if it were a real reception report. Checked case-insensitively
+# against the matched token before it's ever treated as a callsign.
+_CW_CALLSIGN_BLOCKLIST = frozenset({
+    'RST', 'TU', 'ES', 'AR', 'SK', 'BT', 'KN', 'AS', 'HH', 'DE', 'CQ',
+    'QRZ', 'QSL', 'QTH', 'QRM', 'QRN', 'QSB', 'QRP', 'QRO', 'QRS', 'QRQ',
+    'PSE', 'TNX', 'TKS', 'WPM', 'NIL', 'NR', 'VVV', 'TEST',
+})
 _WX_WIND_RE     = _re.compile(r'(\d{3})/(\d{3})')
 _WX_TEMP_RE     = _re.compile(r't(-?\d{3})')
 _WX_HUMID_RE    = _re.compile(r'h(\d{2})')
@@ -993,6 +1080,28 @@ def _goertzel_power(iq_c: 'np.ndarray', freq_hz: float, sr: float) -> float:
 
 
 class MorseDecoder:
+    # CW DSP overhaul (2026-08-09, w036): tuning constants for the
+    # decimated filter chain, Schmitt-trigger hysteresis, and the
+    # percentile-based floor/ceiling stats. Pulled out as class constants
+    # so they're easy to find/tune in one place instead of buried as
+    # magic numbers inside process_iq().
+    _DEC_TARGET_SR   = 1500.0  # working rate after decimation — plenty of
+                                # headroom above any CW-bandwidth corner
+                                # we'd ever set (tens to a few hundred Hz)
+    _BW_MIN_HZ       = 50.0
+    _BW_MAX_HZ       = 300.0
+    _BW_DOTLEN_K     = 2.5     # bw_hz = K / dot_len, clamped to [min,max]
+    _HYST_DB         = 3.0     # key-up trigger sits this many dB below
+                                # threshold_db once "down" — stops chatter
+                                # right at the cutoff
+    _SPREAD_GATE_DB  = 6.0     # auto-threshold only re-arms once the
+                                # trailing ceiling is at least this far
+                                # above the trailing floor (was 1.0 dB —
+                                # far too permissive, armed on almost any
+                                # noise wobble)
+    _FLOOR_PCTL      = 15.0
+    _CEIL_PCTL       = 90.0
+
     def __init__(self, channel_tag=None):
         self.active        = False
         self.threshold_db  = 8.0
@@ -1031,6 +1140,17 @@ class MorseDecoder:
         self.state_time           = time.perf_counter()
         self.key_down             = False
         self._last_broadcast_text = ""
+        # CW DSP overhaul (2026-08-09, w036 — "implement proposed changes"):
+        # explicit bandwidth override for cw_set_bandwidth (None = auto,
+        # derived live from dot_len — see process_iq()). Also the
+        # callsign-corroboration table used by the hardened PSK Reporter
+        # spotting path (see _extract_callsign/process_iq): a skimmer
+        # channel free-runs on noisy, QRM-adjacent audio, so a single
+        # regex match on a garbled decode is not strong enough evidence to
+        # push a report to a public database — require the same callsign
+        # to be read out 2+ times before it's trusted.
+        self._bw_override_hz  = None
+        self._callsign_seen   = {}
         # BUGFIX (noise floor drifts up during sustained keying, June 2026):
         # see process_iq() for full explanation. _floor_hist holds recent
         # (timestamp, pwr) samples so the floor can be the true minimum
@@ -1055,17 +1175,31 @@ class MorseDecoder:
         # every decoder (re)start/retune so stale state from a previous
         # frequency/offset never bleeds into the new one.
         self._mix_phase = 0.0
-        self._lp_zi      = None
-        self._lp_state   = None
+        # CW DSP overhaul (2026-08-09): _lp_zi3 holds the 3 cascaded
+        # filter-stage states (was a single _lp_zi for one pole);
+        # _lp_dsr tracks the decimated rate they were computed at, so a
+        # sample-rate change (decimation factor moves, or first call)
+        # invalidates and reinitialises them instead of feeding a filter
+        # state from one rate into a filter running at another.
+        self._lp_zi3     = None
+        self._lp_dsr     = None
 
     def _extract_callsign(self):
-        """Return the most recently decoded callsign (DE <CALL> pattern first, then bare ITU)."""
+        """Return the most recently decoded callsign (DE <CALL> pattern first, then bare ITU).
+
+        CW DSP overhaul (2026-08-09, review item A5): rejects tokens in
+        _CW_CALLSIGN_BLOCKLIST (RST/Q-signal/prosign fragments that happen
+        to match the same shape a real callsign does) before returning
+        them — see process_iq()'s skimmer branch for the corroboration
+        check layered on top of this."""
         tail = self.text[-80:]
         m = _DE_CALL_RE.search(tail)  # PY-13
-        if m:
+        if m and m.group(1) not in _CW_CALLSIGN_BLOCKLIST:
             return m.group(1)
         m = _CALLSIGN_RE.search(tail[-30:])
-        return m.group(1) if m else None
+        if m and m.group(1) not in _CW_CALLSIGN_BLOCKLIST:
+            return m.group(1)
+        return None
 
     def set_tone(self, hz):
         self.tone_hz = float(hz)
@@ -1073,6 +1207,16 @@ class MorseDecoder:
 
     def set_threshold(self, v):
         self.threshold_db = float(v)
+
+    def set_bandwidth(self, hz):
+        """CW DSP overhaul (2026-08-09): explicit override for the
+        speed-aware filter bandwidth. hz <= 0 (or None) restores auto
+        mode, where the corner tracks the live dot_len every frame."""
+        try:
+            hz = float(hz)
+        except (TypeError, ValueError):
+            hz = 0.0
+        self._bw_override_hz = hz if hz > 0 else None
 
     def set_auto_threshold(self, on):
         self.auto_threshold = bool(on)
@@ -1215,38 +1359,74 @@ class MorseDecoder:
                 ang  = ph + step * np.arange(n_samp, dtype=np.float64)
                 iq_c = iq_c * np.exp(1j * ang).astype(np.complex64)
                 self._mix_phase = float((ang[-1] + step) % (2.0 * np.pi))
-            # Narrowband lowpass (~150 Hz corner) — rejects everything else
-            # in a wideband Full IQ capture so power actually tracks the CW
-            # carrier's on/off keying instead of the whole received span's
-            # broadband energy. Vectorised: a per-sample Python IIR loop
-            # would be far too slow against Full IQ's hardware-rate blocks
-            # (tens of thousands of samples per call). Use scipy's lfilter
-            # with carried-over state when available (exact single-pole
-            # IIR); otherwise fall back to a vectorised block-boxcar
-            # average, which is a coarser but still numpy-vectorised
-            # narrowband estimate.
-            if _HAVE_SCIPY:
-                if not hasattr(self, '_lp_zi') or self._lp_zi is None:
-                    self._lp_zi = np.zeros(1, dtype=np.complex128)
-                alpha = min(1.0, 2.0 * np.pi * 150.0 / sr)
-                filt, self._lp_zi = _scipy_signal.lfilter(
-                    [alpha], [1.0, -(1.0 - alpha)],
-                    iq_c.astype(np.complex128), zi=self._lp_zi)
-                pwr = float(np.mean(np.abs(filt) ** 2)) ** 0.5
+            # CW DSP overhaul (2026-08-09, w036 — "implement proposed
+            # changes"): decimate after mixdown, then run a higher-order,
+            # speed-aware filter at the reduced rate (review items A0/A1/
+            # A2). Filtering at the full hardware rate was expensive and,
+            # worse, forced a single-pole IIR's alpha to be tiny to reach
+            # a narrow corner — a tiny alpha settles slowly, so it
+            # couldn't reject nearby QRM any faster than it could track
+            # real keying, and its -6dB/octave rolloff left real QRM
+            # energy leaking through regardless. Decimating first (simple
+            # boxcar average — itself a crude anti-alias lowpass, fully
+            # vectorised via reshape/mean) moves the real filtering to a
+            # rate where the same Hz-wide corner is a far bigger fraction
+            # of Nyquist, so a 3-pole cascade gets there in a handful of
+            # samples instead of hundreds, at a fraction of the cost.
+            # This must happen AFTER the mixdown above, not before:
+            # offset_hz can be tens of kHz on a wideband Full IQ capture,
+            # and decimating first would alias the wanted tone away
+            # before the filter ever saw it.
+            dec_factor = max(1, int(sr / self._DEC_TARGET_SR)) if sr > self._DEC_TARGET_SR else 1
+            if dec_factor > 1 and n_samp >= dec_factor:
+                n_dec = n_samp // dec_factor
+                diq   = iq_c[: n_dec * dec_factor].reshape(n_dec, dec_factor).mean(axis=1)
+                dsr   = sr / dec_factor
             else:
-                # No scipy: cascade 3 moving-average stages (each via
-                # cumsum, fully vectorised — no per-sample Python loop)
-                # sized to the ~150 Hz corner. A single boxcar has weak
-                # stopband rejection (its frequency response is a sinc,
-                # with significant ripple/leakage between nulls) — three
-                # cascaded stages multiply that response together and
-                # give a much steeper, more lowpass-like rolloff, close
-                # to the scipy IIR branch above. Verified against a
-                # synthetic wideband capture with an out-of-band
-                # interferer: a single boxcar barely rejected it, three
-                # cascaded stages rejected it by >25 dB.
-                win = max(1, int(sr / 150.0))
-                x = iq_c
+                diq = iq_c
+                dsr = sr
+            # Speed-aware bandwidth (A2): the corner tracks the live
+            # dot_len instead of a fixed ~150 Hz for every WPM. A slow,
+            # hand-sent 12 WPM signal only needs on the order of 50-80 Hz
+            # to resolve cleanly and benefits from the extra QRM rejection
+            # a tighter corner buys; a fast 35+ WPM signal needs several
+            # hundred Hz or the filter's own settling time starts eating
+            # into dit length. cw_set_bandwidth (set_bandwidth()) can pin
+            # this to a fixed value when auto-tracking isn't wanted.
+            if self._bw_override_hz:
+                bw_hz = self._bw_override_hz
+            else:
+                bw_hz = self._BW_DOTLEN_K / max(self.dot_len, 1e-3)
+                bw_hz = max(self._BW_MIN_HZ, min(self._BW_MAX_HZ, bw_hz))
+            if dsr != self._lp_dsr:
+                # Sample rate changed since the last block (decimation
+                # factor moved, or this is the first call) — filter state
+                # carried from the old rate is meaningless at the new one.
+                self._lp_zi3 = None
+                self._lp_dsr = dsr
+            if _HAVE_SCIPY:
+                # 3-pole cascade (was 1 pole): ~-18 dB/octave instead of
+                # ~-6 dB/octave. Each stage is the same exact single-pole
+                # IIR as before, run 3 times in series with its own
+                # carried-over state — verified against a synthetic
+                # wideband capture with an out-of-band interferer that a
+                # single stage barely attenuated: the 3-stage cascade at
+                # the same corner rejected it far harder.
+                if not self._lp_zi3:
+                    self._lp_zi3 = [np.zeros(1, dtype=np.complex128) for _ in range(3)]
+                alpha = min(1.0, 2.0 * np.pi * bw_hz / dsr)
+                stage_in = diq.astype(np.complex128)
+                for k in range(3):
+                    stage_in, self._lp_zi3[k] = _scipy_signal.lfilter(
+                        [alpha], [1.0, -(1.0 - alpha)],
+                        stage_in, zi=self._lp_zi3[k])
+                pwr = float(np.mean(np.abs(stage_in) ** 2)) ** 0.5
+            else:
+                # No scipy: cascade 3 moving-average stages at the
+                # decimated rate (cheaper than before since diq is already
+                # dec_factor times shorter than iq_c).
+                win = max(1, int(dsr / bw_hz))
+                x = diq
                 for _ in range(3):
                     if len(x) < win:
                         break
@@ -1260,7 +1440,15 @@ class MorseDecoder:
         cutoff = now_t - 1.5
         while hist and hist[0][0] < cutoff:
             hist.popleft()
-        self.noise_floor = max(min(p for _, p in hist), 1e-6)
+        # Percentile floor instead of true min (review item A3): a single
+        # sub-noise glitch (a fade dropout, a brief AGC pump) used to drag
+        # the floor artificially low for the rest of the window since min()
+        # takes it literally. The 15th percentile is still solidly in the
+        # "off" population for genuine on/off keying (which spends more
+        # time off than on) but can't be dragged around by one outlier
+        # sample the way a hard min() can.
+        floor_pwrs = [p for _, p in hist]
+        self.noise_floor = max(float(np.percentile(floor_pwrs, self._FLOOR_PCTL)), 1e-6)
         snr     = 10 * np.log10(pwr / (self.noise_floor + 1e-9))
         self._diag_pwr = pwr
         self._diag_snr = snr
@@ -1278,30 +1466,75 @@ class MorseDecoder:
             ccutoff = now_t - 4.0
             while chist and chist[0][0] < ccutoff:
                 chist.popleft()
-            ceiling = max(p for _, p in chist)
+            # Percentile ceiling instead of true max, same reasoning as the
+            # floor above — one spike (a crash of static, a nearby signal's
+            # edge) shouldn't be able to set the ceiling for the next 4s.
+            ceil_pwrs = [p for _, p in chist]
+            ceiling = float(np.percentile(ceil_pwrs, self._CEIL_PCTL))
             ceil_snr = 10 * np.log10(ceiling / (self.noise_floor + 1e-9))
-            if ceil_snr > 1.0:
+            # Spread gate (review item A3): only re-arm the auto-derived
+            # threshold once the ceiling is genuinely, robustly above the
+            # floor by _SPREAD_GATE_DB (6 dB) — was gated at just 1.0 dB,
+            # which is well within normal noise wobble and let the cutoff
+            # collapse toward ~0.3 dB on a flat/no-signal band instead of
+            # holding the last sane value.
+            if ceil_snr >= self._SPREAD_GATE_DB:
                 # Sit in the valley between floor and ceiling, biased
                 # toward the floor side (1/3 of the way up in dB) — on/off
                 # keying spends more time "off" than "on" for typical text,
                 # and a low cutoff is more robust to a weak/fading signal
                 # than a cutoff sitting right at the midpoint.
                 self.threshold_db = max(2.0, ceil_snr / 3.0)
-            # else: no usable peak seen yet (e.g. decoder just (re)started,
-            # or genuinely no signal) — keep whatever threshold_db already
-            # had rather than collapsing to a near-zero/noisy value.
-        is_down = snr > self.threshold_db
+            # else: spread too thin to trust yet (decoder just (re)started,
+            # genuinely no signal, or a flat band) — keep whatever
+            # threshold_db already had rather than collapsing to a
+            # near-zero/noisy value.
+        # Schmitt-trigger hysteresis (review item A3): a bare
+        # `snr > threshold_db` re-evaluated fresh every frame can chatter
+        # rapidly right at the cutoff (several spurious up/down transitions
+        # within what should be one continuous element) whenever the signal
+        # sits close to threshold_db, e.g. a fading/marginal QSO. Once
+        # already "down", require snr to drop _HYST_DB below threshold_db
+        # before accepting a transition back to "up" — asymmetric on
+        # purpose, so entering key-down still reacts immediately at the
+        # nominal threshold.
+        if self.last_state:
+            is_down = snr > (self.threshold_db - self._HYST_DB)
+        else:
+            is_down = snr > self.threshold_db
         now     = time.perf_counter()
         dur     = now - self.state_time
-        if is_down != self.last_state and dur > 0.025:
+        # Proportional debounce (review item A3): a fixed 25ms debounce
+        # silently eats real elements once dot_len drops anywhere near it
+        # — a 40 WPM dot is ~30ms, so 25ms leaves almost no margin, and
+        # faster/weighted sending would lose dits outright. Scale the
+        # debounce with the live dot_len instead (floored at 4ms so it
+        # never goes low enough to just pass raw noise through, capped at
+        # the old 25ms so slow-CW behaviour doesn't get any looser than it
+        # already was).
+        debounce_s = max(0.004, min(0.025, self.dot_len * 0.2))
+        if is_down != self.last_state and dur > debounce_s:
             if self.last_state:
-                sym = "." if dur < self.dot_len * 2.5 else "-"
+                # Classifier boundary (review item A1): a dot/dash split at
+                # 2.5x dot_len assumed dashes only ever run 3x+ a dot's
+                # length and dots stay under 2.5x — but the geometric mean
+                # of 1 (dot) and 3 (dash) unit-lengths is sqrt(3) ≈ 1.73,
+                # not 2.5. A 2.5x boundary is biased toward calling
+                # borderline dashes "dots" (anything from 1.73x to 2.5x a
+                # dot's length was previously misclassified), which is
+                # exactly the kind of error that turns a real callsign
+                # into noise. Applied to both this element boundary and
+                # the matching 1-unit-vs-3-unit gap boundary just below —
+                # both split the same 1x/3x pair, so the same fix applies
+                # to both. The word-gap boundary (3x/7x, further down)
+                # keeps its existing value; not part of this pass.
+                sym = "." if dur < self.dot_len * 1.7320508 else "-"
                 self.buffer += sym
                 ref = dur if sym == "." else dur / 3
                 if 0.3 * self.dot_len < ref < 3.0 * self.dot_len:
                     self.dot_len = self.dot_len * 0.8 + ref * 0.2
             else:
-                if dur > self.dot_len * 2.5:
+                if dur > self.dot_len * 1.7320508:
                     # BUGFIX (2026-07-16, w032 — CW decoder evaluation): a
                     # symbol buffer that doesn't exactly match morse_table
                     # used to silently vanish via .get(self.buffer, "") —
@@ -1311,11 +1544,20 @@ class MorseDecoder:
                     # no signal that the decoder mistimed something. Only an
                     # empty buffer (a long trailing gap with nothing typed —
                     # not an error) should stay silent; a genuinely non-empty,
-                    # unmatched buffer now renders '#' instead, so a run of
-                    # timing errors is visible as a run of '#'s rather than
-                    # invisible gaps in the text.
+                    # unmatched buffer renders it below instead, so a run of
+                    # timing errors is visible rather than invisible gaps.
+                    #
+                    # Richer fallback (review item A4, 2026-08-09): a bare
+                    # '#' told you *that* a pattern failed to match but not
+                    # *what* was actually sent, so every timing error looked
+                    # identical whether it was one dropped dit or total
+                    # garbage. Wrap the raw dit/dah buffer between '#'
+                    # markers instead — still visually flags "this one's
+                    # unreliable" at a glance, but now carries enough
+                    # information to reconstruct or debug the mis-timing.
                     if self.buffer:
-                        self.text += self.morse_table.get(self.buffer, '#')
+                        _match = self.morse_table.get(self.buffer)
+                        self.text += _match if _match is not None else f"#{self.buffer}#"
                     if len(self.text) > 10000:
                         self.text = self.text[-5000:]
                     self.buffer = ""
@@ -1372,9 +1614,32 @@ class MorseDecoder:
                 self._last_broadcast_text = self.text
                 _sk_callsign = self._extract_callsign()
                 if _sk_callsign:
-                    # PSK Reporter spot upload (2026-07-15) — no-ops if
-                    # uploading isn't enabled.
-                    psk_uploader.spot(_sk_callsign, self.channel_tag * 1e6, 'CW', snr=snr)
+                    # Corroboration + explicit opt-in (review item A5,
+                    # 2026-08-09): a skimmer channel free-runs unattended on
+                    # noisy, QRM-adjacent audio, so a single regex match on
+                    # one garbled decode isn't strong enough evidence to
+                    # push a reception report to a public database — a
+                    # single mis-timed element can turn a real callsign
+                    # into a different, equally plausible-looking one.
+                    # Require the same callsign to be read out 2+ times on
+                    # this channel first (cheap per-decoder dict, capped so
+                    # it can't grow unbounded over a long-running session),
+                    # AND require state['cw_skimmer_autospot'] to be
+                    # explicitly turned on (default off — see
+                    # cw_skimmer_autospot WS handler) on top of
+                    # psk_uploader's own enabled/callsign-configured gate.
+                    # PSK Reporter spot upload (2026-07-15) itself still
+                    # no-ops if uploading isn't enabled/configured.
+                    _seen = self._callsign_seen
+                    _seen[_sk_callsign] = _seen.get(_sk_callsign, 0) + 1
+                    if len(_seen) > 64:
+                        # Cheap unbounded-growth guard — drop the
+                        # least-corroborated entries first, they're the
+                        # ones least likely to still matter.
+                        for _k in sorted(_seen, key=_seen.get)[:len(_seen) - 64]:
+                            del _seen[_k]
+                    if _seen[_sk_callsign] >= 2 and state.get('cw_skimmer_autospot', False):
+                        psk_uploader.spot(_sk_callsign, self.channel_tag * 1e6, 'CW', snr=snr)
                 asyncio.run_coroutine_threadsafe(
                     broadcast_json({
                         "type":      "skimmer_decode",
@@ -1454,27 +1719,45 @@ class CWSkimmerPool:
     MAX_CH = 20
 
     def __init__(self):
-        self.channels = {}   # freq_mhz (rounded 4dp) -> MorseDecoder
+        self.channels = {}   # freq_hz (int, exact) -> MorseDecoder
         self.active      = False
         self._start_time = None   # time.monotonic() when process started
         self._diag_call_count = 0
+        # CW DSP overhaul (2026-08-09, review item A6): wall-clock gate for
+        # the skimmer_snr diagnostic broadcast, replacing the old
+        # call-count-based `% 10` cadence — see process_iq() below.
+        self._last_snr_bcast_t = 0.0
 
     def set_channels(self, freq_list_mhz, vfo_mhz):
-        """Update the pool to match the supplied list of RF frequencies."""
-        active_set = set(round(f, 4) for f in freq_list_mhz[:self.MAX_CH])
+        """Update the pool to match the supplied list of RF frequencies.
+
+        CW DSP overhaul (2026-08-09, review item A5): channels are now
+        keyed by whole Hz (an exact int) instead of MHz rounded to 4
+        decimal places. Two floats that print identically can still
+        differ in their last bit or two depending on how each was
+        computed upstream (parsed from JSON text here vs. arithmetic
+        elsewhere) — a dict keyed on the float itself risks silently
+        creating a near-duplicate channel instead of updating the
+        existing one. round(f * 1e6) collapses that ambiguity to a plain
+        int, which compares exactly every time.
+        """
+        active_set = set(round(f * 1e6) for f in freq_list_mhz[:self.MAX_CH])
         # Remove channels no longer in the list
-        for f in list(self.channels):
-            if f not in active_set:
-                del self.channels[f]
-        # Add new channels
-        for f in active_set:
-            if f not in self.channels:
-                dec = MorseDecoder(channel_tag=f)
+        for hz in list(self.channels):
+            if hz not in active_set:
+                del self.channels[hz]
+        # Add new channels. channel_tag stays a MHz float (for
+        # broadcast/PSK Reporter wire compatibility) — only the pool's
+        # own dict key changed.
+        for hz in active_set:
+            if hz not in self.channels:
+                dec = MorseDecoder(channel_tag=hz / 1e6)
                 dec.active = True
-                self.channels[f] = dec
+                self.channels[hz] = dec
         # Update tone_hz for all channels to reflect current VFO
-        for f, dec in self.channels.items():
-            dec.tone_hz = (f - vfo_mhz) * 1e6
+        vfo_hz = vfo_mhz * 1e6
+        for hz, dec in self.channels.items():
+            dec.tone_hz = hz - vfo_hz
         self.active = bool(self.channels)
 
     def process(self, dec_bytes, vfo_mhz):
@@ -1490,8 +1773,9 @@ class CWSkimmerPool:
         self._diag_call_count += 1
         if not self.active:
             return
-        for f, dec in self.channels.items():
-            dec.tone_hz = (f - vfo_mhz) * 1e6
+        vfo_hz = vfo_mhz * 1e6
+        for hz, dec in self.channels.items():
+            dec.tone_hz = hz - vfo_hz
             dec.process_iq(iq_c, sr=sr)
         # ROOT CAUSE FIX (June 2026, "candidates never decode" — part 2):
         # _skDetectLoop() in the frontend picks candidate frequencies purely
@@ -1508,12 +1792,22 @@ class CWSkimmerPool:
         # unconditionally (not gated on text-change like skimmer_decode
         # below), lets the frontend evict candidates that never show real
         # signal instead of leaving them in the list forever looking "dead."
-        if self._diag_call_count % 10 == 1:
+        #
+        # Wall-clock cadence (review item A6, 2026-08-09): this used to be
+        # `self._diag_call_count % 10 == 1` — fine as long as process_iq()
+        # is called at a roughly constant rate, but that rate depends on
+        # the active stream mode's block size/cadence (IQ Lite vs Full IQ
+        # vs Compact all differ), so the *real* broadcast rate silently
+        # drifted with whatever mode happened to be active instead of
+        # staying at a predictable, UI-friendly ~1 Hz.
+        now_t = time.perf_counter()
+        if now_t - self._last_snr_bcast_t >= 1.0:
+            self._last_snr_bcast_t = now_t
             snr_map = {}
-            for f, dec in self.channels.items():
+            for hz, dec in self.channels.items():
                 snr = getattr(dec, '_diag_snr', None)
                 if snr is not None:
-                    snr_map[f"{f:.4f}"] = round(float(snr), 1)
+                    snr_map[f"{hz / 1e6:.4f}"] = round(float(snr), 1)
             if snr_map:
                 asyncio.run_coroutine_threadsafe(
                     broadcast_json({"type": "skimmer_snr", "snr": snr_map}),
@@ -1559,6 +1853,27 @@ _SKCAND_MIN_SNR_DB     = 8.0   # matches MorseDecoder's own default decode thres
                                 # promoted candidate is already in the range the decoder needs
 _SKCAND_FLOOR_WINDOW_S = 3.0
 
+# CW DSP overhaul (2026-08-09, review item A6): non-CW-carrier rejection.
+# A single spectral snapshot can't tell a genuinely keyed CW signal apart
+# from any other steady carrier sitting at the same frequency — an
+# unmodulated beacon spur, a birdie, or SSB/FM bleed all look identical to
+# a key-down dash in one frame. The thing that's actually distinctive
+# about CW is that it goes quiet between elements; a steady carrier never
+# does. Tracked across scans (each call is _SKCAND_SCAN_DT apart) instead
+# of within one, since on/off keying can't be seen in a single frame.
+_skcand_bin_hist            = {}   # quantized_freq_hz -> deque[(t, level_db_above_floor)]
+_SKCAND_BIN_QUANT_HZ        = 100.0   # bin-history key granularity — coarser than the raw FFT
+                                        # bin so small VFO/measurement jitter doesn't split one
+                                        # real signal's history across two different keys
+_SKCAND_BINHIST_WINDOW_S    = 6.0     # spans several dot/dash/gap cycles at typical WPM
+_SKCAND_BINHIST_MIN_SAMPLES = 3       # a signal seen for the first time(s) gets the benefit of
+                                        # the doubt rather than being rejected outright
+_SKCAND_KEYING_MIN_SPREAD_DB = 6.0    # genuine keying should visibly dip toward the floor
+                                        # between elements; a steady carrier stays near its own
+                                        # peak on every scan instead
+_SKCAND_BINHIST_PRUNE_S     = 30.0    # drop stale bin-history entries not seen recently, so a
+                                        # signal that goes away doesn't sit in memory forever
+
 def _cw_scan_candidates_from_mag(mag_shifted: np.ndarray, hz_per_bin: float,
                                   center_hz: float, now_t: float):
     """Real-SNR CW candidate scan over a genuine linear-magnitude spectrum.
@@ -1570,7 +1885,7 @@ def _cw_scan_candidates_from_mag(mag_shifted: np.ndarray, hz_per_bin: float,
     Returns a list of dicts: {freq_hz, snr_db, width_hz}, sorted strongest
     first, capped at 20 (matches CWSkimmerPool.MAX_CH).
     """
-    global _skcand_floor_hist
+    global _skcand_floor_hist, _skcand_bin_hist
     n = len(mag_shifted)
     if n < 8:
         return []
@@ -1602,14 +1917,37 @@ def _cw_scan_candidates_from_mag(mag_shifted: np.ndarray, hz_per_bin: float,
             width_hz = width_bins * hz_per_bin
             if width_hz < max_width_hz:
                 freq_hz = center_hz + (i - n // 2) * hz_per_bin
-                found.append({
-                    "freq_hz":  freq_hz,
-                    "snr_db":   round(float(v - floor_db), 1),
-                    "width_hz": round(float(width_hz), 1),
-                })
+                level_db = float(v - floor_db)
+                # Non-CW-carrier rejection: look up (and update) this
+                # frequency's multi-scan history before deciding whether
+                # to include it.
+                qkey = round(freq_hz / _SKCAND_BIN_QUANT_HZ) * _SKCAND_BIN_QUANT_HZ
+                bhist = _skcand_bin_hist.setdefault(qkey, collections.deque())
+                bhist.append((now_t, level_db))
+                bcutoff = now_t - _SKCAND_BINHIST_WINDOW_S
+                while bhist and bhist[0][0] < bcutoff:
+                    bhist.popleft()
+                levels = [lv for _, lv in bhist]
+                is_steady_carrier = (
+                    len(levels) >= _SKCAND_BINHIST_MIN_SAMPLES
+                    and (max(levels) - min(levels)) < _SKCAND_KEYING_MIN_SPREAD_DB
+                )
+                if not is_steady_carrier:
+                    found.append({
+                        "freq_hz":  freq_hz,
+                        "snr_db":   round(level_db, 1),
+                        "width_hz": round(float(width_hz), 1),
+                    })
                 i += max(3, int(width_bins))
                 continue
         i += 1
+    # Prune bin-history entries that haven't been updated recently — keeps
+    # this dict from growing unbounded across a long-running session as
+    # signals drift on/off the band.
+    if _skcand_bin_hist:
+        pcutoff = now_t - _SKCAND_BINHIST_PRUNE_S
+        for qkey in [k for k, bh in _skcand_bin_hist.items() if not bh or bh[-1][0] < pcutoff]:
+            del _skcand_bin_hist[qkey]
     found.sort(key=lambda c: -c["snr_db"])
     return found[:20]
 
@@ -2502,11 +2840,21 @@ class WefaxDecoder:
         # BUGFIX (2026-07-19, w033): resample cache for process_iq()'s new
         # `sr` parameter — see that method's docstring for why this exists.
         self._resamp_ratio = None
+        # BUGFIX (2026-08-09, decoder-quality audit against a real
+        # captured WEFAX WAV): see _try_phase_lock()'s docstring -- this
+        # decoder used to just start slicing fixed-length lines from
+        # sample 0 of whenever .active was set, with no way to find the
+        # true start of a scanline. _phase_locked / _phase_search_buf
+        # hold that new lock-on state.
+        self._phase_locked      = False
+        self._phase_search_buf  = np.empty(0, dtype=np.uint8)
 
     def configure(self, rpm, ioc):
         self.rpm   = int(rpm)
         self.ioc   = int(ioc)
         self._buf  = np.empty(0, dtype=np.uint8)       # OPT-5: reset numpy buffer
+        self._phase_locked      = False
+        self._phase_search_buf  = np.empty(0, dtype=np.uint8)
 
     def _make_png(self, row: np.ndarray, w: int) -> bytes:
         """Build a minimal single-row greyscale PNG. Defined on instance, not per-scanline."""
@@ -2523,6 +2871,48 @@ class WefaxDecoder:
         """Bytes shim — used by SDRConnect path."""
         data = np.frombuffer(iq, dtype='<i2').astype(np.float32)
         self.process_iq((data[0::2] + 1j * data[1::2]).astype(np.complex64))
+
+    def _try_phase_lock(self, l_s: int):
+        """Look for the WEFAX phasing pattern -- each line transmitted
+        solid black except a short white start-of-line pulse, repeating
+        every l_s samples -- to find the true start of a scanline before
+        slicing any lines out of the buffer.
+
+        BUGFIX (2026-08-09, decoder-quality audit against a real captured
+        WEFAX WAV -- reconstructed image was pure static, no map/text
+        structure at any tested frequency offset): this decoder used to
+        have NO phasing/line-sync logic at all -- process_iq() just
+        sliced the incoming pixel stream into fixed l_s-sample lines
+        starting from whenever .active was set. Real fax software (the
+        reference decode in the sample folder used to validate this)
+        finds the true scanline boundary via the phasing pulse before
+        ever drawing a line; without that, a NEXUS decode started at an
+        arbitrary moment comes out horizontally skewed/misaligned no
+        matter how correct the frequency and RPM/IOC otherwise are --
+        exactly the "static, no structure" symptom observed.
+
+        Reshapes the most recent few line-periods into (n_periods, l_s)
+        and looks for a column whose mean pixel value stands out sharply
+        above an otherwise-black baseline -- the white phasing pulse.
+        Real (non-phasing) image content varies line to line and won't
+        produce this sharp, stable periodic peak, so this only fires
+        during genuine phasing tone.
+
+        Returns the intra-line sample offset of the detected pulse, or
+        None if there isn't yet enough data / no clear pulse found."""
+        n_periods = 4
+        need = l_s * n_periods
+        buf = self._phase_search_buf
+        if len(buf) < need:
+            return None
+        window = buf[-need:].astype(np.float32).reshape(n_periods, l_s)
+        col_mean = window.mean(axis=0)
+        peak_idx = int(np.argmax(col_mean))
+        baseline = float(np.median(col_mean))
+        peak_val = float(col_mean[peak_idx])
+        if peak_val - baseline > 60:
+            return peak_idx
+        return None
 
     def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
         """Core decode — accepts complex64 directly (OPT-6).
@@ -2554,10 +2944,38 @@ class WefaxDecoder:
         pix = np.clip(
             (angles - 1500) * (255 / 800), 0, 255
         ).astype(np.uint8)
-        # OPT-5: np.concatenate instead of list.extend + tolist()
-        self._buf = np.concatenate((self._buf, pix))
         lpm  = int(self.rpm * self.ioc / 60)          # pixels per line
         l_s  = int(48000 * 60 / self.rpm + self.slant)
+
+        if not self._phase_locked:
+            # BUGFIX (2026-08-09): find the true start-of-line before
+            # slicing any lines at all -- see _try_phase_lock() docstring.
+            self._phase_search_buf = np.concatenate((self._phase_search_buf, pix))
+            offset = self._try_phase_lock(l_s)
+            if offset is not None:
+                self._buf = self._phase_search_buf[offset:]
+                self._phase_search_buf = np.empty(0, dtype=np.uint8)
+                self._phase_locked = True
+                log.info(f"[WEFAX] phasing lock acquired at intra-line "
+                         f"sample offset {offset} (of {l_s}/line)")
+            else:
+                # Cap the search so a capture with no real phasing tone
+                # (or one that started mid-image) doesn't stall forever
+                # waiting for a pulse that will never come -- fall back
+                # to the old unaligned behaviour rather than never
+                # producing an image at all.
+                if len(self._phase_search_buf) > l_s * 10:
+                    log.info("[WEFAX] no clear phasing pulse found after "
+                             "10 line-periods -- starting unaligned")
+                    self._buf = self._phase_search_buf
+                    self._phase_search_buf = np.empty(0, dtype=np.uint8)
+                    self._phase_locked = True
+                else:
+                    return
+        else:
+            # OPT-5: np.concatenate instead of list.extend + tolist()
+            self._buf = np.concatenate((self._buf, pix))
+
         while len(self._buf) >= l_s:
             line        = self._buf[:l_s]
             self._buf   = self._buf[l_s:]              # slice is a view until copy needed
@@ -3288,20 +3706,60 @@ class AcarsDecoder:
         self.buffer   = bytearray()
         self.synced   = False
         self.preamble = 0
+        # BUGFIX (2026-08-09, decoder-quality audit against real captured
+        # ACARS WAV): _scan_pos is the sliding search cursor into `buffer`.
+        # The old _try_decode() only ever inspected bits[0:8] -- the FIRST
+        # 8 bits currently in the buffer -- looking for the SYN preamble
+        # byte, and never advanced that check bit-by-bit as new bits
+        # arrived. Since the buffer only cleared on a full successful
+        # frame (or an every-2048-bit truncation), that meant only a
+        # single, fixed bit-alignment was ever tested per ~2048-bit
+        # window instead of a real sliding preamble search -- against
+        # real off-air ACARS (verified against a captured WAV with
+        # confirmed genuine traffic at the right frequency) this false-
+        # locked on nothing and decoded zero messages, ever. Fixed by
+        # scanning bit-by-bit while unsynced and only jumping byte-
+        # aligned once a SYN has actually been found.
+        self._scan_pos = 0
+        # Resample-ratio cache for process_iq()'s `sr` parameter -- same
+        # pattern WefaxDecoder/SstvDecoder/RttyDecoder already use.
+        self._resamp_ratio = None
 
     def reset(self):
-        self.buffer   = bytearray()
-        self.synced   = False
-        self.preamble = 0
+        self.buffer     = bytearray()
+        self.synced     = False
+        self.preamble   = 0
+        self._scan_pos  = 0
 
     def process(self, iq):
         """Bytes shim — used by SDRConnect path."""
         data = np.frombuffer(iq, dtype='<i2').astype(np.float32) / 32768.0
         self.process_iq(data[0::2] + 1j * data[1::2])
 
-    def process_iq(self, iq_c: np.ndarray):
+    def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
         """Core decode — accepts complex64 directly (OPT-6).
-        ACARS uses AM with 2400 baud FSK sub-carrier. Mark=1200 Hz, Space=2400 Hz."""
+        ACARS uses AM with 2400 baud FSK sub-carrier. Mark=1200 Hz, Space=2400 Hz.
+
+        BUGFIX (2026-08-09, decoder-quality audit): every real call site
+        (`acars_dec.process_iq(iq_c, sr=48000)` / `sr=DECODER_SR`) already
+        passes a `sr=` keyword this method didn't accept at all, raising
+        TypeError -- the same "uncaught exception in the rx() loop kills
+        the whole SDRConnect bridge" crash class already fixed for
+        fax_dec/PocsagDecoder elsewhere in this file. Fixed properly by
+        accepting `sr` and resampling to 48000 first (same pattern those
+        decoders use) instead of just papering over the crash, so this
+        also correctly handles Full-IQ callers running at a different
+        native rate."""
+        if iq_c is None or len(iq_c) == 0:
+            return
+        if abs(sr - 48000) > 1e-6 and _HAVE_SCIPY:
+            if self._resamp_ratio is None or self._resamp_ratio[2] != sr:
+                from fractions import Fraction
+                frac = Fraction(48000 / sr).limit_denominator(1000)
+                self._resamp_ratio = (frac.numerator, frac.denominator, sr)
+            up, down, _ = self._resamp_ratio
+            iq_c = _scipy_signal.resample_poly(iq_c, up, down).astype(np.complex64)
+
         # OPT-3: Goertzel for ACARS mark/space — no arange/exp per call
         mark  = _goertzel_power(iq_c, 1200, 48000)
         space = _goertzel_power(iq_c, 2400, 48000)
@@ -3309,36 +3767,53 @@ class AcarsDecoder:
 
         self.buffer.append(bit)
 
-        # Keep to one frame max
-        if len(self.buffer) > 2048:
-            self.buffer = self.buffer[-256:]
+        # Keep a bounded window; _scan_pos tracks how far the sliding
+        # search has already progressed so trimming never re-scans bits
+        # already ruled out.
+        if len(self.buffer) > 4096:
+            trim = len(self.buffer) - 2048
+            self.buffer     = self.buffer[trim:]
+            self._scan_pos  = max(0, self._scan_pos - trim)
 
-        # Look for ACARS preamble (alternating 1/0 bits) + SYN bytes
-        if len(self.buffer) >= 48:
-            self._try_decode()
+        self._try_decode()
 
     def _try_decode(self):
-        # Reconstruct bytes from bit stream (LSB first, 8N2)
-        bits = list(self.buffer)
-        if len(bits) < 16:
-            return
-        byte_val = 0
-        for i in range(8):
-            byte_val |= bits[i] << i
-        byte_val &= 0x7F  # strip parity
+        # Reconstruct bytes from bit stream (LSB first, 8N2), sliding the
+        # search position bit-by-bit until synced, then byte-aligned once
+        # a real SYN has actually been found (see BUGFIX note in __init__).
+        bits = self.buffer
+        while len(bits) - self._scan_pos >= 8:
+            i = self._scan_pos
+            byte_val = 0
+            for j in range(8):
+                byte_val |= bits[i + j] << j
+            byte_val &= 0x7F  # strip parity
 
-        if byte_val == self.SYN:
-            self.synced   = True
-            self.preamble += 1
-        elif self.synced and self.preamble >= 2:
-            # Attempt to extract a minimal ACARS frame
-            frame = self._extract_frame(bits)
-            if frame:
-                asyncio.run_coroutine_threadsafe(
-                    broadcast_json({"type": "acars_message", **frame}), loop)
-            self.synced   = False
-            self.preamble = 0
-            self.buffer   = bytearray()
+            if byte_val == self.SYN:
+                self.synced     = True
+                self.preamble   += 1
+                self._scan_pos  += 8   # byte-aligned once a SYN is found
+                continue
+
+            if self.synced and self.preamble >= 2:
+                # Attempt to extract a minimal ACARS frame starting here
+                frame = self._extract_frame(list(bits[i:]))
+                if frame:
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast_json({"type": "acars_message", **frame}), loop)
+                self.synced     = False
+                self.preamble   = 0
+                self.buffer     = bytearray(bits[i:])
+                self._scan_pos  = 0
+                return
+
+            # Not a SYN and not (yet) synced with enough preamble bytes --
+            # this bit alignment is wrong, slide forward by one bit and
+            # keep searching rather than getting stuck re-checking the
+            # same fixed position forever.
+            self.synced     = False
+            self.preamble   = 0
+            self._scan_pos  += 1
 
     def _extract_frame(self, bits):
         """Extract fields from raw bit stream and return structured dict."""
@@ -3375,14 +3850,19 @@ class AcarsDecoder:
 
 # PyInstaller standalone: __file__ lives inside sys._MEIPASS (read-only temp dir).
 # Writable data (config, bookmarks, downloaded CSVs) must go to a persistent folder.
-# When frozen, use ~/Library/Application Support/DARKSKY NEXUS/ (macOS) or
-# %APPDATA%\DARKSKY NEXUS\ (Windows). When running as .py, use the script folder.
+# When frozen, use ~/Library/Application Support/DARKSKY NEXUS/ (macOS),
+# %APPDATA%\DARKSKY NEXUS\ (Windows), or $XDG_DATA_HOME/DARKSKY NEXUS
+# (falls back to ~/.local/share/DARKSKY NEXUS per the XDG Base Directory
+# spec) on Linux. When running as .py, use the script folder.
 def _get_data_dir() -> Path:
     if getattr(sys, 'frozen', False):
         if sys.platform == 'darwin':
             base = Path.home() / 'Library' / 'Application Support' / 'DARKSKY NEXUS'
-        else:
+        elif sys.platform == 'win32':
             base = Path(os.environ.get('APPDATA', Path.home())) / 'DARKSKY NEXUS'
+        else:
+            xdg_data = os.environ.get('XDG_DATA_HOME')
+            base = (Path(xdg_data) if xdg_data else Path.home() / '.local' / 'share') / 'DARKSKY NEXUS'
         base.mkdir(parents=True, exist_ok=True)
         return base
     return Path(__file__).parent
@@ -3929,6 +4409,19 @@ def _ais_decode_payload(payload_str: str, fill_bits: int = 0):
     if len(bits) < 6:
         return None
     msg_type = get_uint(0, 6)
+    # HARDENING (2026-08-09, external review of AIS_DECODE_ARCHITECTURE.md):
+    # explicit range guard -- ITU-R M.1371 only defines message types 1-27.
+    # Behaviourally this was already a no-op (any type not matched by the
+    # elif chain below already fell through to the final `else: return
+    # None`), confirmed by the 2026-08-09 SAMPLE IQ test where a real
+    # CRC-OK frame decoded as type 42 (visible only in the raw
+    # all_msg_type_counts diagnostic, never reached here). Made explicit
+    # so the rejection has a clear, named reason instead of being an
+    # implicit side effect of "didn't match any elif", and so the
+    # crc_ok_invalid_type counter below (see _protodec_getdata) can
+    # distinguish this case from a valid-type-but-bad-length rejection.
+    if not (1 <= msg_type <= 27):
+        return None
     r = {'msg_type': msg_type}
 
     # BUGFIX (June 2026, AIS Marine tab audit): the frontend's updateAISDisplay()/
@@ -4041,17 +4534,53 @@ def _ais_decode_payload(payload_str: str, fill_bits: int = 0):
     return r
 
 
+def _nmea_checksum_ok(raw_sentence: str):
+    """Verify a standard NMEA '*NN' trailing checksum (XOR of every byte
+    between the leading '!'/'$' and the '*', as 2 uppercase hex digits).
+    Returns True/False if a checksum was present, or None if the sentence
+    had no '*NN' suffix at all (some real-world AIS UDP feeds omit it --
+    see AIS_UDP_STATS' 'checksum_missing' vs 'checksum_fail' distinction)."""
+    star = raw_sentence.rfind('*')
+    if star == -1 or star + 3 > len(raw_sentence):
+        return None
+    body = raw_sentence[1:star]   # skip leading '!' or '$', per NMEA convention
+    claimed = raw_sentence[star+1:star+3]
+    try:
+        claimed_val = int(claimed, 16)
+    except ValueError:
+        return False
+    computed = 0
+    for ch in body:
+        computed ^= ord(ch)
+    return computed == claimed_val
+
+
 def _ais_parse_nmea(sentence: str):
     sentence = sentence.strip()
+    AIS_UDP_STATS['sentences_total'] += 1
     if not sentence.startswith(('!AIVDM', '!AIVDO', 'AIVDM', 'AIVDO')):
+        AIS_UDP_STATS['not_ais_sentence'] += 1
         return None
-    if '*' in sentence:
-        sentence = sentence[:sentence.index('*')]
+    # HARDENING (2026-08-09, external review): verify the NMEA checksum
+    # before trusting anything in the payload -- previously the '*NN'
+    # suffix was stripped and discarded, never actually checked, so a
+    # corrupted-in-transit UDP packet with plausible-looking field
+    # structure would sail straight through to the decoder.
+    cksum_result = _nmea_checksum_ok(sentence)
+    if cksum_result is False:
+        AIS_UDP_STATS['checksum_fail'] += 1
+        return None
+    elif cksum_result is None:
+        AIS_UDP_STATS['checksum_missing'] += 1
+        # no '*' to strip in this branch
+    else:
+        sentence = sentence[:sentence.rindex('*')]
     p = sentence.split(',')
     if len(p) < 7:
+        AIS_UDP_STATS['parse_fail'] += 1
         return None
     try:
-        return {
+        parsed = {
             'fragment_count': int(p[1]),
             'fragment_num':   int(p[2]),
             'msg_id':         p[3],
@@ -4060,7 +4589,28 @@ def _ais_parse_nmea(sentence: str):
             'fill_bits':      int(p[6]) if p[6].isdigit() else 0,
         }
     except (ValueError, IndexError):
+        AIS_UDP_STATS['parse_fail'] += 1
         return None
+    if parsed['fragment_count'] < 1 or not (1 <= parsed['fragment_num'] <= parsed['fragment_count']):
+        AIS_UDP_STATS['fragment_num_invalid'] += 1
+        return None
+    return parsed
+
+
+def _ais_expire_stale_fragments(now: float = None):
+    """Drop incomplete multipart sequences that have aged out past
+    AIS_UDP_FRAGMENT_TTL_SECS without their final part arriving -- a real
+    sequence's parts arrive together in one UDP burst, so anything still
+    incomplete after the TTL is a dropped/lost UDP datagram, not a slow
+    arrival. Runs opportunistically from _ais_process_sentence() (no
+    separate timer needed -- this dict is only ever touched from sentence
+    processing) as well as from ais_udp_server()'s existing 60s loop."""
+    now = now if now is not None else time.time()
+    stale = [k for k, v in _ais_fragments.items()
+             if (now - v['ts']) > AIS_UDP_FRAGMENT_TTL_SECS]
+    for k in stale:
+        del _ais_fragments[k]
+        AIS_UDP_STATS['multipart_stale_dropped'] += 1
 
 
 def _ais_process_sentence(sentence: str):
@@ -4068,59 +4618,189 @@ def _ais_process_sentence(sentence: str):
     if not parsed:
         return None
     if parsed['fragment_count'] == 1:
-        return _ais_decode_payload(parsed['payload'], parsed['fill_bits'])
+        AIS_UDP_STATS['single_fragment_ok'] += 1
+        decoded = _ais_decode_payload(parsed['payload'], parsed['fill_bits'])
+        if decoded is None:
+            AIS_UDP_STATS['decode_failed'] += 1
+        return decoded
+
+    now = time.time()
+    _ais_expire_stale_fragments(now)
     key = (parsed['msg_id'], parsed['channel'])
-    if key not in _ais_fragments:
-        _ais_fragments[key] = {}
-    _ais_fragments[key][parsed['fragment_num']] = (parsed['payload'], parsed['fill_bits'])
-    if len(_ais_fragments[key]) == parsed['fragment_count']:
-        frags = _ais_fragments.pop(key)
+    entry = _ais_fragments.get(key)
+    # HARDENING (2026-08-09): a later fragment claiming a different total
+    # fragment_count than the first one seen for this key means either a
+    # stale sequence never got its final part and this key was reused (the
+    # AIVDM msg_id is a small rolling counter, 0-9, so real reuse is
+    # possible on a busy feed), or corrupted data. Either way, trust the
+    # newest fragment and restart reassembly rather than mixing parts from
+    # two different messages into one payload.
+    if entry is not None and entry['count'] != parsed['fragment_count']:
+        AIS_UDP_STATS['fragment_count_mismatch'] += 1
+        entry = None
+    if entry is None:
+        entry = {'ts': now, 'count': parsed['fragment_count'], 'parts': {}}
+        _ais_fragments[key] = entry
+    entry['parts'][parsed['fragment_num']] = (parsed['payload'], parsed['fill_bits'])
+
+    if len(entry['parts']) == entry['count']:
+        frags = _ais_fragments.pop(key)['parts']
         combined, fill = '', 0
         for i in range(1, parsed['fragment_count']+1):
             combined += frags[i][0]; fill = frags[i][1]
         if len(_ais_fragments) > 32:
             del _ais_fragments[next(iter(_ais_fragments))]
-        return _ais_decode_payload(combined, fill)
+        AIS_UDP_STATS['multipart_complete'] += 1
+        decoded = _ais_decode_payload(combined, fill)
+        if decoded is None:
+            AIS_UDP_STATS['decode_failed'] += 1
+        return decoded
     return None
 
 
-def _ais_mmsi_plausible(mmsi: str) -> bool:
-    """Reject MMSIs that cannot be a real, ITU-assigned identity at all.
+def _ais_mmsi_category(mmsi: str):
+    """Classify an MMSI into its ITU-R M.1371 station-type prefix, or
+    return None if the shape is structurally impossible for any recognised
+    category at all (almost certainly a CRC false-accept on non-AIS
+    content, not a real AIS frame).
 
     Added 2026-07-18 after a user-provided VesselFinder screenshot showed a
     real, confirmed vessel (MMSI 316003140, a valid Cayman Islands MID)
     transmitting live and visibly nearby, completely absent from NEXUS's
     own 38-vessel list -- while most of what NEXUS WAS showing had MIDs
     structurally impossible under the ITU numbering scheme entirely (e.g.
-    119xxxxxx, 120xxxxxx, 848xxxxxx, 790xxxxxx -- confirmed against
-    navcen.uscg.gov's MMSI Formats page: ship MIDs are 201-775, AIS AtoN
-    stations use 99MIDxxxx with the same 201-775 MID range). Whether those
-    came from a genuine decode bug or a CRC false-accept on non-AIS
-    content, either way they're not real vessels and shouldn't be shown as
-    ones. This intentionally does NOT try to validate every special-purpose
-    prefix (group ship 0MIDxxxxx, coast station 00MIDxxxx, SAR aircraft
-    111MIDxxx, craft-of-parent-ship 98MIDxxxx, SART/MOB/EPIRB 970/972/974)
-    -- only the two shapes actually seen in practice here, ordinary ship
-    MMSIs and AIS AtoN, to avoid false-rejecting a legitimate but rarer
-    category this hasn't been specifically checked against."""
+    119xxxxxx, 120xxxxxx, 848xxxxxx, 790xxxxxx). Originally only checked
+    ordinary ship MMSIs (MIDxxxxxx) and AIS AtoN (99MIDxxxx), the two
+    shapes actually seen in practice at the time -- its own docstring
+    explicitly deferred the other real special-purpose prefixes rather
+    than risk false-rejecting a legitimate but rarer category that hadn't
+    been checked against yet. Extended 2026-08-09 (external review) to
+    also recognise those deferred shapes now that this file's had more
+    exposure to the format: group ship call (0MIDxxxxx), coast station
+    (00MIDxxxx), SAR aircraft (111MIDxxx), craft associated with a parent
+    ship (98MIDxxxx), and SART/MOB/EPIRB-AIS safety devices
+    (970/972/974xxxxxx -- these three don't carry a validatable embedded
+    MID the way the others do, so they're accepted on their fixed 3-digit
+    prefix alone; still a reasonably selective check, 1-in-1000 for random
+    noise to land on one by chance). Reference: navcen.uscg.gov's MMSI
+    Formats page; ship/AtoN/etc. MIDs are all 201-775."""
     if len(mmsi) != 9 or not mmsi.isdigit():
-        return False
-    mid_str = mmsi[2:5] if mmsi[:2] == '99' else mmsi[:3]
+        return None
+
+    def _mid_ok(mid_str: str) -> bool:
+        try:
+            return 201 <= int(mid_str) <= 775
+        except ValueError:
+            return False
+
+    if mmsi[:3] == '111' and _mid_ok(mmsi[3:6]):
+        return 'sar_aircraft'           # 111MIDxxx
+    if mmsi[:2] == '99' and _mid_ok(mmsi[2:5]):
+        return 'aton'                   # 99MIDxxxx -- AIS aid to navigation
+    if mmsi[:2] == '98' and _mid_ok(mmsi[2:5]):
+        return 'craft_of_parent_ship'   # 98MIDxxxx
+    if mmsi[:2] == '00' and _mid_ok(mmsi[2:5]):
+        return 'coast_station'          # 00MIDxxxx
+    if mmsi[0] == '0' and mmsi[1] != '0' and _mid_ok(mmsi[1:4]):
+        return 'group_ship'             # 0MIDxxxxx (excludes the 00-prefix coast-station shape above)
+    if mmsi[:3] in ('970', '972', '974'):
+        return {'970': 'sart', '972': 'mob', '974': 'epirb'}[mmsi[:3]]
+    if _mid_ok(mmsi[:3]):
+        return 'ship'                   # MIDxxxxxx -- the common case
+    return None
+
+
+def _ais_mmsi_plausible(mmsi: str) -> bool:
+    """True if `mmsi` matches ANY recognised ITU-R M.1371 station-type
+    shape -- see _ais_mmsi_category() for the full breakdown and history.
+    Kept as a thin bool wrapper since most call sites only need the
+    yes/no gate, not which category it matched."""
+    return _ais_mmsi_category(mmsi) is not None
+
+
+# HARDENING (2026-08-09, external review): local-vs-remote provenance.
+# 'native'/'direwolf'/'udp' all represent something decoded from real RF
+# (this NEXUS instance's own two front ends, or a locally-run external
+# tool feeding UDP:10110) -- 'aisstream' is a community-aggregated feed of
+# OTHER receivers' decodes, not local reception at all. Position data is
+# the field where that distinction matters most (identity fields like
+# name/callsign are comparatively timeless; a position is only meaningful
+# as of when it was actually true). See _ais_stamp()/_ais_update_vessel().
+AIS_LOCAL_RF_SOURCES = ('native', 'direwolf', 'udp')
+# How long a local RF position stays "fresher than aisstream by default" --
+# i.e. how long an aisstream position update is held back from overwriting
+# an existing local one. Deliberately shorter than AIS_EXPIRE_SECS (30min):
+# this isn't "when does the vessel disappear," it's "how long do we trust
+# our own antenna over a network aggregator's possibly-stale relay."
+AIS_POSITION_LOCAL_PRIORITY_SECS = 300  # 5 minutes
+
+
+def _ais_stamp(vessel: dict, field_prefix: str, source: str, now: float = None):
+    """Record which source last updated a logical field group (e.g.
+    'position', 'name', 'callsign') and when -- see AIS_LOCAL_RF_SOURCES
+    comment above. Callers set the actual field(s) themselves; this only
+    stamps the provenance metadata alongside them."""
+    now = now if now is not None else time.time()
+    vessel[f'{field_prefix}_source'] = source
+    vessel[f'{field_prefix}_updated'] = now
+
+
+def _ais_position_locked_local(vessel: dict, now: float = None) -> bool:
+    """True if `vessel` has a local-RF position recent enough that a
+    remote (aisstream) update should NOT be allowed to overwrite it."""
+    now = now if now is not None else time.time()
+    src = vessel.get('position_source')
+    upd = vessel.get('position_updated')
+    return (src in AIS_LOCAL_RF_SOURCES and upd is not None
+            and (now - upd) < AIS_POSITION_LOCAL_PRIORITY_SECS)
+
+
+def _ais_log_raw_frame(record: dict, source: str):
+    """Append one decoded AIS frame to AIS_RAW_FRAME_LOG_FILENAME (under
+    SCRIPT_DIR), independent of ais_vessels -- see AIS_RAW_FRAME_LOG_ENABLED's
+    module-level comment. No-ops instantly if disabled (the common case).
+    Never raises: a logging helper must not be able to take down the live
+    decode path it's observing."""
+    if not AIS_RAW_FRAME_LOG_ENABLED:
+        return
     try:
-        mid = int(mid_str)
-    except ValueError:
-        return False
-    return 201 <= mid <= 775
+        path = SCRIPT_DIR / AIS_RAW_FRAME_LOG_FILENAME
+        if path.exists() and path.stat().st_size > AIS_RAW_FRAME_LOG_MAX_BYTES:
+            bak = path.with_suffix(path.suffix + '.bak')
+            path.replace(bak)   # single-generation rotation, same as e.g. logrotate's simplest form
+        line = json.dumps({'ts': time.time(), 'source': source, **record}, default=str)
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(line + '\n')
+    except Exception as e:
+        log.debug(f"AIS raw-frame log write failed (non-fatal): {e}")
 
 
 def _ais_update_vessel(decoded: dict):
+    # HARDENING (2026-08-09, external review "medium-term" tier): log every
+    # decoded frame BEFORE the MMSI-plausibility gate below, so a capture-
+    # based regression suite (or manual post-hoc analysis) can see rejected
+    # frames too, not just what made it into ais_vessels. See
+    # AIS_RAW_FRAME_LOG_ENABLED's module-level comment -- off by default.
+    if AIS_RAW_FRAME_LOG_ENABLED:
+        _ais_log_raw_frame(decoded, decoded.get('decoder_source', 'unknown'))
     mmsi = decoded.get('mmsi')
     if not mmsi or not _ais_mmsi_plausible(mmsi):
+        # HARDENING (2026-08-09): see AIS_FRAME_STATS' module-level comment.
+        AIS_FRAME_STATS['crc_ok_bad_mmsi'] += 1
         return None
+    now = time.time()
     vessel = dict(ais_vessels.get(mmsi, {}))
     vessel['mmsi'] = mmsi
-    vessel.setdefault('first_seen', time.time())
-    vessel['last_seen'] = time.time()
+    vessel.setdefault('first_seen', now)
+    vessel['last_seen'] = now
+    # HARDENING (2026-08-09, external review): surface the MMSI-shape
+    # category (ship/coast_station/aton/sar_aircraft/etc, see
+    # _ais_mmsi_category()) so the frontend/user can tell a genuine
+    # non-vessel station apart from a ship at a glance, instead of only
+    # the narrower 'station_type'='base' tag the mt==4 branch below sets
+    # for message-type-4 broadcasts specifically. setdefault since the
+    # category is purely a function of the MMSI and never changes.
+    vessel.setdefault('mmsi_category', _ais_mmsi_category(mmsi))
     # DIAG (2026-07-18, "reference decoder comparison" — user is running
     # AIS-catcher side-by-side via NEXUS's existing UDP:10110 path, replaying
     # a REC IQ capture, to test whether it recovers message types the native
@@ -4135,6 +4815,10 @@ def _ais_update_vessel(decoded: dict):
         sources = set(vessel.get('decoder_sources', []))
         sources.add(src)
         vessel['decoder_sources'] = sorted(sources)
+        if src in AIS_LOCAL_RF_SOURCES:
+            vessel['last_local_rf_seen'] = now
+        else:
+            vessel['last_remote_seen'] = now
     # Free hit against aisstream.io's persistent store (2026-07-18) --
     # a vessel this MMSI already resolved via the live feed in a *previous*
     # session gets its name/callsign/etc back instantly here too, without
@@ -4143,7 +4827,7 @@ def _ais_update_vessel(decoded: dict):
         cached_as = _ais_aisstream_store_get(mmsi)
         if cached_as:
             vessel.update({k: v for k, v in cached_as.items() if k != 'resolved_at'})
-            vessel['name_source'] = 'aisstream'
+            _ais_stamp(vessel, 'name', 'aisstream', now)
     mt = decoded.get('msg_type')
     if mt == 4:
         # Base station, not a vessel -- tag it so the frontend/map can tell
@@ -4152,6 +4836,8 @@ def _ais_update_vessel(decoded: dict):
             if decoded.get(k) is not None:
                 vessel[k] = decoded[k]
         vessel['station_type'] = 'base'
+        if src:
+            _ais_stamp(vessel, 'position', src, now)
     elif mt in (1, 2, 3, 18):
         # BUGFIX (June 2026): field names aligned to speed/course/heading —
         # see _ais_decode_payload() comment. 'status' (nav status) only sent
@@ -4159,18 +4845,32 @@ def _ais_update_vessel(decoded: dict):
         for k in ('lat', 'lon', 'speed', 'course', 'heading', 'status'):
             if decoded.get(k) is not None:
                 vessel[k] = decoded[k]
+        if src:
+            _ais_stamp(vessel, 'position', src, now)
     elif mt == 5:
         for k in ('name', 'callsign', 'ship_type', 'destination'):
             if decoded.get(k) is not None:
                 vessel[k] = decoded[k]
+        if src:
+            if decoded.get('name'):     _ais_stamp(vessel, 'name', src, now)
+            if decoded.get('callsign'): _ais_stamp(vessel, 'callsign', src, now)
     elif mt == 24:
         if decoded.get('part') == 0 and decoded.get('name'):
             vessel['name'] = decoded['name']
+            if src: _ais_stamp(vessel, 'name', src, now)
         elif decoded.get('part') == 1:
             for k in ('ship_type', 'callsign'):
                 if decoded.get(k) is not None:
                     vessel[k] = decoded[k]
+            if src and decoded.get('callsign'):
+                _ais_stamp(vessel, 'callsign', src, now)
     ais_vessels[mmsi] = vessel
+    # HARDENING (2026-08-09): see AIS_FRAME_STATS' module-level comment.
+    # Counts every accepted merge across all four sources, not RF-CRC
+    # frames alone (aisstream/UDP messages never went through the RF CRC
+    # funnel above at all) -- deliberate, this is the "made it into
+    # ais_vessels" end of the pipeline regardless of where it came from.
+    AIS_FRAME_STATS['crc_ok_accepted'] += 1
     return mmsi
 
 
@@ -4222,6 +4922,13 @@ def _aisstream_apply_message(message_type: str, body: dict, meta: dict):
     merges to MMSIs already present in ais_vessels keeps the "enrich only
     what NEXUS itself has heard" design intent intact even during that
     bootstrap window."""
+    # HARDENING (2026-08-09, external review "medium-term" tier): raw-frame
+    # logging (see AIS_RAW_FRAME_LOG_ENABLED) -- captured before the
+    # not-in-ais_vessels early return below, so a session where aisstream
+    # is deliberately being watched for its own sake (not just as vessel
+    # enrichment) still gets everything logged.
+    if AIS_RAW_FRAME_LOG_ENABLED:
+        _ais_log_raw_frame({'message_type': message_type, 'body': body, 'meta': meta}, 'aisstream')
     uid = body.get('UserID', meta.get('MMSI'))
     if uid is None:
         return None
@@ -4229,55 +4936,82 @@ def _aisstream_apply_message(message_type: str, body: dict, meta: dict):
     if mmsi not in ais_vessels:
         return None
 
+    now = time.time()
     vessel = dict(ais_vessels.get(mmsi, {}))
     vessel['mmsi'] = mmsi
-    vessel.setdefault('first_seen', time.time())
-    vessel['last_seen'] = time.time()
+    vessel.setdefault('first_seen', now)
+    vessel['last_seen'] = now
+    # HARDENING (2026-08-09, external review): this source was never added
+    # to decoder_sources/last_remote_seen at all before -- a vessel could
+    # be visibly enriched with aisstream-sourced name/position (name_source
+    # already said so) while the vessel-level provenance list silently
+    # failed to mention aisstream contributed anything. Fixed to match the
+    # bookkeeping _ais_update_vessel() already does for the other 3 sources.
+    sources = set(vessel.get('decoder_sources', []))
+    sources.add('aisstream')
+    vessel['decoder_sources'] = sorted(sources)
+    vessel['last_remote_seen'] = now
+
+    # HARDENING (2026-08-09, external review): aisstream is a REMOTE feed
+    # (some other receiver's decode, relayed over the network) -- it should
+    # never be allowed to overwrite a position NEXUS's own antenna decoded
+    # recently. See _ais_position_locked_local()/AIS_POSITION_LOCAL_PRIORITY_SECS.
+    position_locked = _ais_position_locked_local(vessel, now)
 
     if message_type in ('PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'):
-        lat = body.get('Latitude');  lon = body.get('Longitude')
-        if lat is not None and abs(lat) <= 90:  vessel['lat'] = lat
-        if lon is not None and abs(lon) <= 180: vessel['lon'] = lon
-        sog = body.get('Sog')
-        if sog is not None and sog < 102.3: vessel['speed'] = sog
-        cog = body.get('Cog')
-        if cog is not None and cog < 360.0: vessel['course'] = cog
-        hdg = body.get('TrueHeading')
-        if hdg is not None and hdg != 511: vessel['heading'] = hdg
-        if 'NavigationalStatus' in body:
-            vessel['status'] = body['NavigationalStatus']
+        if not position_locked:
+            lat = body.get('Latitude');  lon = body.get('Longitude')
+            if lat is not None and abs(lat) <= 90:  vessel['lat'] = lat
+            if lon is not None and abs(lon) <= 180: vessel['lon'] = lon
+            sog = body.get('Sog')
+            if sog is not None and sog < 102.3: vessel['speed'] = sog
+            cog = body.get('Cog')
+            if cog is not None and cog < 360.0: vessel['course'] = cog
+            hdg = body.get('TrueHeading')
+            if hdg is not None and hdg != 511: vessel['heading'] = hdg
+            if 'NavigationalStatus' in body:
+                vessel['status'] = body['NavigationalStatus']
+            _ais_stamp(vessel, 'position', 'aisstream', now)
         if message_type == 'ExtendedClassBPositionReport' and body.get('Name'):
             vessel['name'] = body['Name'].strip()
-            vessel['name_source'] = 'aisstream'
+            _ais_stamp(vessel, 'name', 'aisstream', now)
     elif message_type == 'ShipStaticData':
         if body.get('Name'):
             vessel['name'] = body['Name'].strip()
-            vessel['name_source'] = 'aisstream'
-        if body.get('CallSign'):         vessel['callsign'] = body['CallSign'].strip()
+            _ais_stamp(vessel, 'name', 'aisstream', now)
+        if body.get('CallSign'):
+            vessel['callsign'] = body['CallSign'].strip()
+            _ais_stamp(vessel, 'callsign', 'aisstream', now)
         if body.get('Type') is not None: vessel['ship_type'] = body['Type']
         if body.get('Destination'):      vessel['destination'] = body['Destination'].strip()
     elif message_type == 'StaticDataReport':
         if body.get('PartNumber'):   # True = Part B (callsign/type), False = Part A (name)
             rb = body.get('ReportB') or {}
-            if rb.get('CallSign'):            vessel['callsign'] = rb['CallSign'].strip()
+            if rb.get('CallSign'):
+                vessel['callsign'] = rb['CallSign'].strip()
+                _ais_stamp(vessel, 'callsign', 'aisstream', now)
             if rb.get('ShipType') is not None: vessel['ship_type'] = rb['ShipType']
         else:
             ra = body.get('ReportA') or {}
             if ra.get('Name'):
                 vessel['name'] = ra['Name'].strip()
-                vessel['name_source'] = 'aisstream'
+                _ais_stamp(vessel, 'name', 'aisstream', now)
     elif message_type == 'BaseStationReport':
-        lat = body.get('Latitude');  lon = body.get('Longitude')
-        if lat is not None and abs(lat) <= 90:  vessel['lat'] = lat
-        if lon is not None and abs(lon) <= 180: vessel['lon'] = lon
+        if not position_locked:
+            lat = body.get('Latitude');  lon = body.get('Longitude')
+            if lat is not None and abs(lat) <= 90:  vessel['lat'] = lat
+            if lon is not None and abs(lon) <= 180: vessel['lon'] = lon
+            _ais_stamp(vessel, 'position', 'aisstream', now)
         vessel['station_type'] = 'base'
     elif message_type == 'AidsToNavigationReport':
-        lat = body.get('Latitude');  lon = body.get('Longitude')
-        if lat is not None and abs(lat) <= 90:  vessel['lat'] = lat
-        if lon is not None and abs(lon) <= 180: vessel['lon'] = lon
+        if not position_locked:
+            lat = body.get('Latitude');  lon = body.get('Longitude')
+            if lat is not None and abs(lat) <= 90:  vessel['lat'] = lat
+            if lon is not None and abs(lon) <= 180: vessel['lon'] = lon
+            _ais_stamp(vessel, 'position', 'aisstream', now)
         if body.get('Name'):
             vessel['name'] = body['Name'].strip()
-            vessel['name_source'] = 'aisstream'
+            _ais_stamp(vessel, 'name', 'aisstream', now)
         vessel['station_type'] = 'aton'
     else:
         return None   # message type not mapped -- e.g. binary/interrogation/DLM traffic
@@ -4289,9 +5023,11 @@ def _aisstream_apply_message(message_type: str, body: dict, meta: dict):
     # message to arrive on this same connection.
     if not vessel.get('name') and meta.get('ShipName'):
         vessel['name'] = meta['ShipName'].strip()
-        vessel['name_source'] = 'aisstream'
+        _ais_stamp(vessel, 'name', 'aisstream', now)
 
     ais_vessels[mmsi] = vessel
+    # HARDENING (2026-08-09): see AIS_FRAME_STATS' module-level comment.
+    AIS_FRAME_STATS['crc_ok_accepted'] += 1
     return mmsi
 
 
@@ -4441,7 +5177,8 @@ async def _aisstream_client():
                     if not force and not bootstrapping and (now - last_resub) < AIS_AISSTREAM_RESUB_SECS:
                         return
                     candidates = await _apply_free_hits(_needs_enrichment())
-                    wanted = tuple(sorted(set(candidates) | {AIS_AISSTREAM_DIAG_TEST_MMSI}))[:AIS_AISSTREAM_MAX_MMSI]
+                    _diag_set = {AIS_AISSTREAM_DIAG_TEST_MMSI} if AIS_AISSTREAM_DIAG_SUBSCRIPTION_ENABLED else set()
+                    wanted = tuple(sorted(set(candidates) | _diag_set))[:AIS_AISSTREAM_MAX_MMSI]
                     last_resub = now
                     if not force and wanted == last_mmsi_set:
                         return
@@ -4504,13 +5241,13 @@ async def _aisstream_client():
                         meta  = parsed.get('MetaData') or {}
                         if mtype and body:
                             recv_count += 1
-                            # TEMPORARY DIAGNOSTIC -- see AIS_AISSTREAM_DIAG_TEST_MMSI.
+                            # DEV DIAGNOSTIC, opt-in -- see AIS_AISSTREAM_DIAG_SUBSCRIPTION_ENABLED.
                             # Logged before the normal apply-message call (which will
                             # correctly ignore this MMSI, since it's not one of the
                             # user's own tracked vessels) so we get positive proof
                             # the receive pipeline works, independent of that gate.
                             _diag_uid = str(body.get('UserID', meta.get('MMSI', '')))
-                            if _diag_uid == AIS_AISSTREAM_DIAG_TEST_MMSI:
+                            if AIS_AISSTREAM_DIAG_SUBSCRIPTION_ENABLED and _diag_uid == AIS_AISSTREAM_DIAG_TEST_MMSI:
                                 log.info(f"AIS-DIAG-TEST: received real aisstream.io "
                                          f"data for known-active test MMSI "
                                          f"{AIS_AISSTREAM_DIAG_TEST_MMSI} (MessageType="
@@ -4554,6 +5291,7 @@ class _AisUdpProtocol(asyncio.DatagramProtocol):
                 if decoded:
                     decoded['decoder_source'] = 'udp'   # see _ais_update_vessel() DIAG note
                     if _ais_update_vessel(decoded):
+                        AIS_UDP_STATS['accepted'] += 1
                         asyncio.get_running_loop().create_task(_ais_broadcast())
             except Exception as e:
                 log.debug(f"AIS decode error: {e}")
@@ -4606,7 +5344,16 @@ async def ais_udp_server():
         now = time.time()
         if active and (now - last_expire) >= 60:
             await _ais_expire_vessels()
+            _ais_expire_stale_fragments(now)
             last_expire = now
+            # HARDENING (2026-08-09, external review "medium-term" tier):
+            # UDP-source diagnostic counters, same convention as the RF
+            # path's periodic [AIS-FUNNEL] line -- see AIS_UDP_STATS'
+            # module-level comment for what each stage means. Only logged
+            # when the listener is actually active and something has come
+            # through, to avoid noise when UDP AIS just isn't in use.
+            if AIS_UDP_STATS['sentences_total'] > 0:
+                log.info(f"[AIS-UDP] {AIS_UDP_STATS} pending_multipart={len(_ais_fragments)}")
 
         await asyncio.sleep(1)
 
@@ -4963,12 +5710,22 @@ class AisDecoder:
         if _raw_mt > 40: _raw_mt -= 8
         self.all_msg_type_counts[_raw_mt] = self.all_msg_type_counts.get(_raw_mt, 0) + 1
 
+        # HARDENING (2026-08-09): funnel counters -- see AIS_FRAME_STATS'
+        # module-level comment for the full pipeline this tracks.
+        AIS_FRAME_STATS['crc_ok_total'] += 1
+        if not (1 <= _raw_mt <= 27):
+            AIS_FRAME_STATS['crc_ok_invalid_type'] += 1
+            return
+
         decoded = _ais_decode_payload(sixbit_str, fill_bits)
-        if decoded:
-            mt = decoded.get('msg_type')
-            self.msg_type_counts[mt] = self.msg_type_counts.get(mt, 0) + 1
-            decoded['decoder_source'] = 'native'
-            self._pending_vessel_updates.append(decoded)
+        if not decoded:
+            AIS_FRAME_STATS['crc_ok_bad_length'] += 1
+            return
+        AIS_FRAME_STATS['crc_ok_valid_type'] += 1
+        mt = decoded.get('msg_type')
+        self.msg_type_counts[mt] = self.msg_type_counts.get(mt, 0) + 1
+        decoded['decoder_source'] = 'native'
+        self._pending_vessel_updates.append(decoded)
 
     # ── receiver.c front end: FM-discriminate -> resample -> FIR -> PLL ──
     def process_iq(self, iq_c: np.ndarray, sr: float = 48000):
@@ -5830,9 +6587,20 @@ async def fldigi_poller():
 # new.dxsummit.fi; the legacy www. host may behave differently/be retired
 # later, so we try new. first and fall back to www., mirroring the frontend
 # fallback chain this replaces.
+#
+# BUGFIX (2026-08-09, live user report: "dx spots still has error" --
+# recurring, not a one-off): live log showed both endpoints failing with a
+# plain socket-level TimeoutError, not an HTTP error status -- consistent
+# with a TLS/HTTPS-layer problem (handshake stall) rather than the API
+# itself rejecting the request. A known-working third-party dxsummit.fi
+# client (mbridak/dxsummit, a PyQt desktop app) hits this same API over
+# plain HTTP, not HTTPS: `http://www.dxsummit.fi/api/v1/spots`. This is a
+# server-to-server fetch (no browser involved), so there's no mixed-
+# content/CORS concern to switching scheme. Matching the scheme a real
+# working client uses, rather than continuing to guess at HTTPS.
 _DX_SPOTS_URLS = [
-    "https://new.dxsummit.fi/api/v1/spots?limit=50",
-    "https://www.dxsummit.fi/api/v1/spots?limit=50",
+    "http://new.dxsummit.fi/api/v1/spots?limit=50",
+    "http://www.dxsummit.fi/api/v1/spots?limit=50",
 ]
 _dx_spots_cache = []   # last-known-good normalized spot list, for late-join catch-up
 
@@ -5888,6 +6656,7 @@ async def dx_spots_poller():
                 break
             except Exception as e:
                 last_err = e
+                log.debug(f"dx_spots: {url} failed: {e!r}")
                 continue
         else:
             # BUGFIX (2026-07-31, live report: "why it's always blank" — panel
@@ -6901,7 +7670,7 @@ class PskReporterUploader:
     TEMPLATE_RESEND_INTERVAL = 3600.0
     MAX_RECORDS_PER_PACKET  = 80      # spec: "80 to 90 records" fits a safe UDP datagram
     DEDUPE_SECS             = 300.0   # spec: no more than once per 5 min per callsign
-    SOFTWARE_NAME = 'DARKSKY NEXUS w035'
+    SOFTWARE_NAME = 'DARKSKY NEXUS w036'
 
     # Receiver info record format descriptor (receiverCallsign, receiverLocator,
     # decodingSoftware) — verbatim from pskreporter.info/pskdev.html
@@ -8363,9 +9132,25 @@ async def sdr_bridge():
                     except Exception:
                         pass
                 # Query current state
+                # 2026-08-11 (SDRcom Blue Owner's Manual Ch.8 parity): added
+                # lna_state_min/max (real per-device gain range, confirmed
+                # in SDRconnect WebSocket API 1.0.3 spec — replaces the
+                # RTL-only hardcoded 0-28 range for the SDRplay path),
+                # agc_enable/agc_threshold (both documented, real, settable
+                # properties — NEXUS's AGC toggle already reached SDRConnect
+                # via the old generic set_property passthrough, but likely
+                # with a case-mismatched "True"/"False" instead of the
+                # lowercase "true"/"false" the API's own examples use, and
+                # without any state tracking for reconnect sync; agc_threshold
+                # had no control at all), and overload (documented read-only
+                # Boolean — NEXUS never queried or broadcast this despite
+                # dead frontend scaffolding for an overload banner).
                 for prop in ("device_vfo_frequency", "device_center_frequency",
                              "device_sample_rate", "demodulator",
-                             "filter_bandwidth", "lna_state", "iq_streaming",
+                             "filter_bandwidth", "lna_state",
+                             "lna_state_min", "lna_state_max",
+                             "agc_enable", "agc_threshold", "overload",
+                             "iq_streaming",
                              "active_device", "valid_devices",
                              "valid_antennas", "active_antenna"):
                     await ws.send(json.dumps({
@@ -8480,14 +9265,37 @@ async def sdr_bridge():
                          if not mode_suffix_re.search(e)
                          and e.strip().lower() not in _non_hw_devices),
                         None)
-                    nrsp_entry = next(
-                        (e for e in entries
-                         if mode_suffix_re.search(e)),
-                        None)
+                    nrsp_entries = [e for e in entries if mode_suffix_re.search(e)]
+                    nrsp_entry = nrsp_entries[0] if nrsp_entries else None
 
                     _cfg = _ssh_live_cfg or _ssh_load_config()
                     pref = _cfg.get('device_preference', 'auto').strip().lower() or 'auto'
                     _cfg_dd = _cfg.get('default_device', '').strip()
+                    # nRSP-ST stream-mode preference (2026-08-08, live user
+                    # report: "nexus connects to nrsp-st in iq lite, then
+                    # switching to Compact in NEXUS stops the waterfall/
+                    # spectrum" — asked for nRSP-ST to default to Compact).
+                    # Root cause: nrsp_entry above just grabbed whichever
+                    # mode variant happened to be FIRST in SDRConnect's own
+                    # valid_devices listing (its own default, empirically
+                    # IQ Lite) — preferred_stream_mode already existed in
+                    # config but was never actually consulted for the
+                    # initial pick, only read later to show a passive
+                    # "mode mismatch" toast. Now actively selects the
+                    # preferred-mode entry when more than one nRSP-ST
+                    # variant is on offer, using the same selected_device_
+                    # name mechanism already relied on for USB/nRSP-ST
+                    # choice above. Safe to do here (unlike a live runtime
+                    # switch — see set_stream_mode's stop/select/play
+                    # workaround): nothing is streaming yet at this point
+                    # in the connect sequence.
+                    _pref_mode = _cfg.get('preferred_stream_mode', 'Compact')
+                    if _pref_mode not in ('Compact', 'IQ Lite', 'Full IQ'):
+                        _pref_mode = 'Compact'
+                    _pref_nrsp_entry = next(
+                        (e for e in nrsp_entries
+                         if e.strip().lower().endswith(f'({_pref_mode.lower()})')),
+                        nrsp_entry)
 
                     # (2026-07-31 reorder — see docstring's "PRECEDENCE
                     # CHANGE" note above.) Session memory and genuine
@@ -8540,7 +9348,7 @@ async def sdr_bridge():
                                       "leaving SDRConnect's current device selection unchanged")
                             target = None
                     elif pref == 'nrsp':
-                        target = _cfg_dd or nrsp_entry
+                        target = _cfg_dd or _pref_nrsp_entry
                         if target:
                             log.info(f"[{trigger}] device_preference=nrsp — selecting: {target!r}")
                         else:
@@ -8553,9 +9361,13 @@ async def sdr_bridge():
                         log.info(f"[{trigger}] No USB RSP present — auto-selecting "
                                  f"configured default device: {_cfg_dd!r}")
                         target = _cfg_dd
+                    elif nrsp_entry:
+                        log.info(f"[{trigger}] No USB RSP present — auto-selecting nRSP-ST "
+                                 f"in preferred mode: {_pref_nrsp_entry!r}")
+                        target = _pref_nrsp_entry
                     else:
-                        log.info(f"[{trigger}] No USB RSP and no default_device configured — "
-                                  "leaving SDRConnect's current device selection unchanged")
+                        log.info(f"[{trigger}] No USB RSP, no default_device, and no networked "
+                                  "device found — leaving SDRConnect's current device selection unchanged")
                         target = None
 
                     if target:
@@ -8568,6 +9380,43 @@ async def sdr_bridge():
                             }))
                         except Exception as _auto_sel_err:
                             log.debug(f"[{trigger}] Auto-select device send error: {_auto_sel_err}")
+
+                    # BUGFIX (2026-08-07, live user report: top bar stuck on
+                    # "Connected to SDRConnect -- checking devices..." forever,
+                    # plus the Full-IQ-only badge wrongly showing for an
+                    # nRSP-ST -- both symptoms of state['active_device']/
+                    # ['device_type'] never leaving their startup defaults).
+                    # This function already sends the initial connect-time
+                    # get_property for 'active_device' (see the loop further
+                    # up in sdr_bridge()), and sends selected_device_name
+                    # above when a device needs (re-)selecting -- but neither
+                    # of those reliably produces a property_changed/
+                    # get_property_response from SDRConnect on their own.
+                    # set_stream_mode and the select_device WS command
+                    # (_confirm_device_switch/_confirm_device_choice) already
+                    # learned this the hard way and follow up with an
+                    # explicit get_property re-request 0.5s later -- this
+                    # startup path never got the same treatment, so if
+                    # SDRConnect doesn't spontaneously push it this run,
+                    # device_type sits on its 'RSPdx' default forever and the
+                    # startup status banner never gets its "Connected: ..."
+                    # line. Only bother if we don't already have a confirmed
+                    # active_device, so this doesn't fire pointlessly on
+                    # every re-evaluation once things are working normally.
+                    if not state.get('active_device'):
+                        async def _confirm_initial_device():
+                            await asyncio.sleep(0.5)
+                            try:
+                                await ws.send(json.dumps({
+                                    "event_type": "get_property",
+                                    "property":   "active_device",
+                                    "value":      "",
+                                    "device":     "primary",
+                                }))
+                            except Exception as _confirm_err:
+                                log.debug(f"[{trigger}] active_device confirm re-query "
+                                          f"send error: {_confirm_err}")
+                        asyncio.create_task(_confirm_initial_device())
 
                 async def _auto_select_device():
                     """Wait for valid_devices to arrive at least once after
@@ -8791,8 +9640,21 @@ async def sdr_bridge():
                             if len(msg) >= 2:
                                 t = struct.unpack_from("<H", msg, 0)[0]
                                 _frame_counts[t] = _frame_counts.get(t, 0) + 1
-                                if sum(_frame_counts.values()) % 100 == 1:
-                                    log.info(f"SDRConnect frame types: {dict(_frame_counts)}  last_len={len(msg)}")
+                                # Diagnostic (2026-08-09) -- see the matching comment in the
+                                # set_stream_mode handler. Logs unconditionally (not just every
+                                # 100 frames) for 15s after any stream-mode switch, throttled to
+                                # ~1/sec, so a short repro session still captures whether type-3
+                                # (spectrum) frames keep arriving post-switch.
+                                _now_frmtype = time.perf_counter()
+                                _since_mode_switch = _now_frmtype - globals().get('_last_stream_mode_switch_time', -999)
+                                if (sum(_frame_counts.values()) % 100 == 1) or (
+                                        0 <= _since_mode_switch < 15 and
+                                        _now_frmtype - globals().get('_last_frametype_diag_log', 0) >= 1.0):
+                                    log.info(f"SDRConnect frame types: {dict(_frame_counts)}  "
+                                             f"last_len={len(msg)}  last_t={t}"
+                                             + (f"  (+{_since_mode_switch:.1f}s after mode switch)"
+                                                if 0 <= _since_mode_switch < 15 else ""))
+                                    globals()['_last_frametype_diag_log'] = _now_frmtype
                                 p = msg[2:]
                                 # Auto CW detection disabled — decoders only active on user request
                                 if t == 3:  # spectrum FFT bins
@@ -9648,6 +10510,12 @@ async def sdr_bridge():
                                                              f"clip%={_clip_pct:.3f} max|iq|={ais_dec.max_abs_iq:.3f}")
                                                     log.info(f"[AIS-DW-DIAG] frames_seen={ais_dec_dw.frames_seen} "
                                                              f"frames_crc_ok={ais_dec_dw.frames_crc_ok}")
+                                                    # HARDENING (2026-08-09, external review): pipeline-wide
+                                                    # funnel counters -- see AIS_FRAME_STATS' module-level
+                                                    # comment for what each stage means. Makes "how much of
+                                                    # what we CRC-accept is real" a number you can read here
+                                                    # instead of re-deriving from an offline test each time.
+                                                    log.info(f"[AIS-FUNNEL] {AIS_FRAME_STATS}")
                                         else:
                                             if not globals().get('_diag_logged_rawp_branch', False):
                                                 log.info("[SKIMMER-DIAG] Full IQ branch: FELL BACK to raw-p path (_fiq_c missing) — skimmer pool NOT fed")
@@ -9952,6 +10820,46 @@ async def sdr_bridge():
                                                 await broadcast_json({"type": "state", **state})
                                             except (ValueError, TypeError):
                                                 pass
+                                    elif prop == 'lna_state_min':
+                                        # Real per-device gain floor (SDRconnect WS API 1.0.3,
+                                        # confirmed documented property) — 2026-08-11.
+                                        if val is not None:
+                                            try:
+                                                state['lna_state_min'] = int(float(val))
+                                                await broadcast_json({"type": "state", **state})
+                                            except (ValueError, TypeError):
+                                                pass
+                                    elif prop == 'lna_state_max':
+                                        if val is not None:
+                                            try:
+                                                state['lna_state_max'] = int(float(val))
+                                                await broadcast_json({"type": "state", **state})
+                                            except (ValueError, TypeError):
+                                                pass
+                                    elif prop == 'agc_enable':
+                                        # 2026-08-11 (Ch.8 parity): mirrors SDRConnect's real AGC
+                                        # state so the UI reflects reality even if AGC is toggled
+                                        # from SDRConnect's own GUI rather than NEXUS.
+                                        if val is not None:
+                                            state['agc_enable'] = val in (True, 'true', '1', 1, 'True')
+                                            await broadcast_json({"type": "state", **state})
+                                    elif prop == 'agc_threshold':
+                                        if val is not None:
+                                            try:
+                                                state['agc_threshold'] = float(val)
+                                                await broadcast_json({"type": "state", **state})
+                                            except (ValueError, TypeError):
+                                                pass
+                                    elif prop == 'overload':
+                                        # 2026-08-11 (Ch.8 parity): real ADC-overload flag, read-
+                                        # only per the SDRconnect WS API spec. Previously NEXUS
+                                        # never queried this or broadcast a dedicated overload
+                                        # message — the frontend had dead scaffolding (banner +
+                                        # a WS-message case) for this that nothing ever fired.
+                                        if val is not None:
+                                            active = val in (True, 'true', '1', 1, 'True')
+                                            state['overload'] = active
+                                            await broadcast_json({"type": "overload", "active": active})
                                     elif prop in ('audio_volume_percent', 'audio_volume', 'volume'):
                                         # Mirrors SDRConnect's real volume into state so a freshly-
                                         # connected (or reconnecting) browser shows the actual value
@@ -10065,9 +10973,9 @@ async def sdr_bridge():
                                             # managed entirely in SDRConnect's own UI.
                                             if is_nrsp:
                                                 _cfg = _ssh_live_cfg or _ssh_load_config()
-                                                _pref = _cfg.get('preferred_stream_mode', 'Full IQ')
+                                                _pref = _cfg.get('preferred_stream_mode', 'Compact')
                                                 if _pref not in ('Compact', 'IQ Lite', 'Full IQ'):
-                                                    _pref = 'IQ Lite'
+                                                    _pref = 'Compact'
                                                 if cur_mode != _pref:
                                                     log.info(f"nRSP-ST mode is {cur_mode!r}, "
                                                              f"preferred is {_pref!r} — NOT "
@@ -11370,6 +12278,50 @@ async def browser_handler(ws):
                         target_entry = f"{base} {mode_suffix}" if base else new_mode
                     log.info(f"set_stream_mode: {state.get('stream_mode')!r} → {new_mode!r} "
                              f"(selecting: {target_entry!r})")
+                    # Diagnostic (2026-08-09, live user report: Compact -> Full IQ
+                    # switch leaves audio working but the main waterfall/spectrum
+                    # blank). The type==3 forward below is unconditional for every
+                    # stream mode, and the nRSP-ST Full-IQ client-side FFT recompute
+                    # is deliberately disabled elsewhere (re-enabling it previously
+                    # caused a worse dual-source "jumping spectrum" bug) -- so the
+                    # open question is whether SDRConnect itself keeps sending type-3
+                    # frames after THIS specific runtime switch. The frame-type log
+                    # line below only fires every 100 frames, which didn't trigger in
+                    # the reported repro before the session ended. Marking the switch
+                    # time here so that log line's window-based check (see the type==3
+                    # handler) logs every ~1s for the next 15s regardless of volume,
+                    # giving a conclusive answer on the next capture.
+                    globals()['_last_stream_mode_switch_time'] = time.perf_counter()
+                    # BUGFIX (2026-08-07, live user report): switching to Full IQ used
+                    # to complete every step SDRConnect's API reports as success --
+                    # selected_device_name accepted, 'started' stayed True, the full
+                    # set_primary_device_enable/device_stream_enable/iq_stream_enable/
+                    # audio_stream_enable sequence re-ran below -- yet zero type-2 IQ
+                    # frames ever arrived (confirmed live: {3:.., 1:..} frame-type
+                    # tally climbing normally for 30+s post-switch, no '2' key ever
+                    # appearing). Root cause matches the "Auto stream-mode DISABLED"
+                    # comment above: SDRConnect doesn't genuinely reconfigure an
+                    # already-running device on selected_device_name alone -- only
+                    # the reported label/state changes. That comment's fix was "the
+                    # user manually stops/selects/plays in SDRConnect's own UI", but
+                    # NEXUS launches SDRConnect headless with no UI to do that in.
+                    # Replicating stop -> select -> play over the WebSocket API
+                    # instead: explicitly disable streaming first (reverse order of
+                    # how _deferred_iq_enable below brings it up), THEN reselect, so
+                    # SDRConnect's pipeline is genuinely torn down before rebuilding
+                    # for the new mode rather than hot-swapped while live. The
+                    # existing active_device handler (via _confirm_device_switch's
+                    # re-query further down) does the "play" half as before.
+                    for _stop_event in ('audio_stream_enable', 'iq_stream_enable',
+                                         'device_stream_enable', 'set_primary_device_enable'):
+                        await sdr_queue.put(json.dumps({
+                            "event_type": _stop_event,
+                            "property":   "",
+                            "value":      "false",
+                            "device":     "primary",
+                        }))
+                        await asyncio.sleep(0.15)
+                    await asyncio.sleep(0.3)  # let SDRConnect settle before reselecting
                     await sdr_queue.put(json.dumps({
                         "event_type": "selected_device_name",
                         "property":   "",
@@ -11398,20 +12350,126 @@ async def browser_handler(ws):
                     # switching IQ Lite -> Full IQ never produced a second 'Device: ...' log
                     # line at all, meaning that handler never re-ran for the new mode and the
                     # real IQ-enable sequence never fired for Full IQ -- explains zero type-2
-                    # frames even minutes after the switch. Per the official WebSocket API spec
-                    # (event_type get_property -> get_property_response), explicitly request
-                    # active_device after a short settle delay instead of relying on SDRConnect
-                    # to proactively push it, so the confirmation (and the enable handshake it
-                    # triggers) is guaranteed to actually happen.
-                    async def _confirm_device_switch():
-                        await asyncio.sleep(0.5)
+                    # frames even minutes after the switch. That first fix was to explicitly
+                    # request active_device after a short settle delay instead of relying on
+                    # SDRConnect to proactively push it.
+                    #
+                    # BUGFIX (2026-08-09, live user report + log capture: Compact -> Full IQ
+                    # left SDRConnect completely silent -- no frames of ANY type (1/2/3), no
+                    # 'Device: ...' line, no enable-handshake lines at all, until the browser
+                    # was closed). The get_property confirm above never got a response either
+                    # -- root cause: the stop loop further up disables
+                    # set_primary_device_enable LAST, so it's false by the time
+                    # selected_device_name fires. Per the API spec, that property gates
+                    # "events and binary data from Primary Device" -- not just IQ/spectrum
+                    # frames, but property_changed events too, apparently including the very
+                    # active_device push/response this whole recovery path depends on. That's
+                    # a deadlock: nothing can turn set_primary_device_enable back on, because
+                    # the only mechanism that would (the active_device-triggered enable
+                    # handshake in the property handler below) needs an event that
+                    # set_primary_device_enable=false is itself blocking.
+                    # Fix: don't wait on that indirect dispatch at all -- proactively replay
+                    # the same enable sequence _deferred_iq_enable() uses, directly here via
+                    # sdr_queue (the same mechanism the stop loop above already uses), so
+                    # set_primary_device_enable flips back to true unconditionally instead of
+                    # depending on a response that structurally can't arrive while it's off.
+                    # The active_device confirm now runs AFTER this, once the events channel
+                    # is actually open again, instead of racing it.
+                    async def _reenable_after_switch(_mode=new_mode):
+                        await asyncio.sleep(0.8)  # let SDRConnect finish processing the reselect
+                        try:
+                            for _evt in ('set_primary_device_enable', 'device_stream_enable',
+                                         'iq_stream_enable', 'audio_stream_enable'):
+                                await sdr_queue.put(json.dumps({
+                                    "event_type": _evt, "property": "", "value": "true",
+                                    "device": "primary",
+                                }))
+                                await asyncio.sleep(0.3)
+                            await sdr_queue.put(json.dumps({
+                                "event_type": "set_property", "property": "audio_mute",
+                                "value": "false", "device": "primary",
+                            }))
+                            await asyncio.sleep(0.2)
+                            await sdr_queue.put(json.dumps({
+                                "event_type": "set_property", "property": "audio_volume_percent",
+                                "value": "25", "device": "primary",
+                            }))
+                            await asyncio.sleep(0.3)
+                            log.info(f"set_stream_mode: re-enable sequence sent for {_mode!r}")
+                            await sdr_queue.put(json.dumps({
+                                "event_type": "get_property", "property": "active_device",
+                                "value": "", "device": "primary",
+                            }))
+                        except Exception as _reenable_err:
+                            log.debug(f"set_stream_mode re-enable send error: {_reenable_err}")
+                    asyncio.create_task(_reenable_after_switch())
+
+            elif cmd == 'sdr_stream_stop':
+                # In-GUI Stop (red square) — added 2026-08-09, user request:
+                # "add a start/stop within nexus gui rather than hard close
+                # chrome." Cleanly halts the SDRConnect stream in place —
+                # NEXUS's Python process, the WS connection to SDRConnect,
+                # and the current device/mode selection are all left alone;
+                # only the four stream-enable flags go false. Reuses the
+                # exact disable sequence set_stream_mode already uses above
+                # (same order, same 0.15s spacing) rather than inventing a
+                # new one, since that sequence is the one already proven not
+                # to wedge SDRConnect's own state.
+                if state.get('stream_paused'):
+                    log.info("sdr_stream_stop: already stopped, ignoring")
+                else:
+                    log.info("sdr_stream_stop: disabling SDRConnect stream (user-initiated)")
+                    for _stop_event in ('audio_stream_enable', 'iq_stream_enable',
+                                         'device_stream_enable', 'set_primary_device_enable'):
                         await sdr_queue.put(json.dumps({
-                            "event_type": "get_property",
-                            "property":   "active_device",
-                            "value":      "",
+                            "event_type": _stop_event,
+                            "property":   "",
+                            "value":      "false",
                             "device":     "primary",
                         }))
-                    asyncio.create_task(_confirm_device_switch())
+                        await asyncio.sleep(0.15)
+                    state['stream_paused'] = True
+                    await broadcast_json({"type": "state", **state})
+                    await broadcast_json({"type": "stream_paused_changed", "stream_paused": True})
+
+            elif cmd == 'sdr_stream_start':
+                # In-GUI Start (green triangle) — resumes a stream halted by
+                # sdr_stream_stop above. Does NOT reselect the device (unlike
+                # set_stream_mode's switch path) since the device/mode
+                # selection was never changed — just replays the same
+                # enable sequence _reenable_after_switch above uses to bring
+                # set_primary_device_enable back from false, which per the
+                # 2026-08-09 deadlock fix must be done proactively via
+                # sdr_queue rather than waited on, since SDRConnect won't
+                # push the active_device event that would otherwise trigger
+                # it while set_primary_device_enable is still false.
+                if not state.get('stream_paused'):
+                    log.info("sdr_stream_start: already running, ignoring")
+                else:
+                    log.info("sdr_stream_start: re-enabling SDRConnect stream (user-initiated)")
+                    for _start_event in ('set_primary_device_enable', 'device_stream_enable',
+                                         'iq_stream_enable', 'audio_stream_enable'):
+                        await sdr_queue.put(json.dumps({
+                            "event_type": _start_event, "property": "", "value": "true",
+                            "device": "primary",
+                        }))
+                        await asyncio.sleep(0.3)
+                    await sdr_queue.put(json.dumps({
+                        "event_type": "set_property", "property": "audio_mute",
+                        "value": "false", "device": "primary",
+                    }))
+                    await asyncio.sleep(0.2)
+                    await sdr_queue.put(json.dumps({
+                        "event_type": "set_property", "property": "audio_volume_percent",
+                        "value": "25", "device": "primary",
+                    }))
+                    state['stream_paused'] = False
+                    await broadcast_json({"type": "state", **state})
+                    await broadcast_json({"type": "stream_paused_changed", "stream_paused": False})
+                    await sdr_queue.put(json.dumps({
+                        "event_type": "get_property", "property": "active_device",
+                        "value": "", "device": "primary",
+                    }))
 
             elif cmd == 'select_device':
                 # User's explicit answer to the device-choice modal (or the
@@ -11575,14 +12633,31 @@ async def browser_handler(ws):
                     await broadcast_json({"type": "decoder_status", "slug": s2, "active": False})
 
             elif cmd == 'set_lna_gain':
-                # Overload-reduce button sends delta relative to current gain index
+                # Overload-reduce / ATT button sends delta relative to current
+                # gain index. BUGFIX (2026-08-11, Ch.8 parity pass): this used
+                # to read state['rtl_gain_idx'], a field that's ONLY ever set
+                # on the RTL-SDR engine path — for a normal SDRplay/SDRConnect
+                # connection it was never set, so cur_idx silently defaulted
+                # to a hardcoded 20 every time regardless of the real current
+                # gain, meaning the ATT/"reduce gain" button could actually
+                # RAISE gain if the true index was below 20. state['gain_lna']
+                # is kept in sync on both engine paths (see set_gain below),
+                # so it's the correct single source of truth here.
                 delta = int(d.get('delta', 0))
-                cur_idx = state.get('rtl_gain_idx', 20)
+                cur_idx = state.get('gain_lna', 20)
                 if cur_idx >= 0:
-                    RTL_GAINS = state.get('rtl_gains', [0,9,14,27,37,77,87,125,144,157,166,
-                                                         197,207,229,254,280,297,328,338,364,
-                                                         372,386,402,421,434,439,445,480,496])
-                    new_idx = max(0, min(len(RTL_GAINS)-1, cur_idx + delta))
+                    if state.get('engine') == 'RTLSDR':
+                        RTL_GAINS = state.get('rtl_gains', [0,9,14,27,37,77,87,125,144,157,166,
+                                                             197,207,229,254,280,297,328,338,364,
+                                                             372,386,402,421,434,439,445,480,496])
+                        idx_max = len(RTL_GAINS) - 1
+                    else:
+                        # Real per-device range from SDRconnect's lna_state_min/
+                        # max (queried at connect, see property handlers) —
+                        # was previously unbounded on this path.
+                        idx_max = state.get('lna_state_max', 27)
+                    idx_min = state.get('lna_state_min', 0) if state.get('engine') != 'RTLSDR' else 0
+                    new_idx = max(idx_min, min(idx_max, cur_idx + delta))
                     if new_idx != cur_idx:
                         # Re-use set_gain logic via recursive dispatch
                         d['lna'] = new_idx
@@ -11593,7 +12668,12 @@ async def browser_handler(ws):
                         continue
 
             elif cmd == 'set_gain':
-                # lna value is now a gain INDEX (0-28) for R820T, or -1 for AGC
+                # lna value is a gain INDEX — range is device-specific:
+                # 0-28 (R820T table) on the RTL-SDR engine path, or the real
+                # queried lna_state_min..lna_state_max range on the SDRplay/
+                # SDRConnect path (added 2026-08-11 — previously unclamped
+                # here, so an out-of-range index would be sent straight
+                # through to SDRConnect uncorrected).
                 idx = int(d.get('lna', 20))
                 RTL_GAINS = state.get('rtl_gains',
                     [0,9,14,27,37,77,87,125,144,157,166,197,207,229,
@@ -11628,6 +12708,13 @@ async def browser_handler(ws):
                     except Exception as _ge:
                         log.warning(f"RTL-TCP: gain send failed: {_ge}")
                 else:
+                    # BUGFIX (2026-08-11): idx was sent to SDRConnect completely
+                    # unclamped. Now bounded to the real per-device range
+                    # (lna_state_min/max, queried at connect — see property
+                    # handlers above) instead of trusting the caller.
+                    lo = state.get('lna_state_min', 0)
+                    hi = state.get('lna_state_max', 27)
+                    idx = max(lo, min(hi, idx))
                     state["gain_lna"] = idx
                     await sdr_queue.put(json.dumps({
                         "event_type": "set_property",
@@ -11635,6 +12722,53 @@ async def browser_handler(ws):
                         "value":      str(idx),
                         "device":     "primary",
                     }))
+                    await broadcast_json({"type": "state", **state})
+
+            elif cmd == 'set_agc_enable':
+                # 2026-08-11 (SDRcom Blue Ch.8 parity): dedicated handler for
+                # the AGC ON/OFF button, replacing the frontend's old generic
+                # set_property passthrough. That passthrough DID already
+                # reach SDRConnect (agc_enable is a real, documented,
+                # settable Boolean property in the SDRconnect WS API 1.0.3
+                # spec) — it wasn't dead. The likely real defect: Python's
+                # str(True)/str(False) sends "True"/"False" (capitalised)
+                # rather than the lowercase "true"/"false" the SDRconnect
+                # API's own examples use, a silent case-mismatch. This
+                # handler sends the correct lowercase string and also tracks
+                # state['agc_enable'] for reconnect sync, which the generic
+                # passthrough never did either way (confirmed agc_enable
+                # against the official spec before wiring this up — unknown
+                # event_types/properties are not something to guess at, see
+                # the request_exclusive_control removal note above).
+                enable = bool(d.get('enable', True))
+                state['agc_enable'] = enable
+                await sdr_queue.put(json.dumps({
+                    "event_type": "set_property",
+                    "property":   "agc_enable",
+                    "value":      "true" if enable else "false",
+                    "device":     "primary",
+                }))
+                await broadcast_json({"type": "state", **state})
+
+            elif cmd == 'set_agc_threshold':
+                # agc_threshold is a real, documented, settable property
+                # (SDRconnect WS API 1.0.3 spec) but the spec doesn't state
+                # units/range — the SDRcom Blue manual's "around 30 is a
+                # good starting point" is the only calibration reference we
+                # have, so the frontend slider is 0-100 and this is passed
+                # straight through as SDRConnect's own scale.
+                try:
+                    thr = float(d.get('threshold', 30))
+                except (TypeError, ValueError):
+                    thr = 30.0
+                state['agc_threshold'] = thr
+                await sdr_queue.put(json.dumps({
+                    "event_type": "set_property",
+                    "property":   "agc_threshold",
+                    "value":      str(thr),
+                    "device":     "primary",
+                }))
+                await broadcast_json({"type": "state", **state})
 
             elif cmd == 'set_antenna':
                 # nRSP-ST / RSPdx antenna port select — SDRConnect WebSocket API
@@ -12021,6 +13155,17 @@ async def browser_handler(ws):
                 log.debug("Skimmer pool: cleared")
                 state['cw_skimmer_detect'] = False
 
+            elif cmd == 'cw_skimmer_autospot':
+                # CW DSP overhaul (2026-08-09, review item A5): explicit,
+                # default-off opt-in for auto-uploading skimmer-extracted
+                # callsigns to PSK Reporter — see MorseDecoder.process_iq's
+                # skimmer branch for the corroboration check this gates
+                # alongside. Independent of psk_uploader's own
+                # enabled/callsign toggle (psk_reporter_config): both must
+                # be on for a skimmer channel to ever actually spot.
+                state['cw_skimmer_autospot'] = bool(d.get('on', False))
+                log.info(f"CW skimmer auto-spot: {'on' if state['cw_skimmer_autospot'] else 'off'}")
+
             # ── CW / Morse ───────────────────────────────────────────
             elif cmd == 'cw_enable':
                 activate = bool(d.get('active', False))
@@ -12043,6 +13188,13 @@ async def browser_handler(ws):
 
             elif cmd == 'cw_set_auto_threshold':
                 cw_dec.set_auto_threshold(d.get('on', False))
+
+            elif cmd == 'cw_set_bandwidth':
+                # CW DSP overhaul (2026-08-09, review item A2): pin the
+                # decode filter's bandwidth to a fixed Hz value instead of
+                # the default speed-aware auto-tracking (see
+                # MorseDecoder.process_iq). hz <= 0 restores auto mode.
+                cw_dec.set_bandwidth(d.get('hz', 0))
 
             elif cmd == 'cw_wf_zoom':
                 # Real zoom level for the CW mini-waterfall (2026-07-16, w032)
@@ -12143,7 +13295,12 @@ async def browser_handler(ws):
                 fax_dec.active = False
 
             elif cmd == 'wefax_clear':
-                fax_dec.buffer = []
+                # BUGFIX (2026-08-09): this used to assign fax_dec.buffer,
+                # an attribute that doesn't exist (the real ring buffer is
+                # _buf) -- so Clear never actually cleared anything. Reset
+                # the real buffer + phasing-lock state (added same day)
+                # via configure(), which already does exactly that.
+                fax_dec.configure(fax_dec.rpm, fax_dec.ioc)
                 await ws.send(json.dumps({"type": "wefax_clear"}))
 
             # ── SSTV (w033 fork, 2026-07-19) ──────────────────────────
@@ -12910,35 +14067,6 @@ async def browser_handler(ws):
             elif cmd == 'vdl2_clear':
                 _vdl2_messages.clear()
                 await broadcast_json({'type': 'vdl2_clear'})
-
-            # ── rtl_433 (w033 fork, 2026-07-19) ───────────────────────
-            elif cmd == 'rtl433_start':
-                if 'device' in d:
-                    state['rtl433_device'] = d['device']
-                if 'freq_mhz' in d:
-                    state['rtl433_freq_mhz'] = float(d['freq_mhz'])
-                state['rtl433_active'] = True
-                proc, err = _launch_rtl433()
-                if proc:
-                    await broadcast_json({'type': 'rtl433_status', 'running': True,
-                                          'auto_launched': True})
-                elif err:
-                    await broadcast_json({'type': 'rtl433_status', 'running': False,
-                                          'auto_launched': False, 'error': err})
-            elif cmd == 'rtl433_stop':
-                state['rtl433_active'] = False
-                _rtl433_messages.clear()
-                if _rtl433_proc is not None and _rtl433_proc.poll() is None:
-                    try:
-                        _rtl433_proc.terminate()
-                        _rtl433_proc.wait(timeout=3)
-                    except Exception:
-                        try: _rtl433_proc.kill()
-                        except Exception: pass
-                await broadcast_json({'type': 'rtl433_status', 'running': False})
-            elif cmd == 'rtl433_clear':
-                _rtl433_messages.clear()
-                await broadcast_json({'type': 'rtl433_clear'})
 
             # ── DSD / DSD+ ───────────────────────────────────────────
             elif cmd == 'dsd_start':
@@ -14190,203 +15318,6 @@ async def vdl2_udp_server():
         await asyncio.sleep(1)
 
 
-# ── rtl_433 ENGINE (ISM-band sensor decoder) ──────────────────────────
-# ADDED 2026-07-19 (w033 fork). rtl_433 (github.com/merbanan/rtl_433)
-# decodes hundreds of short-range 433/868/915MHz ISM-band devices (TPMS,
-# weather stations, smart meters, remote thermometers, etc.) and can
-# emit every decoded reading as JSON directly over UDP via its own
-# `-F "udp:host:port"` output option -- the same "external decoder
-# emits JSON, NEXUS listens on a UDP port" pattern already used for
-# HFDL/VDL2 above, so this mirrors that engine structure closely.
-#
-# rtl_433 talks to hardware two ways: directly via librtlsdr (`-d 0`,
-# `-d <serial>`, or `-d rtl_tcp:host:port`) for a plain RTL-SDR dongle,
-# or -- when built with -DENABLE_SOAPYSDR=ON -- via SoapySDR
-# (`-d driver=sdrplay`), the same convention dumphfdl/dumpvdl2 already
-# use for SDRplay hardware. rtl433_device defaults to "rtlsdr" (plain
-# librtlsdr, device index 0); set it to a SoapySDR driver name (e.g.
-# "sdrplay") to use SDRplay hardware instead, same as hfdl_device/
-# vdl2_device.
-RTL433_UDP_PORT = 5558
-_rtl433_proc: subprocess.Popen | None = None
-_rtl433_messages: list = []
-_RTL433_MAX_MSGS = 200
-
-def _find_rtl433() -> str | None:
-    """Return path to rtl_433 binary, or None."""
-    candidates = [
-        '/usr/local/bin/rtl_433',
-        '/opt/homebrew/bin/rtl_433',
-        '/usr/bin/rtl_433',
-        'rtl_433',
-    ]
-    for c in candidates:
-        try:
-            r = subprocess.run([c, '-h'], capture_output=True, timeout=3)
-            if r.returncode in (0, 1):
-                return c
-        except Exception:
-            pass
-    return None
-
-def _detect_rtl433_device() -> tuple[str, str]:
-    """Autodetect which device rtl_433 should use. Returns (device, reason)
-    where device is 'rtlsdr' or a SoapySDR driver name (currently only
-    'sdrplay' is inferred automatically), and reason is a short string
-    logged alongside the choice.
-
-    ADDED 2026-07-20 (user asked "can device be autodetected from nexus?"
-    after being told the only way to point rtl_433 at SDRplay hardware was
-    to hand-set a 'device' field on the rtl433_start command). Two real,
-    legitimate setups exist: (1) a cheap dedicated RTL-SDR dongle plugged
-    in purely for rtl_433, left running continuously alongside the SDRplay
-    NEXUS otherwise uses for everything else -- the original hardcoded
-    "rtlsdr" default assumed this; (2) a single-SDRplay-only setup, where
-    that assumption just means rtl_433 fails to find a device at all.
-    Resolution order, cheapest/most certain signal first:
-      1. A real RTL-SDR dongle actually plugged in (`rtl_test -t`, which
-         probes librtlsdr directly) always wins -- keeps the SDRplay free
-         for the main receiver, matching setup (1) with zero configuration.
-      2. Otherwise, if NEXUS itself currently has an SDRplay unit connected
-         (state['active_device'] non-empty -- populated from SDRconnect's
-         own device-info report, see ~line 9522) fall back to
-         'driver=sdrplay' automatically, covering setup (2) without the
-         user ever needing to touch a config field.
-      3. Otherwise (neither detected -- e.g. probed before NEXUS's own
-         SDR connection is up) fall back to the historical 'rtlsdr'
-         default and let rtl_433's own error message explain the failure.
-    """
-    rtl_test = shutil.which('rtl_test')
-    if rtl_test:
-        try:
-            r = subprocess.run([rtl_test, '-t'], capture_output=True,
-                                timeout=3, text=True)
-            out = (r.stdout or '') + (r.stderr or '')
-            if 'Found ' in out and 'device' in out and 'No supported devices' not in out:
-                return 'rtlsdr', 'physical RTL-SDR dongle detected via rtl_test'
-        except Exception as e:
-            log.debug(f'rtl433 autodetect: rtl_test probe failed ({e!r})')
-    if state.get('active_device'):
-        return 'sdrplay', f"no RTL-SDR dongle found; using NEXUS's connected SDRplay ({state.get('device_type', 'RSPdx')})"
-    return 'rtlsdr', 'no RTL-SDR dongle and no connected SDRplay detected -- falling back to default'
-
-def _launch_rtl433() -> tuple[subprocess.Popen | None, str]:
-    """Launch rtl_433 subprocess. Returns (proc, error_string)."""
-    global _rtl433_proc
-    binary = _find_rtl433()
-    if not binary:
-        return None, 'rtl_433 not found — install from github.com/merbanan/rtl_433 (brew install rtl_433)'
-    device = state.get('rtl433_device', 'auto')
-    if device == 'auto':
-        device, reason = _detect_rtl433_device()
-        log.info(f'rtl_433: autodetected device={device} ({reason})')
-    freq_mhz = state.get('rtl433_freq_mhz', 433.92)
-    device_args = ['-d', '0'] if device == 'rtlsdr' else ['-d', f'driver={device}']
-    args = [
-        binary,
-        *device_args,
-        '-f', f'{freq_mhz}M',
-        '-F', f'udp:127.0.0.1:{RTL433_UDP_PORT}',
-    ]
-    log.info(f'rtl_433: launching {" ".join(args)}')
-    try:
-        # BUGFIX (2026-07-28): see _dab_launch()'s comment — same Windows
-        # console-window flash, same fix.
-        _rtl433_proc = subprocess.Popen(
-            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        return _rtl433_proc, ''
-    except Exception as e:
-        return None, str(e)
-
-class _Rtl433UdpProtocol(asyncio.DatagramProtocol):
-    def connection_made(self, transport):
-        log.info(f'rtl_433: UDP listener bound on port {RTL433_UDP_PORT}')
-
-    def datagram_received(self, data, addr):
-        try:
-            # rtl_433's UDP JSON output can pack multiple newline-separated
-            # JSON objects into one datagram under load -- split defensively
-            # rather than assuming one reading per packet.
-            for line in data.decode('utf-8', errors='replace').splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                msg = json.loads(line)
-                asyncio.get_running_loop().create_task(_rtl433_handle(msg))
-        except Exception as e:
-            log.debug(f'rtl_433 parse error: {e}')
-
-    def error_received(self, exc):
-        log.debug(f'rtl_433 UDP error: {exc}')
-
-async def _rtl433_handle(msg):
-    """Parse an rtl_433 JSON reading and broadcast to browsers.
-
-    rtl_433's JSON schema varies per device (a TPMS reading has
-    different fields than a weather station), so this pulls out the
-    common/most-useful fields when present and keeps the full raw
-    object too rather than trying to normalise every device type."""
-    entry = {
-        'time':          msg.get('time', ''),
-        'ts':            time.time(),
-        'model':         msg.get('model', ''),
-        'id':            msg.get('id'),
-        'channel':       msg.get('channel'),
-        'battery_ok':    msg.get('battery_ok'),
-        'temperature_C': msg.get('temperature_C'),
-        'humidity':      msg.get('humidity'),
-        'pressure_kPa':  msg.get('pressure_kPa'),
-        'wind_avg_km_h': msg.get('wind_avg_km_h'),
-        'wind_dir_deg':  msg.get('wind_dir_deg'),
-        'rain_mm':       msg.get('rain_mm'),
-        'pressure_PSI':  msg.get('pressure_PSI'),   # common TPMS field
-        'freq':          msg.get('freq') or msg.get('freq1'),
-        'raw':           msg,
-    }
-    key = f"{entry['model']}:{entry['id']}"
-    _rtl433_messages.append(entry)
-    if len(_rtl433_messages) > _RTL433_MAX_MSGS:
-        _rtl433_messages.pop(0)
-
-    await broadcast_json({'type': 'rtl433_message', 'msg': entry, 'key': key,
-                          'count': len(_rtl433_messages)})
-
-async def rtl433_udp_server():
-    """Long-running task: manage rtl_433 UDP listener and auto-launched rtl_433."""
-    transport = None
-
-    while True:
-        active = state.get('rtl433_active', False)
-
-        if active and transport is None:
-            try:
-                loop = asyncio.get_running_loop()
-                transport, _ = await loop.create_datagram_endpoint(
-                    _Rtl433UdpProtocol, local_addr=('0.0.0.0', RTL433_UDP_PORT))
-                await broadcast_json({'type': 'rtl433_status', 'running': True,
-                                      'port': RTL433_UDP_PORT})
-            except OSError as e:
-                log.warning(f'rtl_433: UDP bind failed: {e}')
-                await broadcast_json({'type': 'rtl433_status', 'running': False,
-                                      'error': str(e)})
-                state['rtl433_active'] = False
-
-        elif not active and transport is not None:
-            transport.close()
-            transport = None
-            _rtl433_messages.clear()
-            await broadcast_json({'type': 'rtl433_status', 'running': False})
-
-        # Watchdog: detect if auto-launched rtl_433 has exited unexpectedly
-        if active and _rtl433_proc is not None and _rtl433_proc.poll() is not None:
-            log.warning(f'rtl_433: exited (rc={_rtl433_proc.returncode}) — re-launching')
-            proc, err = _launch_rtl433()
-            if not proc:
-                await broadcast_json({'type': 'rtl433_status', 'running': False,
-                                      'error': f'rtl_433 exited: {err}'})
-
-        await asyncio.sleep(1)
 
 
 # ── DSD+ / DSD ENGINE (Digital Voice) ────────────────────────────────
@@ -15126,10 +16057,25 @@ def _dab_stderr_thread_fn(proc, gen, channel, loop, broadcast_fn):
                 # a logo, the problem is upstream of everything NEXUS's own
                 # Python/JS code controls. Logged at warning so it's visible
                 # without enabling DEBUG.
-                log.warning(f"DAB debug: {msg.get('event')} "
-                            f"subchannel_id={msg.get('subchannel_id')} "
-                            f"bytes={msg.get('bytes')} "
-                            f"audio_subchannel_id={msg.get('audio_subchannel_id')}")
+                #
+                # BUGFIX (2026-08-06, found while prepping the live 12B/BBC
+                # Guide capture the CHANGELOG's own "Next" step calls for):
+                # this used to hand-pick only 4 fields (event/subchannel_id/
+                # bytes/audio_subchannel_id) into the log line -- fine for
+                # 'data_packet_channel_discovered' and
+                # 'packet_slideshow_complete', but 'slideshow_meta' (the
+                # event that actually carries name/category_id/slide_id/
+                # category_title/transport_id -- the exact fields the
+                # planned live correlation needs to read) and
+                # 'service_components_dump' (services/components arrays)
+                # were silently dropped every time, since nothing in this
+                # f-string ever referenced them. `msg` had them the whole
+                # time (json.loads() already parsed the full line) -- they
+                # just never made it into the log. Log the raw JSON line
+                # instead of hand-picked fields so no event type can lose
+                # data like this again, regardless of what dab_radio_nexus.cpp
+                # sends in the future.
+                log.warning(f"DAB debug: {line}")
             elif mtype == 'dab_slideshow_file':
                 # BUGFIX (2026-08-01, live user report reproduced twice:
                 # "10 secs of audio then silence" on every channel): MOT
@@ -15357,7 +16303,7 @@ async def dab_engine():
 # GPL DSP engine, raw IQ piped in on stdin, decoded audio + JSON status piped
 # back out), following NEXUS_DRM_Dream_integration_plan.md's recommendation
 # to subprocess Dream (GPL-2) exactly the way DAB-Radio, dumphfdl, dumpvdl2,
-# DSD, rtl_433, and OP25/trunk-recorder already are, rather than linking it
+# DSD, and OP25/trunk-recorder already are, rather than linking it
 # in-process. See NEXUS_dream_drm_build_macOS.md for the dream_nexus.cpp
 # build steps this integration depends on.
 #
@@ -16568,7 +17514,7 @@ SSH_DEFAULT_CONFIG = {
     "client_ready_delay":  30,  # max seconds to TCP-poll local SDRConnect WS API :5454
     "device_release_wait": 3,
     "default_device":      "",
-    "preferred_stream_mode": "Full IQ",  # auto-select on nRSP-ST detect (w0.2.3: changed default, see version history)
+    "preferred_stream_mode": "Compact",  # auto-select on nRSP-ST detect (2026-08-08: changed default Full IQ -> Compact, live user request — see _evaluate_device_selection())
     # Added 2026-07-29 (live user request: an explicit way to choose USB RSP
     # vs nRSP-ST at startup, rather than only the automatic "USB always wins
     # if present" heuristic in _auto_select_device()). 'auto' = existing
@@ -16824,7 +17770,30 @@ def _ssh_load_config() -> dict:
     if SSH_CONFIG_PATH.exists():
         try:
             with open(SSH_CONFIG_PATH) as f:
-                return {**SSH_DEFAULT_CONFIG, **json.load(f)}
+                raw = json.load(f)
+            # One-time migration (2026-08-08, live user report: "nrsp-st now
+            # connects FULLIQ" right after the Compact-default change below).
+            # Root cause: 'Full IQ' used to be the hardcoded
+            # preferred_stream_mode default -- any earlier _ssh_save_config()
+            # call (e.g. the connection-setup wizard saving its full config)
+            # would have serialized that literal value into this file. A
+            # *present* key always wins over a function's fallback default,
+            # so changing the code default to 'Compact' had zero effect for
+            # anyone who already had a config file on disk -- it kept
+            # reading the old baked-in 'Full IQ'. There's no UI anywhere
+            # that lets a user actually choose this value today (confirmed:
+            # no frontend control references preferred_stream_mode), so a
+            # persisted 'Full IQ' can only be that stale default, never a
+            # deliberate choice. Drop it once so the new default applies,
+            # and persist the correction so this migration doesn't need to
+            # run again.
+            if raw.get('preferred_stream_mode') == 'Full IQ':
+                raw.pop('preferred_stream_mode', None)
+                try:
+                    _ssh_save_config({**SSH_DEFAULT_CONFIG, **raw})
+                except Exception:
+                    pass
+            return {**SSH_DEFAULT_CONFIG, **raw}
         except Exception:
             pass
     return SSH_DEFAULT_CONFIG.copy()
@@ -17430,8 +18399,7 @@ async def _graceful_shutdown():
                  globals().get('_dab_proc'),
                  globals().get('_drm_proc'),
                  globals().get('_hd_proc'),
-                 globals().get('_trunk_proc'),
-                 globals().get('_rtl433_proc')):
+                 globals().get('_trunk_proc')):
         if proc is None:
             continue
         try:
@@ -17627,7 +18595,6 @@ async def main():
     asyncio.create_task(adsb_poller())
     asyncio.create_task(hfdl_udp_server())
     asyncio.create_task(vdl2_udp_server())
-    asyncio.create_task(rtl433_udp_server())   # w033 fork, 2026-07-19
     asyncio.create_task(dsd_engine())
     asyncio.create_task(dab_engine())
     asyncio.create_task(drm_engine())
